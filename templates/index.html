@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>多特倍斯运营中台</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <section id="login-view" class="login-view hidden">
+    <div class="login-decoration decoration-one"></div>
+    <div class="login-decoration decoration-two"></div>
+    <div class="login-panel">
+      <div class="brand-mark large">D</div>
+      <p class="eyebrow">DOTBEST PRIVATE DOMAIN OS</p>
+      <h1>多特倍斯运营中台</h1>
+      <p class="login-copy">连接用户资产、会员、内容与每一次有温度的沟通。</p>
+      <form id="login-form">
+        <label>账号<input name="username" value="admin" autocomplete="username" required></label>
+        <label>密码<input name="password" type="password" value="Dotbest@2026" autocomplete="current-password" required></label>
+        <button class="primary-button full" type="submit">进入运营中台</button>
+      </form>
+      <p class="login-tip">本地演示账号已预填，生产部署请通过环境变量修改密码。</p>
+    </div>
+  </section>
+
+  <div id="app" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-mark">D</div><div><strong>多特倍斯</strong><span>运营中台</span></div></div>
+      <nav class="nav-list">
+        <button data-page="dashboard" class="nav-item active"><span>◫</span>运营总览</button>
+        <button data-page="assets" class="nav-item"><span>◎</span>用户资产</button>
+        <button data-page="members" class="nav-item"><span>◇</span>会员中心</button>
+        <button data-page="campaigns" class="nav-item"><span>△</span>营销活动</button>
+        <button data-page="communities" class="nav-item"><span>⌁</span>社群运营</button>
+        <button data-page="analytics" class="nav-item"><span>⌗</span>数据分析</button>
+      </nav>
+      <div class="sidebar-card">
+        <span class="status-dot"></span>
+        <strong>系统运行正常</strong>
+        <small>数据与画像已同步</small>
+      </div>
+      <div class="sidebar-user">
+        <div class="avatar" id="user-avatar">运</div>
+        <div><strong id="user-name">运营管理员</strong><span id="user-role">superadmin</span></div>
+        <button id="logout-button" title="退出">↗</button>
+      </div>
+    </aside>
+
+    <section class="content-shell">
+      <header class="topbar">
+        <div><p class="breadcrumb" id="breadcrumb">运营中台 / 总览</p><h2 id="page-title">早上好，欢迎回来</h2></div>
+        <div class="top-actions"><span class="sync-state"><i></i>实时数据</span><button class="icon-button" title="通知">⌁<b>3</b></button></div>
+      </header>
+      <main id="main-content" class="main-content"><div class="loading-card">正在加载运营数据…</div></main>
+    </section>
+  </div>
+
+  <div id="drawer-backdrop" class="drawer-backdrop hidden"></div>
+  <aside id="drawer" class="drawer hidden"><div id="drawer-content"></div></aside>
+  <div id="toast" class="toast hidden"></div>
+  <script src="/assets/app.js"></script>
+</body>
+</html>
