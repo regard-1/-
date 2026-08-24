@@ -1,98 +1,81 @@
 (() => {
-  const storageKey='dotbest-consumer-demo-v2';
-  const isoOffset=days=>new Date(Date.now()+days*86400000).toISOString();
-  const topics=[
-    {id:'nmn',short:'N',title:'NMN是什么',subtitle:'从基本概念到常见关注点',category:'能量与活力',color:'#c69b60',read_time:3,simple_intro:'用通俗语言了解NMN的基本概念和信息边界。',professional_intro:'了解NMN的化学属性、研究语境与证据边界。',simple_content:'NMN是一种与细胞能量代谢研究相关的物质。了解它时，建议重点区分基础研究、人体研究和商品宣传，不把保健信息当作疾病治疗建议。',professional_content:'NMN是烟酰胺单核苷酸，常见讨论与NAD+代谢通路有关。现有研究类型、样本规模和结论边界并不完全一致，解读时应关注研究对象、终点、剂量与持续时间。',key_points:['先理解成分是什么，再查看具体产品信息。','研究结论需要结合研究类型和适用范围理解。','正在用药或存在健康问题时，先咨询专业医疗人员。'],caution:'不能替代药物或疾病治疗。孕期、哺乳期、未成年人以及正在接受治疗的人群，应先咨询专业医疗人员。',source:'演示知识库 · 内容经合规规则整理',updated_at:isoOffset(-3)},
-    {id:'ergothioneine',short:'麦',title:'麦角硫因怎么理解',subtitle:'抗氧化相关信息的正确阅读方式',category:'抗氧化',color:'#8870c7',read_time:4,simple_intro:'认识麦角硫因，以及如何判断相关信息是否可靠。',professional_intro:'从来源、研究指标与证据等级理解麦角硫因。',simple_content:'麦角硫因是一种天然存在的含硫化合物，经常出现在抗氧化相关讨论中。阅读相关内容时，应关注信息来源和具体研究条件。',professional_content:'麦角硫因属于含硫氨基酸衍生物，相关研究涉及转运机制和氧化应激指标。研究指标的变化不等同于临床治疗效果，需要避免跨越证据层级做结论。',key_points:['天然来源不等于对所有人都适合。','抗氧化相关指标不能直接等同于治疗效果。','比较产品时应同时关注成分、规格和信息透明度。'],caution:'对原料来源或具体使用方式存在疑问时，应查看产品说明并咨询合格专业人员。',source:'演示知识库 · 内容经合规规则整理',updated_at:isoOffset(-5)},
-    {id:'coq10',short:'Q',title:'辅酶Q10基础知识',subtitle:'认识常见形式与信息重点',category:'能量与活力',color:'#df7567',read_time:4,simple_intro:'了解辅酶Q10的基本概念、常见讨论和注意事项。',professional_intro:'查看辅酶Q10的形式差异、研究指标和使用边界。',simple_content:'辅酶Q10是人体内存在的一类物质，常与能量代谢相关讨论联系在一起。产品信息中可能出现不同形式，应以清晰标注和可靠来源为先。',professional_content:'辅酶Q10参与线粒体电子传递相关过程，常见产品形式包括氧化型和还原型。具体吸收与使用信息需要结合剂型、研究条件和个体情况理解。',key_points:['先确认产品标注的具体形式和规格。','不要仅根据单一宣传语判断。','与药物同时使用前应咨询医生或药师。'],caution:'正在服用抗凝药物或接受治疗的人群，不应自行根据网络内容调整使用方案。',source:'演示知识库 · 内容经合规规则整理',updated_at:isoOffset(-2)},
-    {id:'daily',short:'日',title:'日常营养怎么开始',subtitle:'从饮食、作息和真实需求开始',category:'日常营养',color:'#4c9a7d',read_time:3,simple_intro:'先梳理生活方式，再决定是否需要继续了解具体成分。',professional_intro:'用需求、膳食结构与证据边界评估补充信息。',simple_content:'日常健康管理通常先从规律饮食、睡眠、活动和专业检查建议开始。保健品不是越多越好，也不适合代替均衡饮食。',professional_content:'评估营养补充信息时，应先识别膳食来源、可能缺口、证据强度和安全上限，避免多种产品造成重复摄入。',key_points:['先明确自己真正想解决的问题。','记录正在使用的产品，避免重复。','有特殊健康情况时优先咨询专业人员。'],caution:'不要根据平台内容自行停药、换药或延误就医。',source:'演示知识库 · 内容经合规规则整理',updated_at:isoOffset(-1)},
-    {id:'safety',short:'安',title:'如何安全阅读保健信息',subtitle:'识别夸大表达和高风险建议',category:'安全与注意',color:'#66748c',read_time:5,simple_intro:'学会区分知识介绍、产品信息和医疗建议。',professional_intro:'从证据等级、终点与适用范围识别信息风险。',simple_content:'遇到“保证有效”“替代治疗”“所有人都适合”等表达时，应保持谨慎。可靠内容会说明来源、适用边界和不确定性。',professional_content:'证据判断应区分体外、动物、观察性和随机对照研究，并关注替代终点与临床终点的差异。单项研究不能自动形成普遍结论。',key_points:['绝对功效表达通常需要警惕。','用户体验不能代替系统性证据。','紧急或持续不适应及时寻求医疗帮助。'],caution:'如出现紧急身体不适，请立即联系当地急救或专业医疗机构。',source:'演示知识库 · 安全阅读指南',updated_at:isoOffset(-1)}
+  const now=()=>new Date().toISOString();
+  const ago=hours=>new Date(Date.now()-hours*3600000).toISOString();
+  const categories=[
+    {code:'nmn',name:'NMN人群',description:'对精力、健康管理及NMN产品有明确关注',color:'#c89b5a',customer_count:4,due_count:4},
+    {code:'ergothioneine',name:'麦角硫因人群',description:'关注抗氧化、精细养护及成分搭配',color:'#8e72c9',customer_count:3,due_count:2},
+    {code:'coq10',name:'辅酶Q10人群',description:'关注日常活力、辅酶Q10及家庭健康',color:'#dc7064',customer_count:4,due_count:4},
+    {code:'regular',name:'常规品人群',description:'关注基础营养与日常健康产品',color:'#4b9c7f',customer_count:4,due_count:4}
   ];
-  const defaults=()=>({
-    session:null,
-    preferences:{display_name:'林女士',city:'上海',primary_goal:'先了解基础知识',available_goals:['先了解基础知识','比较成分信息','管理日常提醒','继续已有咨询'],content_mode:'simple',save_history:true,personalized_content:true,save_local:true,service_messages:true,channel:'站内消息',frequency:'只接收我设置的提醒',quiet_start:'22:00',quiet_end:'08:00',family_members:[]},
-    interests:['NMN','日常营养'],saved:['nmn','safety'],
-    chat:[{role:'assistant',content:'你好，我可以用简单或专业的方式介绍相关知识。你想从哪个问题开始？',notice:'内容仅用于知识了解，不构成医疗诊断。',actions:[{label:'看看知识中心',action:'knowledge'},{label:'联系人工',action:'human'}],time_label:'刚刚'}],
-    reminders:[{id:'r1',title:'继续了解NMN基础知识',description:'回顾已收藏的入门内容',day:String(new Date(Date.now()+86400000).getDate()).padStart(2,'0'),month:new Intl.DateTimeFormat('zh-CN',{month:'short'}).format(new Date(Date.now()+86400000)),schedule_label:'明天 19:30',channel:'站内消息',status:'active',status_label:'等待提醒'}],
-    messages:[{id:'m1',type:'reminder',icon:'◷',title:'你设置的提醒将在明天生效',summary:'继续了解NMN基础知识 · 明天 19:30',content:'这是你主动设置的提醒。到达时间后，我们会通过站内消息提醒你继续阅读。',time_label:'10分钟前',read:false,action:{page:'reminders',label:'管理提醒'}},{id:'m2',type:'knowledge',icon:'◇',title:'你关注的安全阅读指南已更新',summary:'新增了如何识别绝对功效表达的说明',content:'安全阅读指南更新了信息来源、绝对功效表达和紧急情况处理等内容。',time_label:'昨天',read:false,action:{page:'knowledge',label:'查看知识内容'}},{id:'m3',type:'service',icon:'↗',title:'人工服务入口随时可用',summary:'复杂问题可以从AI咨询页转人工',content:'当问题涉及用药、诊断、紧急身体状况或AI未能解决时，你可以随时选择人工服务。',time_label:'3天前',read:true,action:{page:'consult',label:'进入咨询'}}],
-    feedback:[]
-  });
-  let db=(()=>{try{return JSON.parse(localStorage.getItem(storageKey))||defaults()}catch{return defaults()}})();
-  const persist=()=>{if(db.preferences.save_local)localStorage.setItem(storageKey,JSON.stringify(db));else localStorage.removeItem(storageKey)};
-  const ok=(data,status=200)=>Promise.resolve(new Response(JSON.stringify({success:true,data,error:null,request_id:'consumer-demo'}),{status,headers:{'Content-Type':'application/json; charset=utf-8'}}));
-  const fail=(message,status=404)=>Promise.resolve(new Response(JSON.stringify({success:false,data:null,error:{message},request_id:'consumer-demo'}),{status,headers:{'Content-Type':'application/json; charset=utf-8'}}));
+  const base=[
+    {id:1,name:'林女士',phone:'138****8001',city:'上海',owner:'周顾问',member:'黑金会员',stage:'待回复',priority:'高',assetCodes:['nmn','coq10'],product_focus:'NMN焕活方案',last_message:'我担心长期吃会不会负担大，而且价格也要考虑。',last_time:'8分钟前',next_action:'先回应安全与周期顾虑，再给轻量体验选择',next_at:'今天 10:30',consent:'企业微信已授权',traits:['重视安全边界','倾向简单方案','价格需解释价值'],facts:['近30天查看NMN内容4次','主动咨询过使用周期','上次沟通偏好简短回复'],purchase:['NMN体验装 · 2026/07','辅酶Q10基础装 · 2026/05']},
+    {id:2,name:'陈先生',phone:'139****6720',city:'杭州',owner:'周顾问',member:'铂金会员',stage:'待首次触达',priority:'中',assetCodes:['ergothioneine','regular'],product_focus:'麦角硫因体验方案',last_message:'在直播间问过麦角硫因和普通抗氧化产品有什么区别。',last_time:'昨天',next_action:'从成分差异切入，邀请其说明最关心的使用目标',next_at:'今天 11:00',consent:'企微好友可触达',traits:['成分知识较深','重视证据来源','不喜欢强推'],facts:['完整观看成分直播','收藏麦角硫因文章2篇','过去对专业解释回应更积极'],purchase:['日常营养组合 · 2026/03']},
+    {id:3,name:'赵女士',phone:'136****1058',city:'苏州',owner:'李顾问',member:'黄金会员',stage:'待跟进',priority:'高',assetCodes:['coq10','regular'],product_focus:'辅酶Q10日常方案',last_message:'我先和家里人商量一下，过两天再说。',last_time:'2天前',next_action:'轻量确认家庭使用场景，不制造紧迫感',next_at:'今天 14:00',consent:'企业微信已授权',traits:['家庭决策型','需要低压力沟通','关注日常坚持'],facts:['两次询问家庭成员是否适用','回复集中在午后','对套餐信息停留时间较长'],purchase:['基础维矿组合 · 2026/04']},
+    {id:4,name:'周先生',phone:'137****4436',city:'南京',owner:'张顾问',member:'白银会员',stage:'已读未回',priority:'中',assetCodes:['regular','nmn'],product_focus:'日常营养组合',last_message:'收到，我再看看。',last_time:'3天前',next_action:'发送一条可独立阅读的要点，不连续追问',next_at:'今天 16:30',consent:'企微好友可触达',traits:['回复频率低','偏好图文摘要','价格敏感'],facts:['社群内容点击3次','优惠信息有点击无咨询','晚间回复率高'],purchase:['益生菌体验装 · 2026/02']},
+    {id:5,name:'吴女士',phone:'135****2916',city:'北京',owner:'周顾问',member:'铂金会员',stage:'对话中',priority:'高',assetCodes:['nmn','ergothioneine'],product_focus:'精细养护组合',last_message:'两种一起了解的话，应该先从哪个开始？',last_time:'刚刚',next_action:'先澄清目标与在用产品，再给分步体验建议',next_at:'立即回复',consent:'企业微信已授权',traits:['愿意持续沟通','关注搭配逻辑','决策前会比较'],facts:['近7天发起咨询3次','阅读专业版内容','已说明暂无特殊用药'],purchase:['NMN体验装 · 2026/06']},
+    {id:6,name:'孙先生',phone:'188****3019',city:'广州',owner:'王顾问',member:'普通会员',stage:'待首次触达',priority:'低',assetCodes:['regular','coq10'],product_focus:'辅酶Q10体验装',last_message:'在问卷中选择“偶尔尝试保健品”。',last_time:'昨天',next_action:'用通俗语言介绍，不要求立即购买',next_at:'明天 10:00',consent:'站内服务消息授权',traits:['保健品新手','需要基础解释','低频触达'],facts:['首次完成需求问卷','未产生主动咨询','选择简单易懂内容'],purchase:[]},
+    {id:7,name:'郑女士',phone:'186****4428',city:'成都',owner:'李顾问',member:'黄金会员',stage:'暂停触达',priority:'低',assetCodes:['ergothioneine'],product_focus:'麦角硫因单品',last_message:'最近先不要给我发消息，谢谢。',last_time:'5天前',next_action:'遵守暂停要求，30天内不主动触达',next_at:'已暂停',consent:'用户要求暂停',traits:['明确表达边界','偏好自主浏览','当前不可主动触达'],facts:['5天前要求暂停消息','已写入免打扰状态','仅允许响应式服务'],purchase:['麦角硫因体验装 · 2026/01']},
+    {id:8,name:'刘先生',phone:'133****9072',city:'武汉',owner:'张顾问',member:'铂金会员',stage:'待跟进',priority:'中',assetCodes:['coq10','nmn'],product_focus:'活力管理组合',last_message:'你把主要区别和适合什么情况发我，我有空看。',last_time:'昨天',next_action:'发送结构化对比，不使用绝对功效表达',next_at:'今天 19:00',consent:'企业微信已授权',traits:['职业节奏快','偏好结构化信息','晚间阅读'],facts:['工作日白天很少回复','对对比表点击率高','曾主动要求文字总结'],purchase:['辅酶Q10基础装 · 2026/05']}
+  ];
+  const customers=base.map((c,index)=>({...c,
+    assets:c.assetCodes.map(code=>({code,name:categories.find(x=>x.code===code).name,basis:index%2?'内容与咨询事实':'购买与互动事实'})),
+    ai_profile:{summary:`${c.name}当前关注${c.product_focus}，${c.traits.join('、')}。建议围绕“${c.next_action}”展开，先解决当下疑问，再邀请用户自主选择下一步。`,tags:c.traits,confidence:Math.max(.76,.92-index*.015),generated_at:ago(index+1),evidence:c.facts.map((label,i)=>({label,source:i===0?'行为记录':i===1?'互动记录':'用户主动偏好'})),guardrails:c.stage==='暂停触达'?['禁止主动触达','仅响应用户主动咨询']:['不承诺疾病治疗效果','不输出内部标签与评分','发送前由运营人员确认']},
+    interactions:[{type:'客户消息',content:c.last_message,time:c.last_time,channel:'企业微信'},{type:'系统记录',content:c.next_action,time:'待执行',channel:'运营中台'}]
+  }));
+  const scripts=[
+    {id:'opening',scene:'首次触达',title:'从用户行为自然开场',purpose:'建立对话，不直接推产品',template:'您好，看到您之前关注过{{关注内容}}。想先了解一下，您现在更关心成分本身、日常使用，还是如何选择？我可以按您最关心的一点简要说明。',avoid:'不要直接使用“您是高意向客户”等内部判断。'},
+    {id:'need',scene:'需求澄清',title:'先问清目标再推荐',purpose:'减少无效推荐',template:'为了避免信息太多，我先确认一下：您更希望解决的是{{目标A}}，还是更关注{{目标B}}？另外现在是否正在使用其他营养产品？',avoid:'不追问疾病隐私；涉及用药时提示咨询医生或药师。'},
+    {id:'compare',scene:'产品比较',title:'用事实解释差异',purpose:'帮助用户形成可理解的选择',template:'这两类产品关注点不同，可以从成分定位、使用方式、信息证据和预算四方面比较。我先把主要差异列清楚，再由您判断哪种更符合当前需要。',avoid:'避免“最好、一定有效、人人适合”等表达。'},
+    {id:'objection',scene:'异议处理',title:'回应价格与安全顾虑',purpose:'先处理疑虑再推进',template:'您考虑安全和长期成本很正常。我们可以先把不适合的情况、使用边界和单次体验成本说明白，不需要现在就做长期决定。',avoid:'不制造稀缺和焦虑，不用健康风险迫使成交。'},
+    {id:'follow',scene:'跟进提醒',title:'低压力继续上次对话',purpose:'保持服务感，避免打扰',template:'您好，上次您提到{{上次问题}}。我把相关要点整理好了，您方便时看即可。如果暂时不需要，我也可以停止后续提醒。',avoid:'尊重免打扰和暂停状态。'},
+    {id:'close',scene:'方案确认',title:'确认理解后再推进',purpose:'完成明确、自主的下一步',template:'根据刚才确认的需求，当前更匹配的是{{方案}}。我再把包含内容、使用边界和需要注意的地方发您；您确认理解后，再决定是否继续。',avoid:'不替用户做决定，不隐瞒限制条件。'}
+  ];
+  let tasks=[
+    {id:'t1',customer_id:1,type:'回复客户',reason:'客户询问长期使用与价格',due:'今天 10:30',status:'pending'},
+    {id:'t2',customer_id:2,type:'首次触达',reason:'直播后留下成分问题',due:'今天 11:00',status:'pending'},
+    {id:'t3',customer_id:3,type:'温和跟进',reason:'约定两天后联系',due:'今天 14:00',status:'pending'},
+    {id:'t4',customer_id:4,type:'内容跟进',reason:'已读未回，发送独立要点',due:'今天 16:30',status:'pending'},
+    {id:'t5',customer_id:8,type:'发送对比',reason:'用户主动要求文字总结',due:'今天 19:00',status:'pending'},
+    {id:'t6',customer_id:5,type:'即时回复',reason:'当前对话等待回复',due:'立即',status:'pending'}
+  ];
+  let loggedIn=false,sequence=100;
+  const conversations=new Map(customers.map(c=>[c.id,{id:c.id,customer_id:c.id,scene:'consult',messages:[{role:'operator',content:`您好${c.name.slice(0,1)}老师，上次关注的内容还有哪里需要我说明吗？`,time:'前次沟通'},{role:'customer',content:c.last_message,time:c.last_time}],suggestion:null}]));
+  const ok=(data,status=200)=>Promise.resolve(new Response(JSON.stringify({success:true,data,error:null,request_id:'operator-demo'}),{status,headers:{'Content-Type':'application/json; charset=utf-8'}}));
+  const fail=(message,status=404)=>Promise.resolve(new Response(JSON.stringify({success:false,data:null,error:{message},request_id:'operator-demo'}),{status,headers:{'Content-Type':'application/json; charset=utf-8'}}));
   const body=options=>{try{return JSON.parse(options?.body||'{}')}catch{return {}}};
-  const topicView=t=>({...t,saved:db.saved.includes(t.id)});
-  const unread=()=>db.messages.filter(x=>!x.read).length;
-  const requireSession=()=>Boolean(db.session);
-
-  function aiAnswer(message,mode){
-    const text=message.toLowerCase();
-    if(/胸痛|呼吸困难|晕厥|急救|严重不适|自杀/.test(text))return {content:'你描述的情况可能需要及时的专业医疗帮助。请不要等待平台回复，立即联系当地急救或前往医疗机构。',notice:'AI不会对紧急身体状况作诊断。',actions:[{label:'联系人工服务',action:'human'}]};
-    if(/用药|药物|治疗|诊断|怀孕|孕期|哺乳|儿童/.test(text))return {content:'这个问题涉及用药、诊断或特殊人群，不能仅根据平台知识给出个体化结论。建议携带正在使用的产品和药物信息咨询医生或药师。',notice:'为避免误导，本次不提供具体使用方案。',actions:[{label:'联系人工顾问',action:'human'},{label:'查看安全指南',action:'knowledge'}]};
-    const found=topics.find(t=>text.includes(t.id)||text.includes(t.title.slice(0,4))||(t.id==='coq10'&&text.includes('q10'))||(t.id==='daily'&&/营养|日常/.test(text)));
-    if(found){return {content:mode==='professional'?found.professional_content:found.simple_content,notice:found.caution,actions:[{label:'查看完整知识',action:'knowledge'},{label:'设置以后提醒',action:'reminder'}]};}
-    if(/区别|比较|怎么选/.test(text))return {content:mode==='professional'?'比较成分时可以从研究语境、具体形式、规格、来源透明度和安全边界五个方面逐项查看。不同成分并不适合用单一“更好”结论概括。':'可以先比较五件事：是什么、为什么关注、信息来源、使用边界和注意事项。不要只根据一句宣传语决定。',notice:'如果你告诉我想比较的两个成分，我可以继续解释。',actions:[{label:'进入知识中心',action:'knowledge'}]};
-    return {content:mode==='professional'?'我会先确认你的具体问题和希望的详细程度，再基于经审核知识解释，并明确证据边界。你可以补充想了解的成分或信息点。':'可以的。请告诉我你想了解哪个成分，或者最关心“是什么、有什么区别、注意什么”中的哪一项。',notice:'不需要提供疾病、用药等敏感信息也可以先了解基础知识。',actions:[{label:'看看知识中心',action:'knowledge'},{label:'联系人工',action:'human'}]};
+  const customer=id=>customers.find(x=>x.id===Number(id));
+  function suggestionFor(c,message,scene){
+    const sensitive=/治疗|治好|药|医生|怀孕|孕期|严重|胸痛|呼吸困难/.test(message);
+    const reply=sensitive
+      ?`您提到的情况涉及专业医疗判断，我不能仅根据产品信息给出结论。建议先咨询医生或药师；如果您愿意，我可以只把${c.product_focus}的公开成分信息和注意事项整理给您参考。`
+      :scene==='objection'
+        ?`您会考虑安全和长期成本很正常。针对${c.product_focus}，我可以先把适用边界、体验周期和不同选择说明白，不需要现在就做长期决定。您更想先了解安全注意，还是预算安排？`
+        :scene==='follow'
+          ?`您好，上次您提到“${c.last_message.slice(0,28)}”。我把与${c.product_focus}相关的要点整理好了，您方便时看即可；如果暂时不需要，我就不继续打扰。`
+          :`理解您的关注。结合您刚刚提到的情况，我们可以先围绕${c.product_focus}把使用边界、产品差异和预算逐项说明。您现在最想先确认哪一点？`;
+    return {reply,alternatives:[`我先把${c.product_focus}最需要注意的三点发您，您看完再决定要不要继续了解。`,`可以先从更轻量的了解或体验开始，不急着一次做长期选择。`],reason:`基于当前消息、${c.product_focus}关注事实与“${scene}”场景生成`,policy_flags:sensitive?['触发医疗边界','禁止个体化用药建议','需要人工确认']:['不使用绝对功效','不暴露内部信息','发送前人工确认'],provider:'Dotbest Reply Agent'};
   }
-
   window.fetch=async(input,options={})=>{
-    const url=new URL(typeof input==='string'?input:input.url,location.href);
-    const path=url.pathname.replace(/^\/[^/]+(?=\/api\/)/,'');
-    const method=(options.method||'GET').toUpperCase();
-
-    if(path==='/api/v1/user/session'&&method==='POST'){
-      const data=body(options); db.session={id:'demo-user',display_name:db.preferences.display_name,mode:data.mode||'simple',purpose:data.purpose||'first'}; db.preferences.content_mode=db.session.mode;db.preferences.save_history=data.save_history!==false;db.preferences.save_local=data.save_history!==false;persist();return ok(db.session,201);
-    }
-    if(path==='/api/v1/user/session')return requireSession()?ok({...db.session,display_name:db.preferences.display_name,mode:db.preferences.content_mode}):fail('尚未开始体验',401);
-    if(path==='/api/v1/user/reset'&&method==='POST'){db=defaults();localStorage.removeItem(storageKey);return ok({reset:true});}
-    if(!requireSession())return fail('请先开始体验',401);
-
-    if(path==='/api/v1/user/home'){
-      const next=db.reminders.find(x=>x.status==='active');
-      return ok({date_label:new Intl.DateTimeFormat('zh-CN',{month:'long',day:'numeric',weekday:'long'}).format(new Date()),greeting:db.preferences.display_name,topics:topics.slice(0,4).map(topicView),preferences:db.preferences,recent_conversation:{title:'怎样判断保健信息是否可靠？',summary:'上次我们聊到了内容来源、绝对功效表达和适用边界。',updated_at:isoOffset(-1)},next_reminder:next?{...next}:null,unread_messages:unread()});
-    }
-    if(path==='/api/v1/user/knowledge'){
-      const q=(url.searchParams.get('q')||'').trim().toLowerCase();
-      return ok({items:topics.filter(t=>!q||`${t.title}${t.subtitle}${t.category}${t.simple_intro}`.toLowerCase().includes(q)).map(topicView)});
-    }
-    let match=path.match(/^\/api\/v1\/user\/knowledge\/([\w-]+)$/);
-    if(match){const t=topics.find(x=>x.id===match[1]);return t?ok(topicView(t)):fail('内容不存在');}
-    match=path.match(/^\/api\/v1\/user\/focus\/([\w-]+)$/);
-    if(match&&method==='POST'){const id=match[1],index=db.saved.indexOf(id);if(index>=0)db.saved.splice(index,1);else db.saved.push(id);persist();return ok({saved:index<0});}
-    if(path==='/api/v1/user/focus')return ok({interests:db.interests,available_interests:['NMN','麦角硫因','辅酶Q10','日常营养','安全阅读'],saved_topics:topics.filter(t=>db.saved.includes(t.id)).map(topicView),pending_questions:1});
-    if(path==='/api/v1/user/interests'&&method==='POST'){const name=body(options).name,index=db.interests.indexOf(name);if(index>=0)db.interests.splice(index,1);else db.interests.push(name);persist();return ok({interests:db.interests});}
-
-    if(path==='/api/v1/user/conversation')return ok({messages:db.chat,quick_prompts:['NMN是什么？','辅酶Q10和麦角硫因有什么区别？','如何识别夸大的保健信息？'],save_history:db.preferences.save_history});
-    if(path==='/api/v1/user/conversation/messages'&&method==='POST'){
-      const data=body(options),answer=aiAnswer(String(data.message||''),data.mode||db.preferences.content_mode),stamp='刚刚';
-      db.chat.push({role:'user',content:String(data.message||''),time_label:stamp},{role:'assistant',...answer,time_label:stamp});
-      if(data.save_history!==false&&db.preferences.save_history)persist();return ok({messages:db.chat});
-    }
-    if(path==='/api/v1/user/conversation/clear'&&method==='POST'){db.chat=[defaults().chat[0]];persist();return ok({cleared:true});}
-    if(path==='/api/v1/user/support/handoff'&&method==='POST')return ok({status_label:'人工服务入口已准备',description:'请选择方便的方式和时间。演示环境不会真实联系你。'});
-
-    if(path==='/api/v1/user/reminders'&&method==='GET')return ok({items:db.reminders,quiet_hours:`${db.preferences.quiet_start}—${db.preferences.quiet_end}`});
-    if(path==='/api/v1/user/reminders'&&method==='POST'){
-      const data=body(options),date=new Date(Date.now()+(data.when==='month'?30:data.when==='week'?7:1)*86400000);const item={id:`r${Date.now()}`,title:data.title,description:'由你主动创建的服务提醒',day:String(date.getDate()).padStart(2,'0'),month:new Intl.DateTimeFormat('zh-CN',{month:'short'}).format(date),schedule_label:data.when==='month'?'一个月后':data.when==='week'?'一周后':'明天这个时间',channel:data.channel,status:'active',status_label:'等待提醒'};db.reminders.push(item);persist();return ok(item,201);
-    }
-    match=path.match(/^\/api\/v1\/user\/reminders\/([\w-]+)\/snooze$/);
-    if(match&&method==='POST'){const item=db.reminders.find(x=>x.id===match[1]);if(item){item.schedule_label='已延后一天';persist();}return ok(item||{});}
-    match=path.match(/^\/api\/v1\/user\/reminders\/([\w-]+)\/toggle$/);
-    if(match&&method==='POST'){const item=db.reminders.find(x=>x.id===match[1]);if(item){item.status=item.status==='active'?'paused':'active';item.status_label=item.status==='active'?'等待提醒':'已暂停';persist();}return ok(item||{});}
-
-    if(path==='/api/v1/user/messages')return ok({items:db.messages,unread:unread(),frequency_label:db.preferences.frequency});
-    if(path==='/api/v1/user/messages/read-all'&&method==='POST'){db.messages.forEach(x=>x.read=true);persist();return ok({unread:0});}
-    match=path.match(/^\/api\/v1\/user\/messages\/([\w-]+)$/);
-    if(match){const item=db.messages.find(x=>x.id===match[1]);if(!item)return fail('消息不存在');item.read=true;persist();return ok({...item,unread:unread()});}
-
-    if(path==='/api/v1/user/preferences'&&method==='GET')return ok(db.preferences);
-    if(path==='/api/v1/user/preferences'&&method==='POST'){
-      const data=body(options);Object.entries(data).forEach(([key,value])=>{if(key==='mute_type'){db.preferences.service_messages=false}else if(key in db.preferences)db.preferences[key]=value});
-      if('save_local'in data&&!data.save_local)localStorage.removeItem(storageKey);else persist();
-      if(db.session){db.session.display_name=db.preferences.display_name;db.session.mode=db.preferences.content_mode;}return ok(db.preferences);
-    }
-    if(path==='/api/v1/user/feedback'&&method==='POST'){db.feedback.push({...body(options),created_at:new Date().toISOString()});persist();return ok({received:true},201);}
+    const url=new URL(typeof input==='string'?input:input.url,location.href);const path=url.pathname.replace(/^\/[^/]+(?=\/api\/)/,'');const method=(options.method||'GET').toUpperCase();
+    if(path==='/api/login'&&method==='POST'){loggedIn=true;return ok({display_name:'周顾问',role:'一线运营'})}
+    if(path==='/api/logout'&&method==='POST'){loggedIn=false;return ok({})}
+    if(path==='/api/me')return loggedIn?ok({id:1,display_name:'周顾问',role:'一线运营',permissions:['customer:read','conversation:reply','task:update']}):fail('请先登录',401);
+    if(!loggedIn)return fail('请先登录',401);
+    if(path==='/api/v1/private/workbench')return ok({metrics:{due:tasks.filter(x=>x.status==='pending').length,waiting:customers.filter(x=>x.stage==='待回复'||x.stage==='对话中').length,followups:customers.filter(x=>x.stage==='待跟进').length,paused:customers.filter(x=>x.stage==='暂停触达').length},categories,queue:tasks.filter(x=>x.status==='pending').slice(0,6).map(t=>({...t,customer:customer(t.customer_id)})),completed_today:3});
+    if(path==='/api/v1/private/user-assets')return ok({categories,updated_at:now()});
+    let m=path.match(/^\/api\/v1\/private\/user-assets\/([\w-]+)\/customers$/);
+    if(m){const audience=categories.find(x=>x.code===m[1]);if(!audience)return fail('人群不存在');const q=(url.searchParams.get('q')||'').toLowerCase();let items=customers.filter(x=>x.assetCodes.includes(m[1]));if(q)items=items.filter(x=>`${x.name}${x.phone}${x.owner}${x.product_focus}${x.stage}`.toLowerCase().includes(q));return ok({audience,items,pagination:{page:1,total:items.length}})}
+    m=path.match(/^\/api\/v1\/private\/customers\/(\d+)$/);if(m){const c=customer(m[1]);return c?ok(c):fail('用户不存在')}
+    m=path.match(/^\/api\/v1\/private\/customers\/(\d+)\/ai-profile\/refresh$/);if(m&&method==='POST'){const c=customer(m[1]);c.ai_profile.generated_at=now();return ok(c.ai_profile)}
+    if(path==='/api/v1/private/conversations')return ok({items:customers.filter(x=>x.stage!=='暂停触达').map(c=>({conversation_id:c.id,customer_id:c.id,name:c.name,stage:c.stage,product_focus:c.product_focus,last_message:c.last_message,last_time:c.last_time,priority:c.priority,unread:c.stage==='待回复'||c.stage==='对话中'}))});
+    m=path.match(/^\/api\/v1\/private\/customers\/(\d+)\/agent-conversations$/);if(m&&method==='POST'){const c=customer(m[1]);if(!c)return fail('用户不存在');return ok(conversations.get(c.id),201)}
+    m=path.match(/^\/api\/v1\/private\/agent-conversations\/(\d+)$/);if(m){const conv=conversations.get(Number(m[1]));return conv?ok({conversation:conv,customer:customer(conv.customer_id)}):fail('会话不存在')}
+    m=path.match(/^\/api\/v1\/private\/agent-conversations\/(\d+)\/messages$/);if(m&&method==='POST'){const conv=conversations.get(Number(m[1]));if(!conv)return fail('会话不存在');const data=body(options),c=customer(conv.customer_id);conv.scene=data.scene||'consult';conv.messages.push({role:'customer',content:String(data.message||''),time:'刚刚'});conv.suggestion=suggestionFor(c,String(data.message||''),conv.scene);c.last_message=String(data.message||'');c.last_time='刚刚';c.stage='待回复';return ok({conversation_id:conv.id,suggestion:conv.suggestion})}
+    m=path.match(/^\/api\/v1\/private\/agent-conversations\/(\d+)\/mark-sent$/);if(m&&method==='POST'){const conv=conversations.get(Number(m[1]));if(!conv)return fail('会话不存在');const data=body(options);conv.messages.push({role:'operator',content:String(data.reply||''),time:'刚刚'});conv.suggestion=null;const c=customer(conv.customer_id);c.stage='待跟进';c.next_action='等待用户回复，避免重复触达';c.next_at='2天后';return ok({sent:true,conversation:conv})}
+    if(path==='/api/v1/private/tasks'&&method==='GET')return ok({items:tasks.map(t=>({...t,customer:customer(t.customer_id)})),pending:tasks.filter(x=>x.status==='pending').length});
+    m=path.match(/^\/api\/v1\/private\/tasks\/([\w-]+)\/status$/);if(m&&method==='POST'){const t=tasks.find(x=>x.id===m[1]);if(!t)return fail('任务不存在');t.status=body(options).status||'done';return ok(t)}
+    if(path==='/api/v1/private/scripts')return ok({items:scripts,scenes:[...new Set(scripts.map(x=>x.scene))]});
+    if(path==='/api/v1/private/governance')return ok({role:'一线运营',allowed:['查看本人负责用户的脱敏资料','查看内部辅助摘要及事实依据','生成、编辑和复制回复建议','更新本人触达任务与跟进记录'],blocked:['访问后台订单管理','查看经营决策与利润报表','导出完整手机号等敏感字段','将内部标签、评分或推断直接发送给客户'],audit:[{time:'今天 09:18',action:'生成回复建议',object:'林女士',result:'通过合规检查'},{time:'昨天 17:42',action:'暂停触达',object:'郑女士',result:'已写入免打扰'}]});
     return fail('演示接口不存在');
   };
 })();

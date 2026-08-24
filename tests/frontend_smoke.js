@@ -1,68 +1,44 @@
-const assert = require('node:assert/strict');
-const path = require('node:path');
+const assert=require('node:assert/strict');
+const path=require('node:path');
+global.location={href:'http://127.0.0.1:8091/'};
+global.window=global;
+require(path.join(__dirname,'..','assets','demo-api.js'));
 
-const memory = new Map();
-global.localStorage = {
-  getItem: key => memory.has(key) ? memory.get(key) : null,
-  setItem: (key, value) => memory.set(key, String(value)),
-  removeItem: key => memory.delete(key),
-};
-global.location = { href: 'http://127.0.0.1:8091/' };
-global.window = global;
+async function request(url,options){const response=await fetch(url,options);return {status:response.status,body:await response.json()}}
 
-require(path.join(__dirname, '..', 'assets', 'demo-api.js'));
+(async()=>{
+  let result=await request('/api/me');
+  assert.equal(result.status,401);
+  result=await request('/api/login',{method:'POST',body:JSON.stringify({username:'operator',password:'demo'})});
+  assert.equal(result.status,200);
 
-async function request(url, options) {
-  const response = await fetch(url, options);
-  return { status: response.status, body: await response.json() };
-}
+  const workbench=await request('/api/v1/private/workbench');
+  assert.equal(workbench.status,200);
+  assert.equal(workbench.body.data.metrics.due,6);
+  assert.equal(workbench.body.data.categories.length,4);
 
-function containsRestrictedKey(value) {
-  if (!value || typeof value !== 'object') return false;
-  return Object.entries(value).some(([key, item]) =>
-    /profile|portrait|segment|score|risk|prediction|画像|标签|评分/i.test(key) ||
-    containsRestrictedKey(item)
-  );
-}
+  const audience=await request('/api/v1/private/user-assets/nmn/customers');
+  assert.equal(audience.body.data.items.length,4);
+  assert.ok(audience.body.data.items[0].ai_profile.summary);
+  assert.ok(audience.body.data.items[0].ai_profile.evidence.length);
 
-(async () => {
-  let result = await request('/api/v1/user/session');
-  assert.equal(result.status, 401);
+  const conversation=await request('/api/v1/private/customers/1/agent-conversations',{method:'POST',body:'{}'});
+  const conversationId=conversation.body.data.id;
+  const generated=await request(`/api/v1/private/agent-conversations/${conversationId}/messages`,{method:'POST',body:JSON.stringify({message:'我正在用药，这个能治好吗？',scene:'objection'})});
+  const reply=generated.body.data.suggestion.reply;
+  assert.match(reply,/医生或药师/);
+  assert.doesNotMatch(reply,/高优先|内部|标签|评分|置信度|138\*\*\*\*8001/);
+  assert.ok(generated.body.data.suggestion.policy_flags.includes('需要人工确认'));
 
-  result = await request('/api/v1/user/session', {
-    method: 'POST',
-    body: JSON.stringify({ purpose: 'first', mode: 'simple', save_history: true }),
-  });
-  assert.equal(result.status, 201);
+  const sent=await request(`/api/v1/private/agent-conversations/${conversationId}/mark-sent`,{method:'POST',body:JSON.stringify({reply})});
+  assert.equal(sent.body.data.sent,true);
 
-  const home = await request('/api/v1/user/home');
-  assert.equal(home.status, 200);
-  assert.equal(home.body.data.topics.length, 4);
+  const tasks=await request('/api/v1/private/tasks');
+  assert.equal(tasks.body.data.pending,6);
+  const done=await request('/api/v1/private/tasks/t1/status',{method:'POST',body:JSON.stringify({status:'done'})});
+  assert.equal(done.body.data.status,'done');
 
-  const knowledge = await request('/api/v1/user/knowledge');
-  assert.equal(knowledge.body.data.items.length, 5);
-
-  const chat = await request('/api/v1/user/conversation/messages', {
-    method: 'POST',
-    body: JSON.stringify({ message: '正在用药，可以自行调整吗？', mode: 'simple' }),
-  });
-  const answer = chat.body.data.messages.at(-1);
-  assert.match(answer.content, /医生或药师/);
-  assert.match(answer.notice, /不提供具体使用方案/);
-
-  const reminder = await request('/api/v1/user/reminders', {
-    method: 'POST',
-    body: JSON.stringify({ title: '继续了解安全信息', when: 'week', channel: '站内消息' }),
-  });
-  assert.equal(reminder.status, 201);
-
-  for (const endpoint of ['/api/v1/user/home', '/api/v1/user/focus', '/api/v1/user/preferences']) {
-    const response = await request(endpoint);
-    assert.equal(containsRestrictedKey(response.body.data), false, `${endpoint} exposed a restricted field`);
-  }
-
-  console.log('frontend smoke: all checks passed');
-})().catch(error => {
-  console.error(error);
-  process.exitCode = 1;
-});
+  const forbidden=await request('/api/v1/private/orders');
+  assert.equal(forbidden.status,404);
+  console.log('operator frontend smoke: all checks passed');
+})().catch(error=>{console.error(error);process.exitCode=1});
