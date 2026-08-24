@@ -1,128 +1,54 @@
-# 多特倍斯运营中台 MVP
+# 多特倍斯健康服务中心 MVP
 
-> 在线演示版通过 GitHub Pages 发布，使用浏览器内置演示数据；Python + SQLite 后端源码仍完整保留，供本地运行和后续生产集成。
+这是面向真实终端用户的健康内容与服务体验原型。当前版本聚焦用户执行端和触达沟通，不在前台提供运营管理、交易处理或后台决策功能。
 
-这是依据《多特倍斯大健康平台私域运营中台系统设计方案 V1.1》实现的可运行版本，保持 SecondBrain 技术栈一致：
+## 在线体验
 
-- Python 3 标准库；
-- `ThreadingHTTPServer`；
-- SQLite / WAL；
-- 原生 HTML、CSS、JavaScript；
-- 无前端框架、无 CDN、无 Python 第三方依赖；
-- 可选接入 Ollama 或 OpenAI 兼容模型接口。
+- GitHub Pages：<https://regard-1.github.io/->
+- GitHub 仓库：<https://github.com/regard-1/->
 
-## 已实现功能
+首次进入可直接选择体验目的和内容解释方式，无需后台账号。
 
-- Cookie 登录、PBKDF2 密码、会话持久化；
-- 运营首页和核心经营指标；
-- 用户资产总入口；
-- NMN、麦角硫因、辅酶Q10、常规品四类独立用户列表；
-- 客户基本信息、资产归属、购买、互动、会员和历史对话详情；
-- 基于事实特征、规则标签和证据的 AI 历史画像；
-- 手工画像刷新和画像版本留存；
-- 从用户列表直接发起多轮 Agent 对话；
-- 个性化主话术、备选话术、推荐理由、下一步和合规标记；
-- 会员、营销活动、社群和用户资产分析页面；
-- `/api/search`、`/api/chat` 兼容接口；
-- LLM 不可用时确定性降级，不影响基本运营。
+## 已实现能力
 
-## 启动
+- 分角色起点：第一次了解、比较成分、有具体问题、随便浏览；
+- 健康知识中心：NMN、麦角硫因、辅酶 Q10、日常营养与安全阅读；
+- 简单易懂 / 详细专业双层内容；
+- AI 咨询、多轮上下文、敏感问题安全提示和人工服务入口；
+- 用户主动关注、收藏、提醒与站内消息；
+- 联系渠道、频率、免打扰时间和家庭授权设置；
+- 本机体验数据开关、数据类别查看和一键清除；
+- 响应式桌面端与移动端界面。
 
-需要 Python 3.10 或以上版本。
+## 数据与隐私边界
 
-在本目录运行：
+终端用户页面仅展示用户主动填写、主动选择和授权保存的数据。平台内部辅助信息、评分和预测标签不进入用户页面，也不通过前端接口返回。
+
+在线演示使用浏览器 `localStorage` 保存体验数据，不包含真实用户数据。AI 回答为演示内容，不构成医疗诊断或用药建议。
+
+## 本地运行
+
+直接运行静态版本：
+
+```powershell
+python -m http.server 8091
+```
+
+然后访问 <http://localhost:8091/>。
+
+如需同时启动仓库中的 Python 服务：
 
 ```powershell
 python server.py
 ```
 
-也可以右键使用 PowerShell 运行：
+默认访问 <http://localhost:8090/>。服务端保留既有技术栈和数据适配基础，但本版本的公开入口只加载终端用户体验。
 
-```powershell
-.\start.ps1
-```
+## 主要文件
 
-浏览器打开：<http://localhost:8090>
-
-演示账号：
-
-```text
-用户名：admin
-密码：Dotbest@2026
-```
-
-默认账号仅用于本地演示。部署前必须通过环境变量 `ADMIN_PASSWORD` 修改初始密码，并删除已有的演示 `data.db` 后重新初始化。
-
-## 模型配置（可选）
-
-不配置模型时，画像和话术使用内置的可解释规则降级生成。配置 OpenAI 兼容接口后，Agent 会优先使用模型生成话术：
-
-```powershell
-$env:LLM_BASE_URL="http://localhost:11434/v1"
-$env:LLM_MODEL="qwen2.5:7b"
-$env:LLM_API_KEY=""
-python server.py
-```
-
-远程兼容 API 示例：
-
-```powershell
-$env:LLM_BASE_URL="https://api.example.com/v1"
-$env:LLM_MODEL="your-model"
-$env:LLM_API_KEY="your-key"
-python server.py
-```
-
-## 运行测试
-
-```powershell
-python -m unittest -v tests.test_core
-```
-
-本次交付验证结果：
-
-- Python 编译与静态类型检查：通过，0 个错误；
-- JavaScript 语法检查：通过；
-- 核心单元测试：5/5 通过；
-- 本地 HTTP 冒烟测试：首页、前端资源、总览、四类资产、NMN列表、客户画像、多轮Agent话术全部通过；
-- 当前 Codex 桌面的浏览器控制运行资产缺失，因此未执行自动化可视截图验收。
-
-## 数据与接口
-
-- 数据库首次运行自动创建为 `data.db`，并写入 12 位演示用户；
-- 设置 `DB_PATH` 可以指定其他数据库文件；
-- 设置 `PORT` 可以修改端口；
-- 所有新增 API 使用 `/api/v1/private/*`；
-- 原兼容接口保留 `/api/search` 与 `/api/chat`。
-
-核心接口：
-
-```text
-GET  /api/v1/private/dashboard
-GET  /api/v1/private/user-assets/categories
-GET  /api/v1/private/user-assets/:code/customers
-GET  /api/v1/private/customers/:id
-GET  /api/v1/private/customers/:id/ai-profile
-POST /api/v1/private/customers/:id/ai-profile/refresh
-POST /api/v1/private/customers/:id/agent-conversations
-POST /api/v1/private/agent-conversations/:id/messages
-GET  /api/v1/private/members
-GET  /api/v1/private/campaigns
-GET  /api/v1/private/communities
-GET  /api/v1/private/analytics/overview
-```
-
-## 并入现有 SecondBrain
-
-当前工作区未提供原 `server.py` 和 `templates/` 源码，因此本交付为可独立运行的兼容 MVP。正式合并时建议：
-
-1. 保留现有 `server.py` 为入口；
-2. 将本项目的表结构以迁移脚本并入现有 `init_db()`；
-3. 将 `/api/v1/private/*` 路由并入现有 `Handler`；
-4. 将 `build_agent_suggestion()` 调用改为复用原 `hybrid_search()`、`call_llm()` 和违禁词检查；
-5. 将本项目页面作为 `private_admin.html`，继续共用原 Cookie 会话与 RBAC；
-6. 用真实商品、订单、企微、会员和社群数据替换演示种子数据。
-
-## 生产化提醒
-
-该版本适合产品验收、内部试点和后续集成开发。生产上线前仍需接入真实数据源、HTTPS、CSRF、渠道签名回调、细粒度数据权限、任务 Worker、备份恢复和正式压测。
+- `index.html`：GitHub Pages 入口；
+- `templates/index.html`：Python 服务入口；
+- `assets/app.js`：终端用户交互流程；
+- `assets/demo-api.js`：静态演示数据与浏览器端接口；
+- `assets/app.css`：桌面端和移动端样式；
+- `server.py`：既有 Python 服务基础。

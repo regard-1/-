@@ -3,65 +3,72 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="description" content="多特倍斯私域运营中台在线演示">
-  <title>多特倍斯运营中台</title>
+  <meta name="description" content="多特倍斯健康服务中心在线体验">
+  <title>多特倍斯健康服务中心</title>
   <link rel="stylesheet" href="./assets/app.css">
 </head>
-<body>
-  <section id="login-view" class="login-view hidden">
-    <div class="login-decoration decoration-one"></div>
-    <div class="login-decoration decoration-two"></div>
-    <div class="login-panel">
-      <div class="brand-mark large">D</div>
-      <p class="eyebrow">DOTBEST PRIVATE DOMAIN OS</p>
-      <h1>多特倍斯运营中台</h1>
-      <p class="login-copy">连接用户资产、会员、内容与每一次有温度的沟通。</p>
-      <form id="login-form">
-        <label>账号<input name="username" value="admin" autocomplete="username" required></label>
-        <label>密码<input name="password" type="password" value="Dotbest@2026" autocomplete="current-password" required></label>
-        <button class="primary-button full" type="submit">进入运营中台</button>
-      </form>
-      <p class="login-tip">在线演示数据仅用于产品体验，不包含真实客户信息。</p>
+<body class="consumer-body">
+  <section id="welcome-view" class="welcome-view">
+    <div class="welcome-orb orb-one"></div><div class="welcome-orb orb-two"></div>
+    <div class="welcome-shell">
+      <header class="welcome-brand"><div class="brand-mark">D</div><div><strong>多特倍斯</strong><span>健康服务中心</span></div></header>
+      <main class="welcome-card">
+        <div class="welcome-copy">
+          <p class="eyebrow">DOTBEST HEALTH COMPANION</p>
+          <h1>从你真正关心的问题开始</h1>
+          <p>了解成分、继续咨询或设置提醒。你可以先体验，再决定是否保存记录。</p>
+        </div>
+        <div class="welcome-actions">
+          <div class="purpose-grid" id="purpose-grid">
+            <button class="purpose-card selected" data-purpose="first"><span>01</span><strong>第一次了解</strong><small>用简单语言认识常见成分</small></button>
+            <button class="purpose-card" data-purpose="compare"><span>02</span><strong>比较成分信息</strong><small>查看差异、来源和注意事项</small></button>
+            <button class="purpose-card" data-purpose="question"><span>03</span><strong>我有具体问题</strong><small>直接进入AI咨询或转人工</small></button>
+            <button class="purpose-card" data-purpose="browse"><span>04</span><strong>先随便看看</strong><small>不填写资料也可以浏览</small></button>
+          </div>
+          <div class="welcome-settings">
+            <div><strong>内容解释方式</strong><p>以后也可以随时切换</p></div>
+            <div class="segmented" id="welcome-mode"><button class="active" data-mode="simple">简单易懂</button><button data-mode="professional">详细专业</button></div>
+          </div>
+          <label class="consent-line"><input id="welcome-consent" type="checkbox" checked> 允许在本机保存本次体验偏好和咨询记录</label>
+          <button id="start-button" class="primary-button welcome-start">开始体验 <span>→</span></button>
+          <p class="welcome-note">本演示仅用于产品体验，不提供医疗诊断，也不包含真实用户数据。</p>
+        </div>
+      </main>
     </div>
   </section>
 
-  <div id="app" class="app-shell hidden">
-    <aside class="sidebar">
-      <div class="brand"><div class="brand-mark">D</div><div><strong>多特倍斯</strong><span>运营中台</span></div></div>
-      <nav class="nav-list">
-        <button data-page="dashboard" class="nav-item active"><span>◫</span>运营总览</button>
-        <button data-page="assets" class="nav-item"><span>◎</span>用户资产</button>
-        <button data-page="members" class="nav-item"><span>◇</span>会员中心</button>
-        <button data-page="campaigns" class="nav-item"><span>△</span>营销活动</button>
-        <button data-page="communities" class="nav-item"><span>⌁</span>社群运营</button>
-        <button data-page="analytics" class="nav-item"><span>⌗</span>数据分析</button>
+  <div id="app" class="consumer-app hidden">
+    <header class="consumer-header">
+      <button class="mobile-menu" id="mobile-menu" aria-label="打开导航">☰</button>
+      <button class="consumer-brand" data-page="home"><span class="brand-mark">D</span><span><strong>多特倍斯</strong><span>健康服务中心</span></span></button>
+      <nav class="consumer-nav" id="consumer-nav">
+        <button class="consumer-nav-item active" data-page="home">首页</button>
+        <button class="consumer-nav-item" data-page="knowledge">知识中心</button>
+        <button class="consumer-nav-item" data-page="consult">AI咨询</button>
+        <button class="consumer-nav-item" data-page="focus">我的关注</button>
+        <button class="consumer-nav-item" data-page="reminders">提醒</button>
       </nav>
-      <div class="sidebar-card">
-        <span class="status-dot"></span>
-        <strong>演示系统运行正常</strong>
-        <small>画像和经营数据已加载</small>
+      <div class="header-actions">
+        <button class="message-button" data-page="messages" aria-label="消息">⌁<b id="message-count">2</b></button>
+        <button class="user-chip" data-page="settings"><span id="header-avatar">林</span><b id="header-name">林女士</b></button>
       </div>
-      <div class="sidebar-user">
-        <div class="avatar" id="user-avatar">运</div>
-        <div><strong id="user-name">运营管理员</strong><span id="user-role">superadmin</span></div>
-        <button id="logout-button" title="退出">↗</button>
-      </div>
-    </aside>
+    </header>
 
-    <section class="content-shell">
-      <header class="topbar">
-        <div><p class="breadcrumb" id="breadcrumb">运营中台 / 总览</p><h2 id="page-title">早上好，欢迎回来</h2></div>
-        <div class="top-actions"><span class="sync-state"><i></i>演示数据</span><button class="icon-button" title="通知">⌁<b>3</b></button></div>
-      </header>
-      <main id="main-content" class="main-content"><div class="loading-card">正在加载运营数据…</div></main>
-    </section>
+    <main id="main-content" class="consumer-main"><div class="loading-card">正在准备你的体验…</div></main>
+
+    <nav class="mobile-bottom-nav">
+      <button class="active" data-page="home"><span>⌂</span>首页</button>
+      <button data-page="knowledge"><span>◇</span>知识</button>
+      <button data-page="consult" class="mobile-consult"><span>✦</span>咨询</button>
+      <button data-page="reminders"><span>◷</span>提醒</button>
+      <button data-page="settings"><span>○</span>我的</button>
+    </nav>
   </div>
 
   <div id="drawer-backdrop" class="drawer-backdrop hidden"></div>
-  <aside id="drawer" class="drawer hidden"><div id="drawer-content"></div></aside>
+  <aside id="drawer" class="drawer consumer-drawer hidden"><div id="drawer-content"></div></aside>
   <div id="toast" class="toast hidden"></div>
   <script src="./assets/demo-api.js"></script>
   <script src="./assets/app.js"></script>
 </body>
 </html>
-
