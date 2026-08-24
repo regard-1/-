@@ -32,6 +32,8 @@ async function request(url,options){const response=await fetch(url,options);retu
   assert.match(reply,/医生或药师/);
   assert.doesNotMatch(reply,/高优先|内部|标签|评分|置信度|138\*\*\*\*8001/);
   assert.ok(generated.body.data.suggestion.policy_flags.includes('需要人工确认'));
+  assert.ok(generated.body.data.suggestion.human_score >= 80);
+  assert.equal(generated.body.data.suggestion.next_turns.length,3);
 
   const sent=await request(`/api/v1/private/agent-conversations/${conversationId}/mark-sent`,{method:'POST',body:JSON.stringify({reply})});
   assert.equal(sent.body.data.sent,true);
@@ -51,6 +53,11 @@ async function request(url,options){const response=await fetch(url,options);retu
   assert.doesNotMatch(birthdayGenerated.body.data.suggestion.reply,/内部|意向度|转化可能|职业|年龄/);
   const refreshed=await request('/api/v1/private/tasks/optimization/refresh',{method:'POST',body:'{}'});
   assert.equal(refreshed.body.data.version,'D+1 V4');
+  const playbook=await request('/api/v1/private/scripts');
+  assert.equal(playbook.body.data.lifecycle.length,2);
+  assert.ok(playbook.body.data.items.some(x=>x.id==='new-payment'));
+  assert.ok(playbook.body.data.items.some(x=>x.id==='old-wakeup'));
+  assert.equal(playbook.body.data.historical_learning.totals.touches,491946);
   const done=await request('/api/v1/private/tasks/t1/status',{method:'POST',body:JSON.stringify({status:'done'})});
   assert.equal(done.body.data.status,'done');
 
@@ -58,3 +65,4 @@ async function request(url,options){const response=await fetch(url,options);retu
   assert.equal(forbidden.status,404);
   console.log('operator frontend smoke: all checks passed');
 })().catch(error=>{console.error(error);process.exitCode=1});
+
