@@ -266,7 +266,7 @@ logging.handlers.RotatingFileHandler(
 ```
 
 ### 2. 部署模式选择
-- **GitHub Pages 演示**：不落盘，只 stdout（`LOG_FILE` 不设）
+- **Gitee Pages 演示**：不落盘，只 stdout（`LOG_FILE` 不设）
 - **本机开发**：`LOG_FILE=logs/server.log`，按大小滚动
 - **生产部署**：`LOG_FILE=logs/server.log` + 外部日志收集（如 Docker logging driver）
 

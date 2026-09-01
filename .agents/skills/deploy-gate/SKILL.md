@@ -1,7 +1,7 @@
 ***
 
 name: "deploy-gate"
-description: "Deployment gate for pure-Python http.server project: pre-deploy checks (git clean, quality gate passed), GitHub Pages frontend deploy, python server.py backend deploy, rollback on failure. Invoke when deploying code, pushing to production, or recovering from failed deploy. Trigger words: 部署/发布/上线/回滚/deploy/rollback/推送到生产/GitHub Pages. Failure must rollback, never leave production broken."
+description: "Deployment gate for pure-Python http.server project: pre-deploy checks (git clean, quality gate passed), Gitee Pages frontend deploy, python server.py backend deploy, rollback on failure. Invoke when deploying code, pushing to production, or recovering from failed deploy. Trigger words: 部署/发布/上线/回滚/deploy/rollback/推送到生产/Gitee Pages. Failure must rollback, never leave production broken."
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 # 发布闸门（AI 部署前必跑）
@@ -10,7 +10,7 @@ description: "Deployment gate for pure-Python http.server project: pre-deploy ch
 
 部署方式分两部分：
 
-- **前端**：GitHub Pages（`index.html` 静态托管）
+- **前端**：Gitee Pages（`index.html` 静态托管，**push 后需手动在 Gitee 后台触发部署**）
 
 - **后端**：`python server.py`（端口 8090）
 
@@ -20,7 +20,7 @@ description: "Deployment gate for pure-Python http.server project: pre-deploy ch
 
 部署依赖：
 
-- GitHub 仓库（前端通过 GitHub Pages 自动部署）
+- Gitee 仓库（前端通过 Gitee Pages 托管，**需手动触发部署**，非 push 自动部署）
 
 - 后端运行机（`python server.py` 启动）
 
@@ -67,11 +67,13 @@ git pull --rebase    # 有远程时
 
 ***
 
-## 前端部署（GitHub Pages）
+## 前端部署（Gitee Pages）
 
 ### 机制
 
-GitHub Pages 通过 GitHub 仓库的 `main` 分支自动部署，**push 到 main 即触发部署**。
+Gitee Pages 通过 Gitee 仓库的 `main` 分支托管静态页面。**关键：push 不会自动触发部署，必须在 Gitee 后台手动点「更新」才部署。**
+
+> 与 GitHub Pages 的核心差异：GitHub Pages 是 push 即部署；Gitee Pages 是 push 后还需手动触发。
 
 ### 步骤
 
@@ -79,16 +81,17 @@ GitHub Pages 通过 GitHub 仓库的 `main` 分支自动部署，**push 到 main
 # 1. 确认改动已 commit
 git status --short
 
-# 2. push 到 main
+# 2. push 到 Gitee 仓库 main 分支
 git push origin main
-
-# 3. 等待 GitHub Actions 部署（约 1-2 分钟）
-# 4. 访问 https://regard-1.github.io/- 验证
 ```
+
+3. 浏览器进入 Gitee 仓库 → 顶部「服务」菜单 →「Gitee Pages」
+4. 部署分支选 `main`，部署目录选 `/`（根目录），点「更新」按钮手动触发部署
+5. 等待部署完成（约 1-2 分钟），访问 <https://danchengweisong.gitee.io/dotbest> 验证
 
 ### 验证
 
-- 访问 <https://regard-1.github.io/->
+- 访问 <https://danchengweisong.gitee.io/dotbest>
 
 - 检查页面加载正常
 
@@ -96,11 +99,11 @@ git push origin main
 
 ### 失败处理
 
-- GitHub Actions 构建失败 → 检查 Actions 日志
+- Gitee Pages 部署失败 → 在 Gitee Pages 服务页查看部署状态/日志，确认仓库公开 + 已实名认证审核
 
-- 页面 404 → 确认 GitHub Pages 设置指向 main 分支
+- 页面 404 → 确认 Gitee Pages 已开通、部署分支指向 `main`、部署目录为 `/`、仓库公开
 
-- 回滚 → `git revert <commit>` + push，GitHub Pages 自动重新部署
+- 回滚 → `git revert <commit>` + push，**再到 Gitee Pages 页面手动点「更新」重新部署**（Gitee Pages 不会因 push 自动重新部署）
 
 ***
 
@@ -213,7 +216,7 @@ curl http://localhost:8090/api/health
 
 - [ ] `python -m unittest discover -s tests -v` 全绿
 
-- [ ] 前端：push 到 main 后等 GitHub Pages 部署，访问验证
+- [ ] 前端：push 到 main 后在 Gitee Pages 手动点「更新」触发部署，访问 <https://danchengweisong.gitee.io/dotbest> 验证
 
 - [ ] 后端：启动 `python server.py`，健康检查通过
 
