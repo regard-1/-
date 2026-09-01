@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="多特倍斯私域触达运营中台">
+  <title>多特倍斯私域运营中台</title>
+  <link rel="stylesheet" href="./assets/app.css">
+</head>
+<body class="operator-body">
+  <section id="login-view" class="login-view">
+    <div class="login-decoration decoration-one"></div><div class="login-decoration decoration-two"></div>
+    <div class="login-panel">
+      <div class="brand-mark large">D</div>
+      <p class="eyebrow">DOTBEST PRIVATE DOMAIN DESK</p>
+      <h1>多特倍斯私域运营中台</h1>
+      <p class="login-copy">面向一线运营的用户触达、回复建议与跟进工作台</p>
+      <form id="login-form">
+        <label>运营账号<input name="username" value="demo_operator" autocomplete="username" required></label>
+        <label>密码<input name="password" type="password" value="demo" autocomplete="current-password" required></label>
+        <button class="primary-button full" type="submit">进入触达工作台</button>
+      </form>
+      <p class="login-tip">演示数据均为虚构信息，不会真实向客户发送消息。</p>
+    </div>
+  </section>
+
+  <div id="app" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-mark">D</div><div><strong>多特倍斯</strong><span>私域运营中台</span></div></div>
+      <nav class="nav-list">
+        <button data-page="workbench" class="nav-item active"><span>◫</span>今日工作台</button>
+        <button data-page="assets" class="nav-item"><span>◎</span>用户资产</button>
+        <button data-page="conversations" class="nav-item"><span>⌁</span>会话工作台</button>
+        <button data-page="tasks" class="nav-item"><span>◷</span>触达任务</button>
+        <button data-page="scripts" class="nav-item"><span>✦</span>话术中心</button>
+        <button data-page="governance" class="nav-item"><span>◇</span>合规与权限</button>
+      </nav>
+      <div class="sidebar-card">
+        <span class="status-dot"></span><strong>触达服务正常</strong>
+        <small>内部信息不会写入客户消息</small>
+      </div>
+      <div class="sidebar-user">
+        <div class="avatar" id="user-avatar">周</div>
+        <div><strong id="user-name">演示顾问A</strong><span id="user-role">一线运营</span></div>
+        <button id="logout-button" title="退出">↗</button>
+      </div>
+    </aside>
+
+    <section class="content-shell">
+      <header class="topbar">
+        <div><p class="breadcrumb" id="breadcrumb">私域运营中台 / 今日工作台</p><h2 id="page-title">今天需要跟进的用户</h2></div>
+        <div class="top-actions"><span class="sync-state"><i></i>演示数据</span><button class="icon-button" data-page="tasks" title="待办">◷<b id="task-count">6</b></button></div>
+      </header>
+      <main id="main-content" class="main-content"><div class="loading-card">正在加载触达任务…</div></main>
+    </section>
+  </div>
+
+  <div id="drawer-backdrop" class="drawer-backdrop hidden"></div>
+  <aside id="drawer" class="drawer hidden"><div id="drawer-content"></div></aside>
+  <div id="toast" class="toast hidden"></div>
+  <script src="./assets/demo-api.js"></script>
+  <script src="./assets/app.js"></script>
+</body>
+</html>

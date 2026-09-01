@@ -1,0 +1,21 @@
+# Runtime data and secrets
+data.db
+data.db-*
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+
+# Python / editor artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.vscode/
+.idea/
+
+# Logs and temporary files
+*.log
+tmp/
+temp/
