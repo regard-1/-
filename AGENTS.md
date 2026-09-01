@@ -8,15 +8,16 @@
 
 - 后端：纯 Python 标准库 `http.server.BaseHTTPRequestHandler` + `sqlite3`（**不用 FastAPI/Flask/Django**）
 
-- 前端：原生 HTML/CSS/JS（Gitee Pages 托管，push 后需手动触发部署）
+- 前端：原生 HTML/CSS/JS（GitHub Pages 托管，push 到 main 自动部署）
 
 - 测试：前端 `tests/frontend_smoke.js`（Node 冒烟）；后端建议补 unittest（见 `quality-gate` skill）
 
 - 主入口：`server.py`（端口 8090），或 `py -m http.server 8091` 只跑前端静态
 
-- 在线演示：<https://danchengweisong.gitee.io/dotbest（Gitee> Pages）
+- 在线演示：<https://regard-1.github.io/->（GitHub Pages）
 
-- Gitee 仓库：<https://gitee.com/danchengWeisong/Dotbest>
+- GitHub 仓库：<https://github.com/regard-1/-.git>（推送权限受限，需有权限者推送）
+- Gitee 仓库（镜像备份）：<https://gitee.com/danchengWeisong/Dotbest>
 
 ## 红线（必先执行）
 
@@ -28,7 +29,7 @@
 
    - `quality-gate`（`.agents/skills/quality-gate/SKILL.md`）—— ruff + unittest + 快照测试，commit 前必跑
 
-   - `deploy-gate`（`.agents/skills/deploy-gate/SKILL.md`）—— Gitee Pages 前端部署 + python server.py 后端部署 + 回滚
+   - `deploy-gate`（`.agents/skills/deploy-gate/SKILL.md`）—— GitHub Pages 前端部署 + python server.py 后端部署 + 回滚
 
    触发场景：新增/修改任何 `.py`、配置日志、新增接口、部署/发布。
 
@@ -45,7 +46,7 @@
 
 3. **部署前必先调** **`deploy-gate`** **skill**：
 
-   - 前端：push 到 main 后在 Gitee 后台「Gitee Pages」手动点「更新」触发部署（push 不自动部署）
+   - 前端：push 到 github main 后 GitHub Pages 自动部署（推送权限受限，需有权限者推送）
 
    - 后端：`python server.py`（或 `.\start.ps1`）
 
@@ -124,7 +125,7 @@ AI **不得**自动 `git push`，必须用户明确说"推送/push/部署"才执
 
 - 后端入口：`server.py`（端口 8090，`python server.py` 或 `.\start.ps1` 启动）
 
-- 前端：Gitee Pages，push 到 main 后需在 Gitee 后台手动点「更新」触发部署
+- 前端：GitHub Pages（<https://regard-1.github.io/->），push 到 github main 自动部署；推送权限受限，需有权限者推送
 
 - 数据库：SQLite（`data.db`），`init_db()` 函数初始化
 

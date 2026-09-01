@@ -4,8 +4,9 @@
 
 ## 在线体验
 
-- Gitee Pages：<https://danchengweisong.gitee.io/dotbest>
-- Gitee 仓库：<https://gitee.com/danchengWeisong/Dotbest>
+- GitHub Pages：<https://regard-1.github.io/->
+- GitHub 仓库：<https://github.com/regard-1/-.git>（推送权限受限，需有权限者推送）
+- Gitee 仓库（镜像备份）：<https://gitee.com/danchengWeisong/Dotbest>
 - 演示账号：`demo_operator`
 - 演示密码：`demo`
 
@@ -47,7 +48,7 @@ py -m http.server 8091
 
 ## 主要文件
 
-- `index.html`：Gitee Pages 入口；
+- `index.html`：GitHub Pages 入口；
 - `templates/index.html`：Python 服务入口；
 - `assets/app.js`：运营执行端交互；
 - `assets/demo-api.js`：演示数据与静态接口；
