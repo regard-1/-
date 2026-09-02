@@ -52,6 +52,32 @@ class CoreTests(unittest.TestCase):
         self.assertTrue(server.password_verify("correct horse battery staple", encoded))
         self.assertFalse(server.password_verify("wrong", encoded))
 
+    def test_create_customer_inherits_owner_and_blank_profile(self):
+        customer = server.demo_backend.demo_store.create_customer(
+            {
+                "name": "测试新客",
+                "phone": "0823",
+                "owner": "演示顾问A",
+                "city": "华东地区",
+                "product_focus": "辅酶Q10日常方案",
+                "assetCodes": ["coq10", "regular"],
+            }
+        )
+        self.assertGreater(customer["id"], 8)
+        self.assertEqual("测试新客", customer["name"])
+        self.assertEqual("演示顾问A", customer["owner"])
+        self.assertEqual(["coq10", "regular"], customer["assetCodes"])
+        self.assertEqual(0, customer["persona"]["intention_score"])
+        self.assertIn("暂无足够事实", customer["ai_profile"]["summary"])
+
+    def test_create_customer_requires_name_phone_and_owner(self):
+        with self.assertRaises(ValueError):
+            server.demo_backend.demo_store.create_customer({"phone": "0823", "owner": "演示顾问A"})
+        with self.assertRaises(ValueError):
+            server.demo_backend.demo_store.create_customer({"name": "测试新客", "owner": "演示顾问A"})
+        with self.assertRaises(ValueError):
+            server.demo_backend.demo_store.create_customer({"name": "测试新客", "phone": "0823"})
+
 
 if __name__ == "__main__":
     unittest.main()

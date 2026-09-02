@@ -94,6 +94,23 @@
   const fail=(message,status=404)=>Promise.resolve(new Response(JSON.stringify({success:false,data:null,error:{message},request_id:'operator-demo'}),{status,headers:{'Content-Type':'application/json; charset=utf-8'}}));
   const body=options=>{try{return JSON.parse(options?.body||'{}')}catch{return {}}};
   const customer=id=>customers.find(x=>x.id===Number(id));
+  function newCustomer(p){
+    const name=String(p.name||'').trim(),phone=String(p.phone||'').trim(),owner=String(p.owner||'').trim();
+    if(!name)return fail('客户姓名不能为空',400);
+    if(!phone)return fail('需提供脱敏手机号（如后四位）',400);
+    if(!owner)return fail('归属顾问不能为空',400);
+    const city=String(p.city||'').trim()||'待补充';
+    const product_focus=String(p.product_focus||'').trim()||'待确认';
+    const categoryNames=Object.fromEntries(categories.map(x=>[x.code,x.name]));
+    const assetCodes=[...(Array.isArray(p.assetCodes)?p.assetCodes:[])].filter(code=>categoryNames[code]);
+    const codes=assetCodes.length?assetCodes:['regular'];
+    const id=customers.reduce((m,c)=>Math.max(m,c.id),0)+1;
+    const persona={age_band:'待确认',gender:'未标注',occupation:'待确认（暂无推断依据）',life_stage:'待确认',personality:'待观察',decision_style:'暂无足够依据，先以用户自述为准',content_preference:'待观察',available_time:'待确认',non_health_topics:[],intention_score:0,conversion_probability:0,confidence:0,sources:['人工录入基础信息']};
+    const c={id,name,phone,city,owner,member:'未绑定会员',stage:'待首次触达',priority:'中',assetCodes:codes,product_focus,last_message:'新录入客户，尚未产生沟通记录',last_time:'刚刚录入',next_action:'完成首次真实沟通，采集明确需求与授权边界',next_at:'待安排',consent:'待确认授权',traits:['新录入','待采集'],facts:['录入时仅确认基础归属信息'],purchase:[],persona,assets:codes.map(code=>({code,name:categoryNames[code],basis:'人工归属'})),ai_profile:{summary:`${name}刚刚录入，暂无足够事实用于生成内部判断。请先通过首次真实沟通采集需求与授权边界，再生成辅助摘要。`,tags:['新录入','待采集需求','未生成推断'],confidence:0,generated_at:now(),evidence:[{label:'仅确认客户姓名、基础归属与授权状态',source:'人工录入'}],guardrails:['不承诺疾病治疗效果','不把推断描述成用户事实','不按政治立场或敏感属性定向沟通','发送前由运营人员确认']},interactions:[{type:'系统记录',content:'客户由运营人员新录入，尚未开始触达',time:'刚刚',channel:'运营中台'}]};
+    customers.push(c);
+    conversations.set(id,{id,customer_id:id,scene:'consult',messages:[{role:'operator',content:`您好${name.slice(0,1)}老师，我是负责您的顾问${owner}，先和您确认一下目前最想了解的内容。`,time:'待发送'}],suggestion:null});
+    return ok(c,201);
+  }
   function suggestionFor(c,message,scene,task){
     const sensitive=/治疗|治好|药|医生|怀孕|孕期|严重|胸痛|呼吸困难/.test(message);
     const address=c.name;
@@ -141,6 +158,7 @@
     if(!loggedIn)return fail('请先登录',401);
     if(path==='/api/v1/private/workbench')return ok({metrics:{due:tasks.filter(x=>x.status==='pending').length,waiting:customers.filter(x=>x.stage==='待回复'||x.stage==='对话中').length,followups:customers.filter(x=>x.stage==='待跟进').length,paused:customers.filter(x=>x.stage==='暂停触达').length},categories,queue:tasks.filter(x=>x.status==='pending').slice(0,6).map(t=>({...t,customer:customer(t.customer_id)})),completed_today:3});
     if(path==='/api/v1/private/user-assets')return ok({categories,updated_at:now()});
+    if(path==='/api/v1/private/customers'&&method==='POST')return newCustomer(body(options));
     let m=path.match(/^\/api\/v1\/private\/user-assets\/([\w-]+)\/customers$/);
     if(m){const audience=categories.find(x=>x.code===m[1]);if(!audience)return fail('人群不存在');const q=(url.searchParams.get('q')||'').toLowerCase();let items=customers.filter(x=>x.assetCodes.includes(m[1]));if(q)items=items.filter(x=>`${x.name}${x.phone}${x.owner}${x.product_focus}${x.stage}`.toLowerCase().includes(q));return ok({audience,items,pagination:{page:1,total:items.length}})}
     m=path.match(/^\/api\/v1\/private\/customers\/(\d+)$/);if(m){const c=customer(m[1]);return c?ok(c):fail('用户不存在')}

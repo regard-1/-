@@ -163,6 +163,22 @@ def _performance(version: int) -> dict:
 
 SENSITIVE_RE = re.compile(r"治疗|治好|药|医生|怀孕|孕期|严重|胸痛|呼吸困难")
 
+NEW_CUSTOMER_PERSONA = {
+    "age_band": "待确认",
+    "gender": "未标注",
+    "occupation": "待确认（暂无推断依据）",
+    "life_stage": "待确认",
+    "personality": "待观察",
+    "decision_style": "暂无足够依据，先以用户自述为准",
+    "content_preference": "待观察",
+    "available_time": "待确认",
+    "non_health_topics": [],
+    "intention_score": 0,
+    "conversion_probability": 0,
+    "confidence": 0,
+    "sources": ["人工录入基础信息"],
+}
+
 
 def build_customers() -> list[dict]:
     category_names = {item["code"]: item["name"] for item in CATEGORIES}
@@ -333,6 +349,70 @@ class DemoStore:
                 "items": copy.deepcopy(items),
                 "pagination": {"page": 1, "total": len(items)},
             }
+
+    def create_customer(self, payload: dict) -> dict:
+        name = str(payload.get("name") or "").strip()
+        phone = str(payload.get("phone") or "").strip()
+        owner = str(payload.get("owner") or "").strip()
+        city = str(payload.get("city") or "").strip() or "待补充"
+        product_focus = str(payload.get("product_focus") or "").strip() or "待确认"
+        if not name:
+            raise ValueError("客户姓名不能为空")
+        if not phone:
+            raise ValueError("需提供脱敏手机号（如后四位）")
+        if not owner:
+            raise ValueError("归属顾问不能为空")
+        with self._lock:
+            valid_codes = {item["code"] for item in self._categories}
+            requested = payload.get("assetCodes") or payload.get("asset_codes") or []
+            asset_codes = [code for code in requested if code in valid_codes]
+            if not asset_codes:
+                asset_codes = ["regular"]
+            new_id = max((customer["id"] for customer in self._customers), default=0) + 1
+            category_names = {item["code"]: item["name"] for item in self._categories}
+            persona = copy.deepcopy(NEW_CUSTOMER_PERSONA)
+            customer = {
+                "id": new_id,
+                "name": name,
+                "phone": phone,
+                "city": city,
+                "owner": owner,
+                "member": "未绑定会员",
+                "stage": "待首次触达",
+                "priority": "中",
+                "assetCodes": asset_codes,
+                "product_focus": product_focus,
+                "last_message": "新录入客户，尚未产生沟通记录",
+                "last_time": "刚刚录入",
+                "next_action": "完成首次真实沟通，采集明确需求与授权边界",
+                "next_at": "待安排",
+                "consent": "待确认授权",
+                "traits": ["新录入", "待采集"],
+                "facts": ["录入时仅确认基础归属信息"],
+                "purchase": [],
+                "persona": persona,
+                "assets": [{"code": code, "name": category_names[code], "basis": "人工归属"} for code in asset_codes],
+                "ai_profile": {
+                    "summary": f"{name}刚刚录入，暂无足够事实用于生成内部判断。请先通过首次真实沟通采集需求与授权边界，再生成辅助摘要。",
+                    "tags": ["新录入", "待采集需求", "未生成推断"],
+                    "confidence": 0.0,
+                    "generated_at": _utc_now(),
+                    "evidence": [{"label": "仅确认客户姓名、基础归属与授权状态", "source": "人工录入"}],
+                    "guardrails": ["不承诺疾病治疗效果", "不把推断描述成用户事实", "不按政治立场或敏感属性定向沟通", "发送前由运营人员确认"],
+                },
+                "interactions": [{"type": "系统记录", "content": "客户由运营人员新录入，尚未开始触达", "time": "刚刚", "channel": "运营中台"}],
+            }
+            self._customers.append(customer)
+            self._conversations[new_id] = {
+                "id": new_id,
+                "customer_id": new_id,
+                "scene": "consult",
+                "messages": [{"role": "operator", "content": f"您好{name[:1]}老师，我是负责您的顾问{owner}，先和您确认一下目前最想了解的内容。", "time": "待发送"}],
+                "suggestion": None,
+            }
+            for item in self._categories:
+                item["customer_count"] = len([c for c in self._customers if item["code"] in c["assetCodes"]])
+            return copy.deepcopy(customer)
 
     def get_customer(self, customer_id: int) -> dict | None:
         with self._lock:
