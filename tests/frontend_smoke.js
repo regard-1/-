@@ -63,5 +63,13 @@ async function request(url,options){const response=await fetch(url,options);retu
 
   const forbidden=await request('/api/v1/private/orders');
   assert.equal(forbidden.status,404);
+  const created=await request('/api/v1/private/customers',{method:'POST',body:JSON.stringify({name:'演示新客',phone:'0823',owner:'演示顾问A',city:'华东地区',product_focus:'辅酶Q10日常方案',assetCodes:['coq10','regular']})});
+  assert.equal(created.status,201);
+  assert.equal(created.body.data.owner,'演示顾问A');
+  assert.equal(created.body.data.persona.intention_score,0);
+  assert.ok(created.body.data.id>8);
+  const fetched=await request(`/api/v1/private/customers/${created.body.data.id}`);
+  assert.equal(fetched.body.data.name,'演示新客');
+  assert.deepEqual(fetched.body.data.assetCodes,['coq10','regular']);
   console.log('operator frontend smoke: all checks passed');
 })().catch(error=>{console.error(error);process.exitCode=1});
