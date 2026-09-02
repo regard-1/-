@@ -32,6 +32,35 @@ class SegmentTests(unittest.TestCase):
         category = self.store.audience_customers("nmn")
         self.assertEqual(4489, category["pagination"]["total"])
 
+    def test_anti_aging_overview_orders_customers_by_action_tier(self):
+        overview = self.store.segment_overview("anti-aging")
+        self.assertEqual("抗衰人群", overview["segment"]["name"])
+        self.assertEqual(4491, overview["metrics"]["total"])
+        self.assertEqual(4489, overview["metrics"]["due"])
+        self.assertEqual(2, overview["metrics"]["repurchase"])
+        self.assertEqual(2, overview["metrics"]["nurture"])
+        self.assertEqual(4485, overview["metrics"]["fresh"])
+        self.assertEqual(1, overview["metrics"]["silent"])
+        self.assertEqual(1, overview["metrics"]["paused"])
+        self.assertEqual(
+            ["repurchase", "core", "nurture", "fresh", "silent"],
+            [tier["key"] for tier in overview["tiers"]],
+        )
+        self.assertEqual(6, len(overview["due_sample"]))
+        self.assertTrue(all(item["phone"].isdigit() and len(item["phone"]) == 4 for item in overview["due_sample"]))
+
+    def test_basic_nutrition_overview_uses_basic_purchase_keywords(self):
+        overview = self.store.segment_overview("basic-nutrition")
+        self.assertEqual(6, overview["metrics"]["total"])
+        self.assertEqual(5, overview["metrics"]["due"])
+        self.assertEqual(4, overview["metrics"]["repurchase"])
+        self.assertEqual(1, overview["metrics"]["nurture"])
+        self.assertEqual(1, overview["metrics"]["silent"])
+        self.assertEqual(0, overview["metrics"]["fresh"])
+
+    def test_segment_overview_returns_none_for_unknown_code(self):
+        self.assertIsNone(self.store.segment_overview("not-a-segment"))
+
 
 if __name__ == "__main__":
     unittest.main()

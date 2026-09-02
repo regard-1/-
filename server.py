@@ -863,6 +863,14 @@ class Handler(BaseHTTPRequestHandler):
                 if data is None:
                     return self.json_response(404, error={"code": "NOT_FOUND", "message": "用户资产分类不存在"})
                 return self.json_response(200, data)
+            match = re.fullmatch(r"/api/v1/private/segments/([a-z0-9_-]+)/overview", path)
+            if match:
+                if not self.require_permission(user, "customer:read"):
+                    return
+                data = demo_backend.demo_store.segment_overview(match.group(1))
+                if data is None:
+                    return self.json_response(404, error={"code": "NOT_FOUND", "message": "用户板块不存在"})
+                return self.json_response(200, data)
             match = re.fullmatch(r"/api/v1/private/customers/(\d+)", path)
             if match:
                 if not self.require_permission(user, "customer:read"):

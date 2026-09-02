@@ -8,8 +8,8 @@
     {code:'regular',name:'常规品人群',description:'关注基础营养与日常健康产品',color:'#4b9c7f',segment_code:'basic-nutrition',customer_count:4,due_count:4}
   ];
   const segments=[
-    {code:'anti-aging',name:'抗衰人群',description:'以 NMN、麦角硫因为核心的高价值抗衰用户，优先完成精细化运营',color:'#2f7165',category_codes:['nmn','ergothioneine'],customer_count:0,due_count:0},
-    {code:'basic-nutrition',name:'基础营养补充人群',description:'以辅酶 Q10、常规营养品为核心的日常健康用户，覆盖家庭营养需求',color:'#b07b3d',category_codes:['coq10','regular'],customer_count:0,due_count:0}
+    {code:'anti-aging',name:'抗衰人群',description:'以 NMN、麦角硫因为核心的高价值抗衰用户，优先完成精细化运营',color:'#2f7165',category_codes:['nmn','ergothioneine'],purchase_keywords:['NMN','麦角硫因'],customer_count:0,due_count:0},
+    {code:'basic-nutrition',name:'基础营养补充人群',description:'以辅酶 Q10、常规营养品为核心的日常健康用户，覆盖家庭营养需求',color:'#b07b3d',category_codes:['coq10','regular'],purchase_keywords:['辅酶','日常营养','益生菌','维矿'],customer_count:0,due_count:0}
   ];
   const base=[
     {id:1,name:'示例用户01',phone:'0001',city:'华东地区',owner:'演示顾问A',member:'示例会员A',stage:'待回复',priority:'高',assetCodes:['nmn','coq10'],product_focus:'NMN焕活方案',last_message:'我担心长期吃会不会负担大，而且价格也要考虑。',last_time:'8分钟前',next_action:'先回应安全与周期顾虑，再给轻量体验选择',next_at:'今天 10:30',consent:'演示渠道已授权',traits:['重视安全边界','倾向简单方案','价格需解释价值'],facts:['示例浏览行为A','示例咨询行为A','示例沟通偏好A'],purchase:['NMN体验装 · 示例记录A','辅酶Q10基础装 · 示例记录B']},
@@ -69,6 +69,41 @@
   }
   refreshCategoryCounts();
   refreshSegmentCounts();
+  function segmentMembers(segment){
+    const codes=segment.category_codes||[];
+    return customers.filter(c=>c.assetCodes.some(code=>codes.includes(code)));
+  }
+  function segmentOverview(segment){
+    const kw=segment.purchase_keywords||[];
+    const members=segmentMembers(segment);
+    const paused=[],silent=[],repurchase=[],core=[],nurture=[],fresh=[];
+    members.forEach(c=>{
+      if(c.stage==='暂停触达'){paused.push(c);return}
+      if(c.stage==='已读未回'){silent.push(c);return}
+      const purchased=(c.purchase||[]).some(p=>kw.some(k=>String(p).includes(k)));
+      if(purchased){repurchase.push(c);return}
+      const score=c.persona?.intention_score||0;
+      if(score>=80){core.push(c);return}
+      if(score>=40){nurture.push(c);return}
+      fresh.push(c);
+    });
+    const tiers=[
+      {key:'repurchase',name:'已购待复购',description:'已有该板块购买记录，按使用周期做关怀与复购',count:repurchase.length,action:'先核对使用情况与库存，再判断是否续购或调整方案',tone:'服务优先，不虚构断档',accent:'#2f7165'},
+      {key:'core',name:'高意向核心',description:'意向明确且尚未购买，是本周转化重点',count:core.length,action:'当天聚焦顾虑，给二选一的明确下一步',tone:'减少泛化介绍，多轮推进',accent:'#c89b5a'},
+      {key:'nurture',name:'观望培育',description:'有初步意向，需要低压力信息与耐心培育',count:nurture.length,action:'一次只给一个信息点，结尾留一个易答问题',tone:'不催促，允许退出',accent:'#8e72c9'},
+      {key:'fresh',name:'待首次触达',description:'名单已导入，尚未形成真实沟通事实',count:fresh.length,action:'完成首次触达，采集需求、使用场景与授权边界',tone:'先建联，再判断',accent:'#4b7fae'},
+      {key:'silent',name:'沉默唤醒',description:'已读未回，需低打扰度确认是否继续',count:silent.length,action:'发送单条可独立阅读要点，明确无回复即降低频次',tone:'不连续追问',accent:'#b07b3d'}
+    ];
+    const actionable=['待回复','对话中','待跟进','待首次触达'];
+    const dueSample=members.filter(c=>actionable.includes(c.stage)).slice(0,6).map(c=>({id:c.id,name:c.name,phone:c.phone,stage:c.stage,product_focus:c.product_focus,next_action:c.next_action}));
+    return {
+      segment,
+      metrics:{total:members.length,due:members.filter(c=>actionable.includes(c.stage)).length,repurchase:repurchase.length,core:core.length,nurture:nurture.length,fresh:fresh.length,silent:silent.length,paused:paused.length},
+      tiers,
+      due_sample:dueSample,
+      positioning:'该板块由运营负责人设定为当前最高优先级，先完成一人一策分层与精细化落地'
+    };
+  }
   const scripts=[
     {id:'new-icebreak',customer_type:'新客',stage:'触达激活',scene:'破冰建联',title:'接住来源，只问一个问题',purpose:'让用户愿意开口',template:'{{称呼}}，我是之前在{{来源场景}}和您联系过的{{顾问名}}。看到您当时留意了{{内容}}，我先不发一大段介绍——您现在是想简单了解一下，还是已经有具体问题？',next_turn:'用户回复后复述其原话，再采集一个必要标签。',avoid:'不使用空泛“亲，在吗”；不在首条塞价格、链接和多个卖点。'},
     {id:'new-tag',customer_type:'新客',stage:'触达激活',scene:'标签采集',title:'用选择题了解需求',purpose:'完成低压力标签采集',template:'明白。那我只确认一个方向：您现在更在意{{方向A}}，还是{{方向B}}？我按您选的方向说，省得信息太多。',next_turn:'记录用户自述标签；不要把系统推断当成答案。',avoid:'一次只问一个问题，不连续盘问年龄、职业、疾病史。'},
@@ -222,6 +257,8 @@
     if(!loggedIn)return fail('请先登录',401);
     if(path==='/api/v1/private/workbench')return ok({metrics:{due:tasks.filter(x=>x.status==='pending').length,waiting:customers.filter(x=>x.stage==='待回复'||x.stage==='对话中').length,followups:customers.filter(x=>x.stage==='待跟进').length,paused:customers.filter(x=>x.stage==='暂停触达').length},categories,segments,queue:tasks.filter(x=>x.status==='pending').slice(0,6).map(t=>({...t,customer:customer(t.customer_id)})),completed_today:3});
     if(path==='/api/v1/private/user-assets')return ok({segments,categories,total_users:customers.length,updated_at:now()});
+    const segMatch=path.match(/^\/api\/v1\/private\/segments\/([\w-]+)\/overview$/);
+    if(segMatch){const code=segMatch[1];const segment=segments.find(x=>x.code===code);if(!segment)return fail('板块不存在');return ok(segmentOverview(segment))}
     if(path==='/api/v1/private/customers'&&method==='POST')return newCustomer(body(options));
     if(path==='/api/v1/private/customers/import'&&method==='POST')return importCustomers(body(options));
     let m=path.match(/^\/api\/v1\/private\/user-assets\/([\w-]+)\/customers$/);

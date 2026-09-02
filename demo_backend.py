@@ -37,8 +37,8 @@ CATEGORIES = [
 
 
 SEGMENTS = [
-    {"code": "anti-aging", "name": "抗衰人群", "description": "以 NMN、麦角硫因为核心的高价值抗衰用户，优先完成精细化运营", "color": "#2f7165", "category_codes": ["nmn", "ergothioneine"], "customer_count": 0, "due_count": 0},
-    {"code": "basic-nutrition", "name": "基础营养补充人群", "description": "以辅酶 Q10、常规营养品为核心的日常健康用户，覆盖家庭营养需求", "color": "#b07b3d", "category_codes": ["coq10", "regular"], "customer_count": 0, "due_count": 0},
+    {"code": "anti-aging", "name": "抗衰人群", "description": "以 NMN、麦角硫因为核心的高价值抗衰用户，优先完成精细化运营", "color": "#2f7165", "category_codes": ["nmn", "ergothioneine"], "purchase_keywords": ["NMN", "麦角硫因"], "customer_count": 0, "due_count": 0},
+    {"code": "basic-nutrition", "name": "基础营养补充人群", "description": "以辅酶 Q10、常规营养品为核心的日常健康用户，覆盖家庭营养需求", "color": "#b07b3d", "category_codes": ["coq10", "regular"], "purchase_keywords": ["辅酶", "日常营养", "益生菌", "维矿"], "customer_count": 0, "due_count": 0},
 ]
 
 
@@ -466,6 +466,83 @@ class DemoStore:
                 "audience": copy.deepcopy(audience),
                 "items": copy.deepcopy(items),
                 "pagination": {"page": 1, "total": len(items)},
+            }
+
+    def segment_overview(self, code: str) -> dict | None:
+        with self._lock:
+            segment = next((item for item in self._segments if item["code"] == code), None)
+            if segment is None:
+                return None
+            category_codes = segment["category_codes"]
+            members = [
+                customer
+                for customer in self._customers
+                if any(code in customer["assetCodes"] for code in category_codes)
+            ]
+            keywords = segment.get("purchase_keywords", [])
+            paused: list[dict] = []
+            silent: list[dict] = []
+            repurchase: list[dict] = []
+            core: list[dict] = []
+            nurture: list[dict] = []
+            fresh: list[dict] = []
+            for customer in members:
+                if customer["stage"] == "暂停触达":
+                    paused.append(customer)
+                    continue
+                if customer["stage"] == "已读未回":
+                    silent.append(customer)
+                    continue
+                purchased = any(
+                    any(keyword in str(purchase) for keyword in keywords)
+                    for purchase in customer.get("purchase", [])
+                )
+                if purchased:
+                    repurchase.append(customer)
+                    continue
+                score = (customer.get("persona") or {}).get("intention_score", 0)
+                if score >= 80:
+                    core.append(customer)
+                elif score >= 40:
+                    nurture.append(customer)
+                else:
+                    fresh.append(customer)
+
+            tiers = [
+                {"key": "repurchase", "name": "已购待复购", "description": "已有该板块购买记录，按使用周期做关怀与复购", "count": len(repurchase), "action": "先核对使用情况与库存，再判断是否续购或调整方案", "tone": "服务优先，不虚构断档", "accent": "#2f7165"},
+                {"key": "core", "name": "高意向核心", "description": "意向明确且尚未购买，是本周转化重点", "count": len(core), "action": "当天聚焦顾虑，给二选一的明确下一步", "tone": "减少泛化介绍，多轮推进", "accent": "#c89b5a"},
+                {"key": "nurture", "name": "观望培育", "description": "有初步意向，需要低压力信息与耐心培育", "count": len(nurture), "action": "一次只给一个信息点，结尾留一个易答问题", "tone": "不催促，允许退出", "accent": "#8e72c9"},
+                {"key": "fresh", "name": "待首次触达", "description": "名单已导入，尚未形成真实沟通事实", "count": len(fresh), "action": "完成首次触达，采集需求、使用场景与授权边界", "tone": "先建联，再判断", "accent": "#4b7fae"},
+                {"key": "silent", "name": "沉默唤醒", "description": "已读未回，需低打扰度确认是否继续", "count": len(silent), "action": "发送单条可独立阅读要点，明确无回复即降低频次", "tone": "不连续追问", "accent": "#b07b3d"},
+            ]
+            actionable = ["待回复", "对话中", "待跟进", "待首次触达"]
+            due_sample = [
+                {
+                    "id": customer["id"],
+                    "name": customer["name"],
+                    "phone": customer["phone"],
+                    "stage": customer["stage"],
+                    "product_focus": customer["product_focus"],
+                    "next_action": customer["next_action"],
+                }
+                for customer in members
+                if customer["stage"] in actionable
+            ][:6]
+            return {
+                "segment": copy.deepcopy(segment),
+                "metrics": {
+                    "total": len(members),
+                    "due": len([customer for customer in members if customer["stage"] in actionable]),
+                    "repurchase": len(repurchase),
+                    "core": len(core),
+                    "nurture": len(nurture),
+                    "fresh": len(fresh),
+                    "silent": len(silent),
+                    "paused": len(paused),
+                },
+                "tiers": tiers,
+                "due_sample": due_sample,
+                "positioning": "该板块由运营负责人设定为当前最高优先级，先完成一人一策分层与精细化落地",
             }
 
     def create_customer(self, payload: dict) -> dict:
