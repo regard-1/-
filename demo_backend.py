@@ -29,10 +29,16 @@ def _hours_ago(hours: int) -> str:
 
 
 CATEGORIES = [
-    {"code": "nmn", "name": "NMN人群", "description": "对精力、健康管理及NMN产品有明确关注", "color": "#c89b5a", "customer_count": 4, "due_count": 4},
-    {"code": "ergothioneine", "name": "麦角硫因人群", "description": "关注抗氧化、精细养护及成分搭配", "color": "#8e72c9", "customer_count": 3, "due_count": 2},
-    {"code": "coq10", "name": "辅酶Q10人群", "description": "关注日常活力、辅酶Q10及家庭健康", "color": "#dc7064", "customer_count": 4, "due_count": 4},
-    {"code": "regular", "name": "常规品人群", "description": "关注基础营养与日常健康产品", "color": "#4b9c7f", "customer_count": 4, "due_count": 4},
+    {"code": "nmn", "name": "NMN人群", "description": "对精力、健康管理及NMN产品有明确关注", "color": "#c89b5a", "segment_code": "anti-aging", "customer_count": 4, "due_count": 4},
+    {"code": "ergothioneine", "name": "麦角硫因人群", "description": "关注抗氧化、精细养护及成分搭配", "color": "#8e72c9", "segment_code": "anti-aging", "customer_count": 3, "due_count": 2},
+    {"code": "coq10", "name": "辅酶Q10人群", "description": "关注日常活力、辅酶Q10及家庭健康", "color": "#dc7064", "segment_code": "basic-nutrition", "customer_count": 4, "due_count": 4},
+    {"code": "regular", "name": "常规品人群", "description": "关注基础营养与日常健康产品", "color": "#4b9c7f", "segment_code": "basic-nutrition", "customer_count": 4, "due_count": 4},
+]
+
+
+SEGMENTS = [
+    {"code": "anti-aging", "name": "抗衰人群", "description": "以 NMN、麦角硫因为核心的高价值抗衰用户，优先完成精细化运营", "color": "#2f7165", "category_codes": ["nmn", "ergothioneine"], "customer_count": 0, "due_count": 0},
+    {"code": "basic-nutrition", "name": "基础营养补充人群", "description": "以辅酶 Q10、常规营养品为核心的日常健康用户，覆盖家庭营养需求", "color": "#b07b3d", "category_codes": ["coq10", "regular"], "customer_count": 0, "due_count": 0},
 ]
 
 
@@ -300,6 +306,14 @@ def _refresh_category_counts(categories: list[dict], customers: list[dict]) -> N
         )
 
 
+def _refresh_segment_counts(segments: list[dict], customers: list[dict]) -> None:
+    for segment in segments:
+        category_codes = segment["category_codes"]
+        matched = [customer for customer in customers if any(code in customer["assetCodes"] for code in category_codes)]
+        segment["customer_count"] = len(matched)
+        segment["due_count"] = len([customer for customer in matched if customer["stage"] == "待首次触达"])
+
+
 def _suggestion_for(customer: dict, message: str, scene: str, task: dict | None) -> dict:
     sensitive = bool(SENSITIVE_RE.search(message or ""))
     address = customer["name"]
@@ -368,8 +382,10 @@ class DemoStore:
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._categories = copy.deepcopy(CATEGORIES)
+        self._segments = copy.deepcopy(SEGMENTS)
         self._customers = build_customers()
         _refresh_category_counts(self._categories, self._customers)
+        _refresh_segment_counts(self._segments, self._customers)
         self._scripts = copy.deepcopy(SCRIPTS)
         self._historical_learning = copy.deepcopy(HISTORICAL_LEARNING)
         self._task_categories = copy.deepcopy(TASK_CATEGORIES)
@@ -413,6 +429,7 @@ class DemoStore:
                     "paused": len([c for c in self._customers if c["stage"] == "暂停触达"]),
                 },
                 "categories": copy.deepcopy(self._categories),
+                "segments": copy.deepcopy(self._segments),
                 "queue": copy.deepcopy(queue),
                 "completed_today": 3,
             }
@@ -420,14 +437,25 @@ class DemoStore:
 
     def user_assets(self) -> dict:
         with self._lock:
-            return {"categories": copy.deepcopy(self._categories), "updated_at": _utc_now()}
+            return {
+                "segments": copy.deepcopy(self._segments),
+                "categories": copy.deepcopy(self._categories),
+                "total_users": len(self._customers),
+                "updated_at": _utc_now(),
+            }
 
     def audience_customers(self, code: str, q: str = "") -> dict | None:
         with self._lock:
             category = next((item for item in self._categories if item["code"] == code), None)
-            if category is None:
+            segment = next((item for item in self._segments if item["code"] == code), None)
+            audience = category or segment
+            if audience is None:
                 return None
-            items = [customer for customer in self._customers if code in customer["assetCodes"]]
+            if category is not None:
+                items = [customer for customer in self._customers if code in customer["assetCodes"]]
+            else:
+                category_codes = segment["category_codes"]
+                items = [customer for customer in self._customers if any(item in customer["assetCodes"] for item in category_codes)]
             if q:
                 lower_q = q.lower()
                 items = [
@@ -435,7 +463,7 @@ class DemoStore:
                     if lower_q in f"{customer['name']}{customer['phone']}{customer['owner']}{customer.get('remark', '')}{customer['product_focus']}{customer['stage']}".lower()
                 ]
             return {
-                "audience": copy.deepcopy(category),
+                "audience": copy.deepcopy(audience),
                 "items": copy.deepcopy(items),
                 "pagination": {"page": 1, "total": len(items)},
             }
@@ -503,6 +531,7 @@ class DemoStore:
                 "suggestion": None,
             }
             _refresh_category_counts(self._categories, self._customers)
+            _refresh_segment_counts(self._segments, self._customers)
             return copy.deepcopy(customer)
 
     def import_customers(self, rows: list[dict]) -> dict:

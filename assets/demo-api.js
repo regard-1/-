@@ -2,10 +2,14 @@
   const now=()=>new Date().toISOString();
   const ago=hours=>new Date(Date.now()-hours*3600000).toISOString();
   const categories=[
-    {code:'nmn',name:'NMN人群',description:'对精力、健康管理及NMN产品有明确关注',color:'#c89b5a',customer_count:4,due_count:4},
-    {code:'ergothioneine',name:'麦角硫因人群',description:'关注抗氧化、精细养护及成分搭配',color:'#8e72c9',customer_count:3,due_count:2},
-    {code:'coq10',name:'辅酶Q10人群',description:'关注日常活力、辅酶Q10及家庭健康',color:'#dc7064',customer_count:4,due_count:4},
-    {code:'regular',name:'常规品人群',description:'关注基础营养与日常健康产品',color:'#4b9c7f',customer_count:4,due_count:4}
+    {code:'nmn',name:'NMN人群',description:'对精力、健康管理及NMN产品有明确关注',color:'#c89b5a',segment_code:'anti-aging',customer_count:4,due_count:4},
+    {code:'ergothioneine',name:'麦角硫因人群',description:'关注抗氧化、精细养护及成分搭配',color:'#8e72c9',segment_code:'anti-aging',customer_count:3,due_count:2},
+    {code:'coq10',name:'辅酶Q10人群',description:'关注日常活力、辅酶Q10及家庭健康',color:'#dc7064',segment_code:'basic-nutrition',customer_count:4,due_count:4},
+    {code:'regular',name:'常规品人群',description:'关注基础营养与日常健康产品',color:'#4b9c7f',segment_code:'basic-nutrition',customer_count:4,due_count:4}
+  ];
+  const segments=[
+    {code:'anti-aging',name:'抗衰人群',description:'以 NMN、麦角硫因为核心的高价值抗衰用户，优先完成精细化运营',color:'#2f7165',category_codes:['nmn','ergothioneine'],customer_count:0,due_count:0},
+    {code:'basic-nutrition',name:'基础营养补充人群',description:'以辅酶 Q10、常规营养品为核心的日常健康用户，覆盖家庭营养需求',color:'#b07b3d',category_codes:['coq10','regular'],customer_count:0,due_count:0}
   ];
   const base=[
     {id:1,name:'示例用户01',phone:'0001',city:'华东地区',owner:'演示顾问A',member:'示例会员A',stage:'待回复',priority:'高',assetCodes:['nmn','coq10'],product_focus:'NMN焕活方案',last_message:'我担心长期吃会不会负担大，而且价格也要考虑。',last_time:'8分钟前',next_action:'先回应安全与周期顾虑，再给轻量体验选择',next_at:'今天 10:30',consent:'演示渠道已授权',traits:['重视安全边界','倾向简单方案','价格需解释价值'],facts:['示例浏览行为A','示例咨询行为A','示例沟通偏好A'],purchase:['NMN体验装 · 示例记录A','辅酶Q10基础装 · 示例记录B']},
@@ -56,7 +60,15 @@
       category.due_count=customers.filter(c=>c.assetCodes.includes(category.code)&&c.stage==='待首次触达').length;
     });
   }
+  function refreshSegmentCounts(){
+    segments.forEach(segment=>{
+      const matched=customers.filter(c=>c.assetCodes.some(code=>segment.category_codes.includes(code)));
+      segment.customer_count=matched.length;
+      segment.due_count=matched.filter(c=>c.stage==='待首次触达').length;
+    });
+  }
   refreshCategoryCounts();
+  refreshSegmentCounts();
   const scripts=[
     {id:'new-icebreak',customer_type:'新客',stage:'触达激活',scene:'破冰建联',title:'接住来源，只问一个问题',purpose:'让用户愿意开口',template:'{{称呼}}，我是之前在{{来源场景}}和您联系过的{{顾问名}}。看到您当时留意了{{内容}}，我先不发一大段介绍——您现在是想简单了解一下，还是已经有具体问题？',next_turn:'用户回复后复述其原话，再采集一个必要标签。',avoid:'不使用空泛“亲，在吗”；不在首条塞价格、链接和多个卖点。'},
     {id:'new-tag',customer_type:'新客',stage:'触达激活',scene:'标签采集',title:'用选择题了解需求',purpose:'完成低压力标签采集',template:'明白。那我只确认一个方向：您现在更在意{{方向A}}，还是{{方向B}}？我按您选的方向说，省得信息太多。',next_turn:'记录用户自述标签；不要把系统推断当成答案。',avoid:'一次只问一个问题，不连续盘问年龄、职业、疾病史。'},
@@ -136,6 +148,7 @@
     customers.push(c);
     conversations.set(id,{id,customer_id:id,scene:'consult',messages:[{role:'operator',content:`您好${name.slice(0,1)}老师，我是负责您的顾问${owner}，先和您确认一下目前最想了解的内容。`,time:'待发送'}],suggestion:null});
     refreshCategoryCounts();
+    refreshSegmentCounts();
     return ok(c,201);
   }
   async function importCustomers(p){
@@ -207,12 +220,12 @@
     if(path==='/api/logout'&&method==='POST'){loggedIn=false;return ok({})}
     if(path==='/api/me')return loggedIn?ok({id:1,display_name:'演示顾问A',role:'一线运营',permissions:['customer:read','conversation:reply','task:update']}):fail('请先登录',401);
     if(!loggedIn)return fail('请先登录',401);
-    if(path==='/api/v1/private/workbench')return ok({metrics:{due:tasks.filter(x=>x.status==='pending').length,waiting:customers.filter(x=>x.stage==='待回复'||x.stage==='对话中').length,followups:customers.filter(x=>x.stage==='待跟进').length,paused:customers.filter(x=>x.stage==='暂停触达').length},categories,queue:tasks.filter(x=>x.status==='pending').slice(0,6).map(t=>({...t,customer:customer(t.customer_id)})),completed_today:3});
-    if(path==='/api/v1/private/user-assets')return ok({categories,updated_at:now()});
+    if(path==='/api/v1/private/workbench')return ok({metrics:{due:tasks.filter(x=>x.status==='pending').length,waiting:customers.filter(x=>x.stage==='待回复'||x.stage==='对话中').length,followups:customers.filter(x=>x.stage==='待跟进').length,paused:customers.filter(x=>x.stage==='暂停触达').length},categories,segments,queue:tasks.filter(x=>x.status==='pending').slice(0,6).map(t=>({...t,customer:customer(t.customer_id)})),completed_today:3});
+    if(path==='/api/v1/private/user-assets')return ok({segments,categories,total_users:customers.length,updated_at:now()});
     if(path==='/api/v1/private/customers'&&method==='POST')return newCustomer(body(options));
     if(path==='/api/v1/private/customers/import'&&method==='POST')return importCustomers(body(options));
     let m=path.match(/^\/api\/v1\/private\/user-assets\/([\w-]+)\/customers$/);
-    if(m){const audience=categories.find(x=>x.code===m[1]);if(!audience)return fail('人群不存在');const q=(url.searchParams.get('q')||'').toLowerCase();let items=customers.filter(x=>x.assetCodes.includes(m[1]));if(q)items=items.filter(x=>`${x.name}${x.phone}${x.owner}${x.remark||''}${x.product_focus}${x.stage}`.toLowerCase().includes(q));return ok({audience,items,pagination:{page:1,total:items.length}})}
+    if(m){const code=m[1];const audience=categories.find(x=>x.code===code)||segments.find(x=>x.code===code);if(!audience)return fail('人群或板块不存在');const q=(url.searchParams.get('q')||'').toLowerCase();let items=audience.category_codes?customers.filter(x=>x.assetCodes.some(c=>audience.category_codes.includes(c))):customers.filter(x=>x.assetCodes.includes(code));if(q)items=items.filter(x=>`${x.name}${x.phone}${x.owner}${x.remark||''}${x.product_focus}${x.stage}`.toLowerCase().includes(q));return ok({audience,items,pagination:{page:1,total:items.length}})}
     m=path.match(/^\/api\/v1\/private\/customers\/(\d+)$/);if(m){const c=customer(m[1]);return c?ok(c):fail('用户不存在')}
     m=path.match(/^\/api\/v1\/private\/customers\/(\d+)\/ai-profile\/refresh$/);if(m&&method==='POST'){const c=customer(m[1]);c.ai_profile.generated_at=now();return ok(c.ai_profile)}
     if(path==='/api/v1/private/conversations')return ok({items:customers.filter(x=>x.stage!=='暂停触达').map(c=>({conversation_id:c.id,customer_id:c.id,name:c.name,stage:c.stage,product_focus:c.product_focus,last_message:c.last_message,last_time:c.last_time,priority:c.priority,unread:c.stage==='待回复'||c.stage==='对话中'}))});
