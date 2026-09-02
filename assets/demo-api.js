@@ -8,14 +8,14 @@
     {code:'regular',name:'常规品人群',description:'关注基础营养与日常健康产品',color:'#4b9c7f',customer_count:4,due_count:4}
   ];
   const base=[
-    {id:1,name:'示例用户01',phone:'000****0001',city:'华东地区',owner:'演示顾问A',member:'示例会员A',stage:'待回复',priority:'高',assetCodes:['nmn','coq10'],product_focus:'NMN焕活方案',last_message:'我担心长期吃会不会负担大，而且价格也要考虑。',last_time:'8分钟前',next_action:'先回应安全与周期顾虑，再给轻量体验选择',next_at:'今天 10:30',consent:'演示渠道已授权',traits:['重视安全边界','倾向简单方案','价格需解释价值'],facts:['示例浏览行为A','示例咨询行为A','示例沟通偏好A'],purchase:['NMN体验装 · 示例记录A','辅酶Q10基础装 · 示例记录B']},
-    {id:2,name:'示例用户02',phone:'000****0002',city:'华东地区',owner:'演示顾问A',member:'示例会员B',stage:'待首次触达',priority:'中',assetCodes:['ergothioneine','regular'],product_focus:'麦角硫因体验方案',last_message:'在直播间问过麦角硫因和普通抗氧化产品有什么区别。',last_time:'昨天',next_action:'从成分差异切入，邀请其说明最关心的使用目标',next_at:'今天 11:00',consent:'演示渠道可触达',traits:['成分知识较深','重视证据来源','不喜欢强推'],facts:['示例浏览行为B','示例收藏行为B','示例沟通偏好B'],purchase:['日常营养组合 · 示例记录C']},
-    {id:3,name:'示例用户03',phone:'000****0003',city:'华东地区',owner:'演示顾问B',member:'示例会员C',stage:'待跟进',priority:'高',assetCodes:['coq10','regular'],product_focus:'辅酶Q10日常方案',last_message:'我先和家里人商量一下，过两天再说。',last_time:'2天前',next_action:'轻量确认家庭使用场景，不制造紧迫感',next_at:'今天 14:00',consent:'演示渠道已授权',traits:['家庭决策型','需要低压力沟通','关注日常坚持'],facts:['示例咨询行为C','示例回复时段C','示例内容偏好C'],purchase:['基础维矿组合 · 示例记录D']},
-    {id:4,name:'示例用户04',phone:'000****0004',city:'华东地区',owner:'演示顾问C',member:'示例会员D',stage:'已读未回',priority:'中',assetCodes:['regular','nmn'],product_focus:'日常营养组合',last_message:'收到，我再看看。',last_time:'3天前',next_action:'发送一条可独立阅读的要点，不连续追问',next_at:'今天 16:30',consent:'演示渠道可触达',traits:['回复频率低','偏好图文摘要','价格敏感'],facts:['示例点击行为D','示例咨询行为D','示例回复时段D'],purchase:['益生菌体验装 · 示例记录E']},
-    {id:5,name:'示例用户05',phone:'000****0005',city:'华北地区',owner:'演示顾问A',member:'示例会员B',stage:'对话中',priority:'高',assetCodes:['nmn','ergothioneine'],product_focus:'精细养护组合',last_message:'两种一起了解的话，应该先从哪个开始？',last_time:'刚刚',next_action:'先澄清目标与在用产品，再给分步体验建议',next_at:'立即回复',consent:'演示渠道已授权',traits:['愿意持续沟通','关注搭配逻辑','决策前会比较'],facts:['示例咨询行为E','示例阅读行为E','示例自述信息E'],purchase:['NMN体验装 · 示例记录F']},
-    {id:6,name:'示例用户06',phone:'000****0006',city:'华南地区',owner:'演示顾问D',member:'示例会员E',stage:'待首次触达',priority:'低',assetCodes:['regular','coq10'],product_focus:'辅酶Q10体验装',last_message:'在问卷中选择“偶尔尝试保健品”。',last_time:'昨天',next_action:'用通俗语言介绍，不要求立即购买',next_at:'明天 10:00',consent:'演示渠道已授权',traits:['保健品新手','需要基础解释','低频触达'],facts:['示例问卷行为F','示例咨询状态F','示例内容偏好F'],purchase:[]},
-    {id:7,name:'示例用户07',phone:'000****0007',city:'西南地区',owner:'演示顾问B',member:'示例会员C',stage:'暂停触达',priority:'低',assetCodes:['ergothioneine'],product_focus:'麦角硫因单品',last_message:'最近先不要给我发消息，谢谢。',last_time:'5天前',next_action:'遵守暂停要求，30天内不主动触达',next_at:'已暂停',consent:'用户要求暂停',traits:['明确表达边界','偏好自主浏览','当前不可主动触达'],facts:['示例暂停记录G','示例免打扰记录G','示例授权边界G'],purchase:['麦角硫因体验装 · 示例记录G']},
-    {id:8,name:'示例用户08',phone:'000****0008',city:'华中地区',owner:'演示顾问C',member:'示例会员B',stage:'待跟进',priority:'中',assetCodes:['coq10','nmn'],product_focus:'活力管理组合',last_message:'你把主要区别和适合什么情况发我，我有空看。',last_time:'昨天',next_action:'发送结构化对比，不使用绝对功效表达',next_at:'今天 19:00',consent:'演示渠道已授权',traits:['职业节奏快','偏好结构化信息','晚间阅读'],facts:['示例回复时段H','示例内容偏好H','示例咨询行为H'],purchase:['辅酶Q10基础装 · 示例记录H']}
+    {id:1,name:'示例用户01',phone:'0001',city:'华东地区',owner:'演示顾问A',member:'示例会员A',stage:'待回复',priority:'高',assetCodes:['nmn','coq10'],product_focus:'NMN焕活方案',last_message:'我担心长期吃会不会负担大，而且价格也要考虑。',last_time:'8分钟前',next_action:'先回应安全与周期顾虑，再给轻量体验选择',next_at:'今天 10:30',consent:'演示渠道已授权',traits:['重视安全边界','倾向简单方案','价格需解释价值'],facts:['示例浏览行为A','示例咨询行为A','示例沟通偏好A'],purchase:['NMN体验装 · 示例记录A','辅酶Q10基础装 · 示例记录B']},
+    {id:2,name:'示例用户02',phone:'0002',city:'华东地区',owner:'演示顾问A',member:'示例会员B',stage:'待首次触达',priority:'中',assetCodes:['ergothioneine','regular'],product_focus:'麦角硫因体验方案',last_message:'在直播间问过麦角硫因和普通抗氧化产品有什么区别。',last_time:'昨天',next_action:'从成分差异切入，邀请其说明最关心的使用目标',next_at:'今天 11:00',consent:'演示渠道可触达',traits:['成分知识较深','重视证据来源','不喜欢强推'],facts:['示例浏览行为B','示例收藏行为B','示例沟通偏好B'],purchase:['日常营养组合 · 示例记录C']},
+    {id:3,name:'示例用户03',phone:'0003',city:'华东地区',owner:'演示顾问B',member:'示例会员C',stage:'待跟进',priority:'高',assetCodes:['coq10','regular'],product_focus:'辅酶Q10日常方案',last_message:'我先和家里人商量一下，过两天再说。',last_time:'2天前',next_action:'轻量确认家庭使用场景，不制造紧迫感',next_at:'今天 14:00',consent:'演示渠道已授权',traits:['家庭决策型','需要低压力沟通','关注日常坚持'],facts:['示例咨询行为C','示例回复时段C','示例内容偏好C'],purchase:['基础维矿组合 · 示例记录D']},
+    {id:4,name:'示例用户04',phone:'0004',city:'华东地区',owner:'演示顾问C',member:'示例会员D',stage:'已读未回',priority:'中',assetCodes:['regular','nmn'],product_focus:'日常营养组合',last_message:'收到，我再看看。',last_time:'3天前',next_action:'发送一条可独立阅读的要点，不连续追问',next_at:'今天 16:30',consent:'演示渠道可触达',traits:['回复频率低','偏好图文摘要','价格敏感'],facts:['示例点击行为D','示例咨询行为D','示例回复时段D'],purchase:['益生菌体验装 · 示例记录E']},
+    {id:5,name:'示例用户05',phone:'0005',city:'华北地区',owner:'演示顾问A',member:'示例会员B',stage:'对话中',priority:'高',assetCodes:['nmn','ergothioneine'],product_focus:'精细养护组合',last_message:'两种一起了解的话，应该先从哪个开始？',last_time:'刚刚',next_action:'先澄清目标与在用产品，再给分步体验建议',next_at:'立即回复',consent:'演示渠道已授权',traits:['愿意持续沟通','关注搭配逻辑','决策前会比较'],facts:['示例咨询行为E','示例阅读行为E','示例自述信息E'],purchase:['NMN体验装 · 示例记录F']},
+    {id:6,name:'示例用户06',phone:'0006',city:'华南地区',owner:'演示顾问D',member:'示例会员E',stage:'待首次触达',priority:'低',assetCodes:['regular','coq10'],product_focus:'辅酶Q10体验装',last_message:'在问卷中选择“偶尔尝试保健品”。',last_time:'昨天',next_action:'用通俗语言介绍，不要求立即购买',next_at:'明天 10:00',consent:'演示渠道已授权',traits:['保健品新手','需要基础解释','低频触达'],facts:['示例问卷行为F','示例咨询状态F','示例内容偏好F'],purchase:[]},
+    {id:7,name:'示例用户07',phone:'0007',city:'西南地区',owner:'演示顾问B',member:'示例会员C',stage:'暂停触达',priority:'低',assetCodes:['ergothioneine'],product_focus:'麦角硫因单品',last_message:'最近先不要给我发消息，谢谢。',last_time:'5天前',next_action:'遵守暂停要求，30天内不主动触达',next_at:'已暂停',consent:'用户要求暂停',traits:['明确表达边界','偏好自主浏览','当前不可主动触达'],facts:['示例暂停记录G','示例免打扰记录G','示例授权边界G'],purchase:['麦角硫因体验装 · 示例记录G']},
+    {id:8,name:'示例用户08',phone:'0008',city:'华中地区',owner:'演示顾问C',member:'示例会员B',stage:'待跟进',priority:'中',assetCodes:['coq10','nmn'],product_focus:'活力管理组合',last_message:'你把主要区别和适合什么情况发我，我有空看。',last_time:'昨天',next_action:'发送结构化对比，不使用绝对功效表达',next_at:'今天 19:00',consent:'演示渠道已授权',traits:['职业节奏快','偏好结构化信息','晚间阅读'],facts:['示例回复时段H','示例内容偏好H','示例咨询行为H'],purchase:['辅酶Q10基础装 · 示例记录H']}
   ];
   const broadPersonas={
     1:{age_band:'示例年龄段A',gender:'未标注',occupation:'示例职业类型A（推断）',life_stage:'示例生活阶段A',personality:'理性谨慎、重视确定性',decision_style:'先确认风险与长期成本，再做决定',content_preference:'简短结论 + 可核验依据',available_time:'示例时段A',non_health_topics:['示例话题A','示例话题B'],intention_score:86,conversion_probability:62,confidence:78,sources:['脱敏用户资料','模拟回复时段','模拟内容行为']},
@@ -32,6 +32,31 @@
     ai_profile:{summary:`${c.name}当前关注${c.product_focus}，沟通上呈现${persona.personality}的特征，${persona.decision_style}。建议围绕“${c.next_action}”展开，并结合其${persona.non_health_topics.slice(0,2).join('、')}等生活话题建立自然沟通。`,tags:[...c.traits,persona.occupation,persona.life_stage],confidence:persona.confidence/100,generated_at:ago(index+1),evidence:c.facts.map((label,i)=>({label,source:i===0?'行为记录':i===1?'互动记录':'用户主动偏好'})),guardrails:c.stage==='暂停触达'?['禁止主动触达','仅响应用户主动咨询']:['不承诺疾病治疗效果','不把推断描述成用户事实','不按政治立场或敏感属性定向沟通','发送前由运营人员确认']},
     interactions:[{type:'客户消息',content:c.last_message,time:c.last_time,channel:'企业微信'},{type:'系统记录',content:c.next_action,time:'待执行',channel:'运营中台'}]
   })});
+  const nmnSeed=(typeof window!=='undefined'&&Array.isArray(window.NMN_DEMO_SEED))?window.NMN_DEMO_SEED:[];
+  const nmnCategory=categories.find(x=>x.code==='nmn');
+  nmnSeed.forEach((record,index)=>{
+    const id=9+index;
+    const name=String(record?.name||'').trim()||`NMN用户${String(index+1).padStart(4,'0')}`;
+    const phone=String(record?.phone||'').replace(/\D/g,'').slice(-4);
+    const owner=String(record?.owner||'').trim()||'NMN项目';
+    const remark=String(record?.remark||'').trim();
+    const persona={age_band:'待确认',gender:'未标注',occupation:'待确认（暂无推断依据）',life_stage:'待确认',personality:'待观察',decision_style:'暂无足够依据，先以用户自述为准',content_preference:'待观察',available_time:'待首次触达后确认',non_health_topics:[],intention_score:0,conversion_probability:0,confidence:0,sources:['NMN名单导入']};
+    const c={
+      id,name,phone,city:'待补充',owner,remark,member:'未绑定会员',stage:'待首次触达',priority:'中',assetCodes:['nmn'],product_focus:'NMN焕活方案',last_message:'新导入NMN客户，尚未产生沟通记录',last_time:'本次名单导入',next_action:'完成首次真实沟通，采集需求与授权边界',next_at:'待安排',consent:'待确认授权',traits:['NMN名单导入','待首次触达'],facts:['由NMN用户名单统一归入，尚未形成真实沟通事实'],purchase:[],
+      persona,
+      assets:[{code:'nmn',name:nmnCategory.name,basis:'名单归属'}],
+      ai_profile:{summary:`${name}已按NMN用户名单统一归入，当前暂无真实沟通事实，需通过首次触达采集授权与需求。`,tags:['NMN名单导入','待采集需求','未生成推断'],confidence:0,generated_at:now(),evidence:[{label:'统一归入NMN人群，尚无沟通事实',source:'NMN名单导入'}],guardrails:['不承诺疾病治疗效果','不把推断描述成用户事实','不按政治立场或敏感属性定向沟通','发送前由运营人员确认']},
+      interactions:[{type:'系统记录',content:'按NMN用户名单导入，尚未开始首次触达',time:'名单导入',channel:'运营中台'}]
+    };
+    customers.push(c);
+  });
+  function refreshCategoryCounts(){
+    categories.forEach(category=>{
+      category.customer_count=customers.filter(c=>c.assetCodes.includes(category.code)).length;
+      category.due_count=customers.filter(c=>c.assetCodes.includes(category.code)&&c.stage==='待首次触达').length;
+    });
+  }
+  refreshCategoryCounts();
   const scripts=[
     {id:'new-icebreak',customer_type:'新客',stage:'触达激活',scene:'破冰建联',title:'接住来源，只问一个问题',purpose:'让用户愿意开口',template:'{{称呼}}，我是之前在{{来源场景}}和您联系过的{{顾问名}}。看到您当时留意了{{内容}}，我先不发一大段介绍——您现在是想简单了解一下，还是已经有具体问题？',next_turn:'用户回复后复述其原话，再采集一个必要标签。',avoid:'不使用空泛“亲，在吗”；不在首条塞价格、链接和多个卖点。'},
     {id:'new-tag',customer_type:'新客',stage:'触达激活',scene:'标签采集',title:'用选择题了解需求',purpose:'完成低压力标签采集',template:'明白。那我只确认一个方向：您现在更在意{{方向A}}，还是{{方向B}}？我按您选的方向说，省得信息太多。',next_turn:'记录用户自述标签；不要把系统推断当成答案。',avoid:'一次只问一个问题，不连续盘问年龄、职业、疾病史。'},
@@ -96,7 +121,7 @@
   const customer=id=>customers.find(x=>x.id===Number(id));
   const maskPhone=v=>String(v||'').replace(/\D/g,'').slice(-4);
   function newCustomer(p){
-    const name=String(p.name||'').trim(),phone=maskPhone(p.phone),owner=String(p.owner||'').trim();
+    const name=String(p.name||'').trim(),phone=maskPhone(p.phone),owner=String(p.owner||'').trim(),remark=String(p.remark||'').trim();
     if(!name)return fail('客户姓名不能为空',400);
     if(phone.length!==4)return fail('手机号后四位必须为 4 位数字，请勿上传完整手机号',400);
     if(!owner)return fail('归属顾问不能为空',400);
@@ -107,9 +132,10 @@
     const codes=assetCodes.length?assetCodes:['regular'];
     const id=customers.reduce((m,c)=>Math.max(m,c.id),0)+1;
     const persona={age_band:'待确认',gender:'未标注',occupation:'待确认（暂无推断依据）',life_stage:'待确认',personality:'待观察',decision_style:'暂无足够依据，先以用户自述为准',content_preference:'待观察',available_time:'待确认',non_health_topics:[],intention_score:0,conversion_probability:0,confidence:0,sources:['人工录入基础信息']};
-    const c={id,name,phone,city,owner,member:'未绑定会员',stage:'待首次触达',priority:'中',assetCodes:codes,product_focus,last_message:'新录入客户，尚未产生沟通记录',last_time:'刚刚录入',next_action:'完成首次真实沟通，采集明确需求与授权边界',next_at:'待安排',consent:'待确认授权',traits:['新录入','待采集'],facts:['录入时仅确认基础归属信息'],purchase:[],persona,assets:codes.map(code=>({code,name:categoryNames[code],basis:'人工归属'})),ai_profile:{summary:`${name}刚刚录入，暂无足够事实用于生成内部判断。请先通过首次真实沟通采集需求与授权边界，再生成辅助摘要。`,tags:['新录入','待采集需求','未生成推断'],confidence:0,generated_at:now(),evidence:[{label:'仅确认客户姓名、基础归属与授权状态',source:'人工录入'}],guardrails:['不承诺疾病治疗效果','不把推断描述成用户事实','不按政治立场或敏感属性定向沟通','发送前由运营人员确认']},interactions:[{type:'系统记录',content:'客户由运营人员新录入，尚未开始触达',time:'刚刚',channel:'运营中台'}]};
+    const c={id,name,phone,city,owner,remark,member:'未绑定会员',stage:'待首次触达',priority:'中',assetCodes:codes,product_focus,last_message:'新录入客户，尚未产生沟通记录',last_time:'刚刚录入',next_action:'完成首次真实沟通，采集明确需求与授权边界',next_at:'待安排',consent:'待确认授权',traits:['新录入','待采集'],facts:['录入时仅确认基础归属信息'],purchase:[],persona,assets:codes.map(code=>({code,name:categoryNames[code],basis:'人工归属'})),ai_profile:{summary:`${name}刚刚录入，暂无足够事实用于生成内部判断。请先通过首次真实沟通采集需求与授权边界，再生成辅助摘要。`,tags:['新录入','待采集需求','未生成推断'],confidence:0,generated_at:now(),evidence:[{label:'仅确认客户姓名、基础归属与授权状态',source:'人工录入'}],guardrails:['不承诺疾病治疗效果','不把推断描述成用户事实','不按政治立场或敏感属性定向沟通','发送前由运营人员确认']},interactions:[{type:'系统记录',content:'客户由运营人员新录入，尚未开始触达',time:'刚刚',channel:'运营中台'}]};
     customers.push(c);
     conversations.set(id,{id,customer_id:id,scene:'consult',messages:[{role:'operator',content:`您好${name.slice(0,1)}老师，我是负责您的顾问${owner}，先和您确认一下目前最想了解的内容。`,time:'待发送'}],suggestion:null});
+    refreshCategoryCounts();
     return ok(c,201);
   }
   async function importCustomers(p){
@@ -186,7 +212,7 @@
     if(path==='/api/v1/private/customers'&&method==='POST')return newCustomer(body(options));
     if(path==='/api/v1/private/customers/import'&&method==='POST')return importCustomers(body(options));
     let m=path.match(/^\/api\/v1\/private\/user-assets\/([\w-]+)\/customers$/);
-    if(m){const audience=categories.find(x=>x.code===m[1]);if(!audience)return fail('人群不存在');const q=(url.searchParams.get('q')||'').toLowerCase();let items=customers.filter(x=>x.assetCodes.includes(m[1]));if(q)items=items.filter(x=>`${x.name}${x.phone}${x.owner}${x.product_focus}${x.stage}`.toLowerCase().includes(q));return ok({audience,items,pagination:{page:1,total:items.length}})}
+    if(m){const audience=categories.find(x=>x.code===m[1]);if(!audience)return fail('人群不存在');const q=(url.searchParams.get('q')||'').toLowerCase();let items=customers.filter(x=>x.assetCodes.includes(m[1]));if(q)items=items.filter(x=>`${x.name}${x.phone}${x.owner}${x.remark||''}${x.product_focus}${x.stage}`.toLowerCase().includes(q));return ok({audience,items,pagination:{page:1,total:items.length}})}
     m=path.match(/^\/api\/v1\/private\/customers\/(\d+)$/);if(m){const c=customer(m[1]);return c?ok(c):fail('用户不存在')}
     m=path.match(/^\/api\/v1\/private\/customers\/(\d+)\/ai-profile\/refresh$/);if(m&&method==='POST'){const c=customer(m[1]);c.ai_profile.generated_at=now();return ok(c.ai_profile)}
     if(path==='/api/v1/private/conversations')return ok({items:customers.filter(x=>x.stage!=='暂停触达').map(c=>({conversation_id:c.id,customer_id:c.id,name:c.name,stage:c.stage,product_focus:c.product_focus,last_message:c.last_message,last_time:c.last_time,priority:c.priority,unread:c.stage==='待回复'||c.stage==='对话中'}))});

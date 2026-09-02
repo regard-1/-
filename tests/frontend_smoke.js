@@ -2,6 +2,7 @@ const assert=require('node:assert/strict');
 const path=require('node:path');
 global.location={href:'http://127.0.0.1:8091/'};
 global.window=global;
+global.NMN_DEMO_SEED=require(path.join(__dirname,'..','assets','nmn-demo-seed.js'));
 require(path.join(__dirname,'..','assets','demo-api.js'));
 
 async function request(url,options){const response=await fetch(url,options);return {status:response.status,body:await response.json()}}
@@ -18,7 +19,10 @@ async function request(url,options){const response=await fetch(url,options);retu
   assert.equal(workbench.body.data.categories.length,4);
 
   const audience=await request('/api/v1/private/user-assets/nmn/customers');
-  assert.equal(audience.body.data.items.length,4);
+  assert.equal(audience.body.data.items.length,4489);
+  assert.equal(audience.body.data.pagination.total,4489);
+  assert.ok(audience.body.data.items.every(item=>/^\d{4}$/.test(item.phone)));
+  assert.ok(audience.body.data.items.filter(item=>item.id>8).every(item=>item.name&&typeof item.remark==='string'));
   assert.ok(audience.body.data.items[0].ai_profile.summary);
   assert.ok(audience.body.data.items[0].ai_profile.evidence.length);
   assert.ok(audience.body.data.items[0].persona.occupation);
@@ -30,7 +34,7 @@ async function request(url,options){const response=await fetch(url,options);retu
   const generated=await request(`/api/v1/private/agent-conversations/${conversationId}/messages`,{method:'POST',body:JSON.stringify({message:'我正在用药，这个能治好吗？',scene:'objection'})});
   const reply=generated.body.data.suggestion.reply;
   assert.match(reply,/医生或药师/);
-  assert.doesNotMatch(reply,/高优先|内部|标签|评分|置信度|000\*\*\*\*0001/);
+  assert.doesNotMatch(reply,/高优先|内部|标签|评分|置信度|0001/);
   assert.ok(generated.body.data.suggestion.policy_flags.includes('需要人工确认'));
   assert.ok(generated.body.data.suggestion.human_score >= 80);
   assert.equal(generated.body.data.suggestion.next_turns.length,3);

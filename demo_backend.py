@@ -9,8 +9,10 @@ contract exposed by the static GitHub Pages variant.
 from __future__ import annotations
 
 import copy
+import json
 import re
 import threading
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 UTC = timezone.utc
@@ -35,14 +37,14 @@ CATEGORIES = [
 
 
 BASE_CUSTOMERS = [
-    {"id": 1, "name": "示例用户01", "phone": "000****0001", "city": "华东地区", "owner": "演示顾问A", "member": "示例会员A", "stage": "待回复", "priority": "高", "assetCodes": ["nmn", "coq10"], "product_focus": "NMN焕活方案", "last_message": "我担心长期吃会不会负担大，而且价格也要考虑。", "last_time": "8分钟前", "next_action": "先回应安全与周期顾虑，再给轻量体验选择", "next_at": "今天 10:30", "consent": "演示渠道已授权", "traits": ["重视安全边界", "倾向简单方案", "价格需解释价值"], "facts": ["示例浏览行为A", "示例咨询行为A", "示例沟通偏好A"], "purchase": ["NMN体验装 · 示例记录A", "辅酶Q10基础装 · 示例记录B"]},
-    {"id": 2, "name": "示例用户02", "phone": "000****0002", "city": "华东地区", "owner": "演示顾问A", "member": "示例会员B", "stage": "待首次触达", "priority": "中", "assetCodes": ["ergothioneine", "regular"], "product_focus": "麦角硫因体验方案", "last_message": "在直播间问过麦角硫因和普通抗氧化产品有什么区别。", "last_time": "昨天", "next_action": "从成分差异切入，邀请其说明最关心的使用目标", "next_at": "今天 11:00", "consent": "演示渠道可触达", "traits": ["成分知识较深", "重视证据来源", "不喜欢强推"], "facts": ["示例浏览行为B", "示例收藏行为B", "示例沟通偏好B"], "purchase": ["日常营养组合 · 示例记录C"]},
-    {"id": 3, "name": "示例用户03", "phone": "000****0003", "city": "华东地区", "owner": "演示顾问B", "member": "示例会员C", "stage": "待跟进", "priority": "高", "assetCodes": ["coq10", "regular"], "product_focus": "辅酶Q10日常方案", "last_message": "我先和家里人商量一下，过两天再说。", "last_time": "2天前", "next_action": "轻量确认家庭使用场景，不制造紧迫感", "next_at": "今天 14:00", "consent": "演示渠道已授权", "traits": ["家庭决策型", "需要低压力沟通", "关注日常坚持"], "facts": ["示例咨询行为C", "示例回复时段C", "示例内容偏好C"], "purchase": ["基础维矿组合 · 示例记录D"]},
-    {"id": 4, "name": "示例用户04", "phone": "000****0004", "city": "华东地区", "owner": "演示顾问C", "member": "示例会员D", "stage": "已读未回", "priority": "中", "assetCodes": ["regular", "nmn"], "product_focus": "日常营养组合", "last_message": "收到，我再看看。", "last_time": "3天前", "next_action": "发送一条可独立阅读的要点，不连续追问", "next_at": "今天 16:30", "consent": "演示渠道可触达", "traits": ["回复频率低", "偏好图文摘要", "价格敏感"], "facts": ["示例点击行为D", "示例咨询行为D", "示例回复时段D"], "purchase": ["益生菌体验装 · 示例记录E"]},
-    {"id": 5, "name": "示例用户05", "phone": "000****0005", "city": "华北地区", "owner": "演示顾问A", "member": "示例会员B", "stage": "对话中", "priority": "高", "assetCodes": ["nmn", "ergothioneine"], "product_focus": "精细养护组合", "last_message": "两种一起了解的话，应该先从哪个开始？", "last_time": "刚刚", "next_action": "先澄清目标与在用产品，再给分步体验建议", "next_at": "立即回复", "consent": "演示渠道已授权", "traits": ["愿意持续沟通", "关注搭配逻辑", "决策前会比较"], "facts": ["示例咨询行为E", "示例阅读行为E", "示例自述信息E"], "purchase": ["NMN体验装 · 示例记录F"]},
-    {"id": 6, "name": "示例用户06", "phone": "000****0006", "city": "华南地区", "owner": "演示顾问D", "member": "示例会员E", "stage": "待首次触达", "priority": "低", "assetCodes": ["regular", "coq10"], "product_focus": "辅酶Q10体验装", "last_message": "在问卷中选择“偶尔尝试保健品”。", "last_time": "昨天", "next_action": "用通俗语言介绍，不要求立即购买", "next_at": "明天 10:00", "consent": "演示渠道已授权", "traits": ["保健品新手", "需要基础解释", "低频触达"], "facts": ["示例问卷行为F", "示例咨询状态F", "示例内容偏好F"], "purchase": []},
-    {"id": 7, "name": "示例用户07", "phone": "000****0007", "city": "西南地区", "owner": "演示顾问B", "member": "示例会员C", "stage": "暂停触达", "priority": "低", "assetCodes": ["ergothioneine"], "product_focus": "麦角硫因单品", "last_message": "最近先不要给我发消息，谢谢。", "last_time": "5天前", "next_action": "遵守暂停要求，30天内不主动触达", "next_at": "已暂停", "consent": "用户要求暂停", "traits": ["明确表达边界", "偏好自主浏览", "当前不可主动触达"], "facts": ["示例暂停记录G", "示例免打扰记录G", "示例授权边界G"], "purchase": ["麦角硫因体验装 · 示例记录G"]},
-    {"id": 8, "name": "示例用户08", "phone": "000****0008", "city": "华中地区", "owner": "演示顾问C", "member": "示例会员B", "stage": "待跟进", "priority": "中", "assetCodes": ["coq10", "nmn"], "product_focus": "活力管理组合", "last_message": "你把主要区别和适合什么情况发我，我有空看。", "last_time": "昨天", "next_action": "发送结构化对比，不使用绝对功效表达", "next_at": "今天 19:00", "consent": "演示渠道已授权", "traits": ["职业节奏快", "偏好结构化信息", "晚间阅读"], "facts": ["示例回复时段H", "示例内容偏好H", "示例咨询行为H"], "purchase": ["辅酶Q10基础装 · 示例记录H"]},
+    {"id": 1, "name": "示例用户01", "phone": "0001", "city": "华东地区", "owner": "演示顾问A", "member": "示例会员A", "stage": "待回复", "priority": "高", "assetCodes": ["nmn", "coq10"], "product_focus": "NMN焕活方案", "last_message": "我担心长期吃会不会负担大，而且价格也要考虑。", "last_time": "8分钟前", "next_action": "先回应安全与周期顾虑，再给轻量体验选择", "next_at": "今天 10:30", "consent": "演示渠道已授权", "traits": ["重视安全边界", "倾向简单方案", "价格需解释价值"], "facts": ["示例浏览行为A", "示例咨询行为A", "示例沟通偏好A"], "purchase": ["NMN体验装 · 示例记录A", "辅酶Q10基础装 · 示例记录B"]},
+    {"id": 2, "name": "示例用户02", "phone": "0002", "city": "华东地区", "owner": "演示顾问A", "member": "示例会员B", "stage": "待首次触达", "priority": "中", "assetCodes": ["ergothioneine", "regular"], "product_focus": "麦角硫因体验方案", "last_message": "在直播间问过麦角硫因和普通抗氧化产品有什么区别。", "last_time": "昨天", "next_action": "从成分差异切入，邀请其说明最关心的使用目标", "next_at": "今天 11:00", "consent": "演示渠道可触达", "traits": ["成分知识较深", "重视证据来源", "不喜欢强推"], "facts": ["示例浏览行为B", "示例收藏行为B", "示例沟通偏好B"], "purchase": ["日常营养组合 · 示例记录C"]},
+    {"id": 3, "name": "示例用户03", "phone": "0003", "city": "华东地区", "owner": "演示顾问B", "member": "示例会员C", "stage": "待跟进", "priority": "高", "assetCodes": ["coq10", "regular"], "product_focus": "辅酶Q10日常方案", "last_message": "我先和家里人商量一下，过两天再说。", "last_time": "2天前", "next_action": "轻量确认家庭使用场景，不制造紧迫感", "next_at": "今天 14:00", "consent": "演示渠道已授权", "traits": ["家庭决策型", "需要低压力沟通", "关注日常坚持"], "facts": ["示例咨询行为C", "示例回复时段C", "示例内容偏好C"], "purchase": ["基础维矿组合 · 示例记录D"]},
+    {"id": 4, "name": "示例用户04", "phone": "0004", "city": "华东地区", "owner": "演示顾问C", "member": "示例会员D", "stage": "已读未回", "priority": "中", "assetCodes": ["regular", "nmn"], "product_focus": "日常营养组合", "last_message": "收到，我再看看。", "last_time": "3天前", "next_action": "发送一条可独立阅读的要点，不连续追问", "next_at": "今天 16:30", "consent": "演示渠道可触达", "traits": ["回复频率低", "偏好图文摘要", "价格敏感"], "facts": ["示例点击行为D", "示例咨询行为D", "示例回复时段D"], "purchase": ["益生菌体验装 · 示例记录E"]},
+    {"id": 5, "name": "示例用户05", "phone": "0005", "city": "华北地区", "owner": "演示顾问A", "member": "示例会员B", "stage": "对话中", "priority": "高", "assetCodes": ["nmn", "ergothioneine"], "product_focus": "精细养护组合", "last_message": "两种一起了解的话，应该先从哪个开始？", "last_time": "刚刚", "next_action": "先澄清目标与在用产品，再给分步体验建议", "next_at": "立即回复", "consent": "演示渠道已授权", "traits": ["愿意持续沟通", "关注搭配逻辑", "决策前会比较"], "facts": ["示例咨询行为E", "示例阅读行为E", "示例自述信息E"], "purchase": ["NMN体验装 · 示例记录F"]},
+    {"id": 6, "name": "示例用户06", "phone": "0006", "city": "华南地区", "owner": "演示顾问D", "member": "示例会员E", "stage": "待首次触达", "priority": "低", "assetCodes": ["regular", "coq10"], "product_focus": "辅酶Q10体验装", "last_message": "在问卷中选择“偶尔尝试保健品”。", "last_time": "昨天", "next_action": "用通俗语言介绍，不要求立即购买", "next_at": "明天 10:00", "consent": "演示渠道已授权", "traits": ["保健品新手", "需要基础解释", "低频触达"], "facts": ["示例问卷行为F", "示例咨询状态F", "示例内容偏好F"], "purchase": []},
+    {"id": 7, "name": "示例用户07", "phone": "0007", "city": "西南地区", "owner": "演示顾问B", "member": "示例会员C", "stage": "暂停触达", "priority": "低", "assetCodes": ["ergothioneine"], "product_focus": "麦角硫因单品", "last_message": "最近先不要给我发消息，谢谢。", "last_time": "5天前", "next_action": "遵守暂停要求，30天内不主动触达", "next_at": "已暂停", "consent": "用户要求暂停", "traits": ["明确表达边界", "偏好自主浏览", "当前不可主动触达"], "facts": ["示例暂停记录G", "示例免打扰记录G", "示例授权边界G"], "purchase": ["麦角硫因体验装 · 示例记录G"]},
+    {"id": 8, "name": "示例用户08", "phone": "0008", "city": "华中地区", "owner": "演示顾问C", "member": "示例会员B", "stage": "待跟进", "priority": "中", "assetCodes": ["coq10", "nmn"], "product_focus": "活力管理组合", "last_message": "你把主要区别和适合什么情况发我，我有空看。", "last_time": "昨天", "next_action": "发送结构化对比，不使用绝对功效表达", "next_at": "今天 19:00", "consent": "演示渠道已授权", "traits": ["职业节奏快", "偏好结构化信息", "晚间阅读"], "facts": ["示例回复时段H", "示例内容偏好H", "示例咨询行为H"], "purchase": ["辅酶Q10基础装 · 示例记录H"]},
 ]
 
 
@@ -165,6 +167,8 @@ SENSITIVE_RE = re.compile(r"治疗|治好|药|医生|怀孕|孕期|严重|胸痛
 
 MAX_CUSTOMER_BATCH = 500
 
+SEED_PATH = Path(__file__).resolve().parent / "assets" / "nmn-demo-seed.json"
+
 
 def _mask_phone(value: object) -> str:
     """只保留手机号后四位，避免把 11 位号码写入内存或日志。"""
@@ -187,6 +191,26 @@ NEW_CUSTOMER_PERSONA = {
     "confidence": 0,
     "sources": ["人工录入基础信息"],
 }
+
+
+def _nmn_seed_records() -> list[dict]:
+    """读取公开演示 seed，只接受四位手机号和已脱敏的备注字段。"""
+    if not SEED_PATH.exists():
+        return []
+    with SEED_PATH.open(encoding="utf-8") as handle:
+        raw_records = json.load(handle)
+    records: list[dict] = []
+    for value in raw_records or []:
+        if not isinstance(value, dict):
+            continue
+        name = str(value.get("name") or "").strip()
+        phone = _mask_phone(value.get("phone"))
+        owner = str(value.get("owner") or "").strip() or "NMN项目"
+        remark = str(value.get("remark") or "").strip()
+        if not name or len(phone) != 4:
+            continue
+        records.append({"name": name, "phone": phone, "owner": owner, "remark": remark})
+    return records
 
 
 def build_customers() -> list[dict]:
@@ -217,7 +241,63 @@ def build_customers() -> list[dict]:
             {"type": "系统记录", "content": source["next_action"], "time": "待执行", "channel": "运营中台"},
         ]
         customers.append(customer)
+    seed_persona = copy.deepcopy(NEW_CUSTOMER_PERSONA)
+    seed_persona["sources"] = ["NMN名单导入"]
+    seed_records = _nmn_seed_records()
+    for offset, record in enumerate(seed_records):
+        index = len(BASE_CUSTOMERS) + offset + 1
+        name = record["name"] or f"NMN用户{offset + 1:04d}"
+        phone = record["phone"]
+        owner = record["owner"]
+        remark = record["remark"]
+        customer = {
+            "id": index,
+            "name": name,
+            "phone": phone,
+            "city": "待补充",
+            "owner": owner,
+            "remark": remark,
+            "member": "未绑定会员",
+            "stage": "待首次触达",
+            "priority": "中",
+            "assetCodes": ["nmn"],
+            "product_focus": "NMN焕活方案",
+            "last_message": "新导入NMN客户，尚未产生沟通记录",
+            "last_time": "本次名单导入",
+            "next_action": "完成首次真实沟通，采集需求与授权边界",
+            "next_at": "待安排",
+            "consent": "待确认授权",
+            "traits": ["NMN名单导入", "待首次触达"],
+            "facts": ["由NMN用户名单统一归入，尚未形成真实沟通事实"],
+            "purchase": [],
+            "persona": copy.deepcopy(seed_persona),
+            "assets": [{"code": "nmn", "name": category_names["nmn"], "basis": "名单归属"}],
+            "ai_profile": {
+                "summary": f"{name}已按NMN用户名单统一归入，当前暂无真实沟通事实，需通过首次触达采集授权与需求。",
+                "tags": ["NMN名单导入", "待采集需求", "未生成推断"],
+                "confidence": 0.0,
+                "generated_at": _utc_now(),
+                "evidence": [{"label": "统一归入NMN人群，尚无沟通事实", "source": "NMN名单导入"}],
+                "guardrails": ["不承诺疾病治疗效果", "不把推断描述成用户事实", "不按政治立场或敏感属性定向沟通", "发送前由运营人员确认"],
+            },
+            "interactions": [{"type": "系统记录", "content": "按NMN用户名单导入，尚未开始首次触达", "time": "名单导入", "channel": "运营中台"}],
+        }
+        customers.append(customer)
     return customers
+
+
+def _refresh_category_counts(categories: list[dict], customers: list[dict]) -> None:
+    for category in categories:
+        category["customer_count"] = len(
+            [customer for customer in customers if category["code"] in customer["assetCodes"]]
+        )
+        category["due_count"] = len(
+            [
+                customer
+                for customer in customers
+                if category["code"] in customer["assetCodes"] and customer["stage"] == "待首次触达"
+            ]
+        )
 
 
 def _suggestion_for(customer: dict, message: str, scene: str, task: dict | None) -> dict:
@@ -289,6 +369,7 @@ class DemoStore:
         self._lock = threading.RLock()
         self._categories = copy.deepcopy(CATEGORIES)
         self._customers = build_customers()
+        _refresh_category_counts(self._categories, self._customers)
         self._scripts = copy.deepcopy(SCRIPTS)
         self._historical_learning = copy.deepcopy(HISTORICAL_LEARNING)
         self._task_categories = copy.deepcopy(TASK_CATEGORIES)
@@ -351,7 +432,7 @@ class DemoStore:
                 lower_q = q.lower()
                 items = [
                     customer for customer in items
-                    if lower_q in f"{customer['name']}{customer['phone']}{customer['owner']}{customer['product_focus']}{customer['stage']}".lower()
+                    if lower_q in f"{customer['name']}{customer['phone']}{customer['owner']}{customer.get('remark', '')}{customer['product_focus']}{customer['stage']}".lower()
                 ]
             return {
                 "audience": copy.deepcopy(category),
@@ -363,6 +444,7 @@ class DemoStore:
         name = str(payload.get("name") or "").strip()
         phone = _mask_phone(payload.get("phone"))
         owner = str(payload.get("owner") or "").strip()
+        remark = str(payload.get("remark") or "").strip()
         city = str(payload.get("city") or "").strip() or "待补充"
         product_focus = str(payload.get("product_focus") or "").strip() or "待确认"
         if not name:
@@ -386,6 +468,7 @@ class DemoStore:
                 "phone": phone,
                 "city": city,
                 "owner": owner,
+                "remark": remark,
                 "member": "未绑定会员",
                 "stage": "待首次触达",
                 "priority": "中",
@@ -419,8 +502,7 @@ class DemoStore:
                 "messages": [{"role": "operator", "content": f"您好{name[:1]}老师，我是负责您的顾问{owner}，先和您确认一下目前最想了解的内容。", "time": "待发送"}],
                 "suggestion": None,
             }
-            for item in self._categories:
-                item["customer_count"] = len([c for c in self._customers if item["code"] in c["assetCodes"]])
+            _refresh_category_counts(self._categories, self._customers)
             return copy.deepcopy(customer)
 
     def import_customers(self, rows: list[dict]) -> dict:

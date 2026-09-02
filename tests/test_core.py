@@ -1,6 +1,8 @@
 import tempfile
 import unittest
 from pathlib import Path
+import re
+import json
 
 import server
 
@@ -30,6 +32,18 @@ class CoreTests(unittest.TestCase):
         detail = server.customer_detail(self.conn, 1)
         self.assertEqual(2, len(detail["assets"]))
 
+    def test_demo_customers_include_anonymized_nmn_seed(self):
+        customers = server.demo_backend.build_customers()
+        nmn_customers = [customer for customer in customers if "nmn" in customer["assetCodes"]]
+        seed = [customer for customer in nmn_customers if customer["persona"]["sources"] == ["NMN名单导入"]]
+        self.assertEqual(4485, len(seed))
+        self.assertEqual(4489, len(nmn_customers))
+        self.assertTrue(all(re.fullmatch(r"\d{4}", customer["phone"]) for customer in seed))
+        self.assertTrue(all(customer["name"] for customer in seed))
+        self.assertTrue(all(customer["owner"] for customer in seed))
+        self.assertTrue(all(isinstance(customer.get("remark"), str) for customer in seed))
+        self.assertFalse(any(re.search(r"\d{7,}", json.dumps(customer, ensure_ascii=False)) for customer in seed))
+
     def test_profile_is_evidence_based_and_stable(self):
         before = server.get_profile(self.conn, 1)
         count_before = self.conn.execute("SELECT COUNT(*) FROM customer_ai_profiles WHERE customer_id=1").fetchone()[0]
@@ -58,6 +72,7 @@ class CoreTests(unittest.TestCase):
                 "name": "测试新客",
                 "phone": "0823",
                 "owner": "演示顾问A",
+                "remark": "251108NMN18000 5瓶",
                 "city": "华东地区",
                 "product_focus": "辅酶Q10日常方案",
                 "assetCodes": ["coq10", "regular"],
@@ -66,6 +81,7 @@ class CoreTests(unittest.TestCase):
         self.assertGreater(customer["id"], 8)
         self.assertEqual("测试新客", customer["name"])
         self.assertEqual("演示顾问A", customer["owner"])
+        self.assertEqual("251108NMN18000 5瓶", customer["remark"])
         self.assertEqual(["coq10", "regular"], customer["assetCodes"])
         self.assertEqual(0, customer["persona"]["intention_score"])
         self.assertIn("暂无足够事实", customer["ai_profile"]["summary"])
