@@ -28,7 +28,6 @@ from urllib.parse import parse_qs, urlparse
 
 import demo_backend
 
-
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.environ.get("DB_PATH", str(BASE_DIR / "data.db")))
 TEMPLATE_DIR = BASE_DIR / "templates"
@@ -41,6 +40,31 @@ AUDIENCES = {
     "ergothioneine": {"name": "麦角硫因人群", "description": "关注抗氧化与精细化养护", "color": "#9d7bea"},
     "coq10": {"name": "辅酶Q10人群", "description": "关注心脏活力与日常能量", "color": "#e16f62"},
     "regular": {"name": "常规品人群", "description": "基础营养与日常健康管理", "color": "#4aa88a"},
+}
+
+ROLE_PERMISSIONS = {
+    "superadmin": {
+        "customer:read",
+        "customer:write",
+        "conversation:reply",
+        "task:update",
+        "analytics:read",
+        "governance:read",
+        "admin:manage",
+    },
+    "manager": {
+        "customer:read",
+        "customer:write",
+        "conversation:reply",
+        "task:update",
+        "analytics:read",
+        "governance:read",
+    },
+    "operator": {
+        "customer:read",
+        "conversation:reply",
+        "task:update",
+    },
 }
 
 
@@ -79,6 +103,12 @@ def password_verify(password: str, encoded: str) -> bool:
         return hmac.compare_digest(digest.hex(), digest_hex)
     except (TypeError, ValueError):
         return False
+
+
+def user_can(user, permission: str) -> bool:
+    """Check whether a user row grants the named permission."""
+    role = user["role"] if user else ""
+    return permission in ROLE_PERMISSIONS.get(role, set())
 
 
 SCHEMA = """
@@ -774,6 +804,12 @@ class Handler(BaseHTTPRequestHandler):
             self.json_response(401, error={"code": "UNAUTHORIZED", "message": "请先登录"})
         return user
 
+    def require_permission(self, user, permission: str) -> bool:
+        if not user_can(user, permission):
+            self.json_response(403, error={"code": "FORBIDDEN", "message": "当前角色无权执行此操作"})
+            return False
+        return True
+
     def serve_file(self, path: Path, content_type: str | None = None):
         if not path.exists() or not path.is_file():
             self.send_error(404)
@@ -807,13 +843,21 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/me":
                 return self.json_response(200, {"id": user["id"], "username": user["username"], "display_name": user["display_name"], "role": user["role"]})
             if path == "/api/v1/private/dashboard":
+                if not self.require_permission(user, "analytics:read"):
+                    return
                 return self.json_response(200, dashboard(conn))
             if path == "/api/v1/private/workbench":
+                if not self.require_permission(user, "customer:read"):
+                    return
                 return self.json_response(200, demo_backend.demo_store.workbench())
             if path in ("/api/v1/private/user-assets", "/api/v1/private/user-assets/categories"):
+                if not self.require_permission(user, "customer:read"):
+                    return
                 return self.json_response(200, demo_backend.demo_store.user_assets())
             match = re.fullmatch(r"/api/v1/private/user-assets/([a-z0-9_-]+)/customers", path)
             if match:
+                if not self.require_permission(user, "customer:read"):
+                    return
                 code = match.group(1)
                 data = demo_backend.demo_store.audience_customers(code, query.get("q", [""])[0].strip())
                 if data is None:
@@ -821,39 +865,61 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json_response(200, data)
             match = re.fullmatch(r"/api/v1/private/customers/(\d+)", path)
             if match:
+                if not self.require_permission(user, "customer:read"):
+                    return
                 customer = demo_backend.demo_store.get_customer(int(match.group(1)))
                 if customer is None:
                     return self.json_response(404, error={"code": "NOT_FOUND", "message": "用户不存在"})
                 return self.json_response(200, customer)
             match = re.fullmatch(r"/api/v1/private/conversations", path)
             if match:
+                if not self.require_permission(user, "customer:read"):
+                    return
                 return self.json_response(200, demo_backend.demo_store.conversations_list())
             match = re.fullmatch(r"/api/v1/private/agent-conversations/(\d+)", path)
             if match:
+                if not self.require_permission(user, "customer:read"):
+                    return
                 data = demo_backend.demo_store.get_conversation(int(match.group(1)))
                 if data is None:
                     return self.json_response(404, error={"code": "NOT_FOUND", "message": "会话不存在"})
                 return self.json_response(200, data)
             if path == "/api/v1/private/tasks":
+                if not self.require_permission(user, "customer:read"):
+                    return
                 return self.json_response(200, demo_backend.demo_store.tasks_list(query.get("category", ["all"])[0]))
             match = re.fullmatch(r"/api/v1/private/tasks/([A-Za-z0-9_-]+)", path)
             if match:
+                if not self.require_permission(user, "customer:read"):
+                    return
                 task = demo_backend.demo_store.get_task(match.group(1))
                 if task is None:
                     return self.json_response(404, error={"code": "NOT_FOUND", "message": "任务不存在"})
                 return self.json_response(200, task)
             if path == "/api/v1/private/scripts":
+                if not self.require_permission(user, "governance:read"):
+                    return
                 return self.json_response(200, demo_backend.demo_store.scripts_payload())
             if path == "/api/v1/private/governance":
+                if not self.require_permission(user, "governance:read"):
+                    return
                 return self.json_response(200, demo_backend.demo_store.governance())
             if path == "/api/v1/private/members":
+                if not self.require_permission(user, "analytics:read"):
+                    return
                 rows = conn.execute("SELECT m.*,c.name,c.city,c.owner FROM member_accounts m JOIN customers c ON c.id=m.customer_id ORDER BY m.growth_value DESC").fetchall()
                 return self.json_response(200, [{**dict(row), "benefits": json.loads(row["benefits_json"])} for row in rows])
             if path == "/api/v1/private/campaigns":
+                if not self.require_permission(user, "analytics:read"):
+                    return
                 return self.json_response(200, [dict(row) for row in conn.execute("SELECT c.*,d.name audience_name FROM campaigns c LEFT JOIN asset_audience_definitions d ON d.code=c.audience_code ORDER BY c.id DESC")])
             if path == "/api/v1/private/communities":
+                if not self.require_permission(user, "analytics:read"):
+                    return
                 return self.json_response(200, [dict(row) for row in conn.execute("SELECT * FROM communities ORDER BY member_count DESC")])
             if path == "/api/v1/private/analytics/overview":
+                if not self.require_permission(user, "analytics:read"):
+                    return
                 categories = asset_categories(conn)
                 for item in categories:
                     revenue = conn.execute("SELECT COALESCE(SUM(amount_cents),0) FROM orders WHERE audience_code=? AND status='paid'", (item["code"],)).fetchone()[0]
@@ -861,12 +927,14 @@ class Handler(BaseHTTPRequestHandler):
                     item["conversion_rate"] = round(item["buyers"] / max(1, item["customer_count"]) * 100, 1)
                 return self.json_response(200, {"categories": categories, "generated_at": now_iso()})
             if path == "/api/search":
+                if not self.require_permission(user, "customer:read"):
+                    return
                 q = query.get("q", [""])[0]
                 return self.json_response(200, search_knowledge(conn, q))
             return self.json_response(404, error={"code": "NOT_FOUND", "message": "接口不存在"})
         except KeyError:
             return self.json_response(404, error={"code": "NOT_FOUND", "message": "用户不存在"})
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - handler boundary returns a JSON 500
             traceback.print_exc()
             return self.json_response(500, error={"code": "INTERNAL_ERROR", "message": str(exc)})
         finally:
@@ -889,6 +957,7 @@ class Handler(BaseHTTPRequestHandler):
                 conn.execute("DELETE FROM sessions WHERE expires_at<=?", (now_iso(),))
                 conn.execute("INSERT INTO sessions(token,user_id,expires_at,created_at) VALUES(?,?,?,?)", (token, user["id"], expires, now_iso()))
                 conn.commit()
+                audit(conn, user["id"], "login", "session", str(user["id"]), {"username": user["username"]})
                 header = f"session={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={SESSION_HOURS*3600}"
                 return self.json_response(200, {"display_name": user["display_name"], "role": user["role"]}, headers={"Set-Cookie": header})
             user = self.require_user(conn)
@@ -900,45 +969,68 @@ class Handler(BaseHTTPRequestHandler):
                 if "session" in jar:
                     conn.execute("DELETE FROM sessions WHERE token=?", (jar["session"].value,))
                     conn.commit()
+                    audit(conn, user["id"], "logout", "session", str(user["id"]))
                 return self.json_response(200, {"logged_out": True}, headers={"Set-Cookie": "session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"})
             match = re.fullmatch(r"/api/v1/private/customers/(\d+)/ai-profile/refresh", path)
             if match:
+                if not self.require_permission(user, "customer:read"):
+                    return
                 profile = demo_backend.demo_store.refresh_profile(int(match.group(1)))
                 if profile is None:
                     return self.json_response(404, error={"code": "NOT_FOUND", "message": "用户不存在"})
+                audit(conn, user["id"], "profile_refreshed", "customer", match.group(1))
                 return self.json_response(200, profile)
             match = re.fullmatch(r"/api/v1/private/customers/(\d+)/agent-conversations", path)
             if match:
+                if not self.require_permission(user, "customer:read"):
+                    return
                 conversation = demo_backend.demo_store.get_or_create_conversation(int(match.group(1)))
                 if conversation is None:
                     return self.json_response(404, error={"code": "NOT_FOUND", "message": "用户不存在"})
+                audit(conn, user["id"], "conversation_opened", "customer", match.group(1))
                 return self.json_response(201, conversation)
             match = re.fullmatch(r"/api/v1/private/agent-conversations/(\d+)/messages", path)
             if match:
+                if not self.require_permission(user, "conversation:reply"):
+                    return
                 conversation_id = int(match.group(1))
                 message = str(payload.get("message") or "").strip()
                 scene = str(payload.get("scene") or "")
                 result = demo_backend.demo_store.post_message(conversation_id, message, scene, payload.get("task_id"))
                 if result is None:
                     return self.json_response(404, error={"code": "NOT_FOUND", "message": "会话不存在"})
+                audit(conn, user["id"], "suggestion_generated", "conversation", str(conversation_id), {"scene": scene})
                 return self.json_response(200, result)
             match = re.fullmatch(r"/api/v1/private/agent-conversations/(\d+)/mark-sent", path)
             if match:
+                if not self.require_permission(user, "conversation:reply"):
+                    return
+                conversation_id = int(match.group(1))
                 result = demo_backend.demo_store.mark_sent(
-                    int(match.group(1)), str(payload.get("reply") or ""), payload.get("task_id")
+                    conversation_id, str(payload.get("reply") or ""), payload.get("task_id")
                 )
                 if result is None:
                     return self.json_response(404, error={"code": "NOT_FOUND", "message": "会话不存在"})
+                audit(conn, user["id"], "message_marked_sent", "conversation", str(conversation_id), {"task_id": payload.get("task_id")})
                 return self.json_response(200, result)
             if path == "/api/v1/private/tasks/optimization/refresh":
+                if not self.require_permission(user, "task:update"):
+                    return
+                audit(conn, user["id"], "optimization_refreshed", "tasks", "optimization")
                 return self.json_response(200, demo_backend.demo_store.refresh_optimization())
             match = re.fullmatch(r"/api/v1/private/tasks/([A-Za-z0-9_-]+)/status", path)
             if match:
-                task = demo_backend.demo_store.set_task_status(match.group(1), payload.get("status"))
+                if not self.require_permission(user, "task:update"):
+                    return
+                task_id = match.group(1)
+                task = demo_backend.demo_store.set_task_status(task_id, payload.get("status"))
                 if task is None:
                     return self.json_response(404, error={"code": "NOT_FOUND", "message": "任务不存在"})
+                audit(conn, user["id"], "task_status_changed", "task", task_id, {"status": payload.get("status")})
                 return self.json_response(200, task)
             if path == "/api/chat":
+                if not self.require_permission(user, "conversation:reply"):
+                    return
                 question = str(payload.get("question", "")).strip()
                 customer_id = payload.get("customer_id")
                 if customer_id:
@@ -951,7 +1043,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_response(400, error={"code": "VALIDATION_ERROR", "message": str(exc)})
         except KeyError:
             return self.json_response(404, error={"code": "NOT_FOUND", "message": "用户不存在"})
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - handler boundary returns a JSON 500
             traceback.print_exc()
             return self.json_response(500, error={"code": "INTERNAL_ERROR", "message": str(exc)})
         finally:
