@@ -78,6 +78,30 @@ class CoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             server.demo_backend.demo_store.create_customer({"name": "测试新客", "phone": "0823"})
 
+    def test_import_customers_creates_batch_and_returns_ids(self):
+        result = server.demo_backend.demo_store.import_customers(
+            [
+                {"name": "批量客户A", "phone": "1101", "owner": "演示顾问A", "city": "华东地区", "product_focus": "辅酶Q10日常方案", "assetCodes": ["coq10"]},
+                {"name": "批量客户B", "phone": "2202", "owner": "演示顾问B", "city": "华南地区", "product_focus": "NMN焕活方案", "assetCodes": ["nmn", "regular"]},
+            ]
+        )
+        self.assertEqual(2, result["imported"])
+        self.assertEqual(["批量客户A", "批量客户B"], [item["name"] for item in result["customers"]])
+        self.assertEqual([item["id"] for item in result["customers"]], result["ids"])
+        self.assertEqual(["coq10"], result["customers"][0]["assetCodes"])
+        self.assertEqual(["nmn", "regular"], result["customers"][1]["assetCodes"])
+
+    def test_import_customers_rejects_invalid_rows_without_partial_write(self):
+        count_before = len(server.demo_backend.demo_store._customers)
+        with self.assertRaises(ValueError):
+            server.demo_backend.demo_store.import_customers(
+                [
+                    {"name": "本行有效", "phone": "3303", "owner": "演示顾问C", "assetCodes": ["regular"]},
+                    {"name": "", "phone": "4404", "owner": "演示顾问D"},
+                ]
+            )
+        self.assertEqual(count_before, len(server.demo_backend.demo_store._customers))
+
 
 if __name__ == "__main__":
     unittest.main()

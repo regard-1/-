@@ -980,6 +980,16 @@ class Handler(BaseHTTPRequestHandler):
                     return self.json_response(400, error={"code": "VALIDATION_ERROR", "message": str(exc)})
                 audit(conn, user["id"], "customer_created", "customer", str(customer["id"]), {"name": customer["name"], "owner": customer["owner"]})
                 return self.json_response(201, customer)
+            if path == "/api/v1/private/customers/import":
+                if not self.require_permission(user, "customer:write"):
+                    return
+                try:
+                    rows = payload.get("rows") if isinstance(payload, dict) else None
+                    result = demo_backend.demo_store.import_customers(rows or [])
+                except (ValueError, TypeError) as exc:
+                    return self.json_response(400, error={"code": "VALIDATION_ERROR", "message": str(exc)})
+                audit(conn, user["id"], "customers_imported", "customer", str(result["imported"]), {"count": result["imported"]})
+                return self.json_response(201, result)
             match = re.fullmatch(r"/api/v1/private/customers/(\d+)/ai-profile/refresh", path)
             if match:
                 if not self.require_permission(user, "customer:read"):

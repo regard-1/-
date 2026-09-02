@@ -163,6 +163,8 @@ def _performance(version: int) -> dict:
 
 SENSITIVE_RE = re.compile(r"治疗|治好|药|医生|怀孕|孕期|严重|胸痛|呼吸困难")
 
+MAX_CUSTOMER_BATCH = 500
+
 NEW_CUSTOMER_PERSONA = {
     "age_band": "待确认",
     "gender": "未标注",
@@ -413,6 +415,48 @@ class DemoStore:
             for item in self._categories:
                 item["customer_count"] = len([c for c in self._customers if item["code"] in c["assetCodes"]])
             return copy.deepcopy(customer)
+
+    def import_customers(self, rows: list[dict]) -> dict:
+        if not isinstance(rows, list):
+            raise TypeError("批量导入数据格式不正确，应为客户列表")
+        if not rows:
+            raise ValueError("至少需要一行客户数据")
+        if len(rows) > MAX_CUSTOMER_BATCH:
+            raise ValueError(f"单次最多导入 {MAX_CUSTOMER_BATCH} 位客户")
+
+        errors: list[str] = []
+        seen: set[tuple[str, str]] = set()
+        normalized: list[dict] = []
+        for index, row in enumerate(rows, start=1):
+            if not isinstance(row, dict):
+                errors.append(f"第 {index} 行不是有效客户记录")
+                continue
+            name = str(row.get("name") or "").strip()
+            phone = str(row.get("phone") or "").strip()
+            owner = str(row.get("owner") or "").strip()
+            if not name or not phone or not owner:
+                missing = "、".join(label for label, value in (("姓名", name), ("手机号", phone), ("归属顾问", owner)) if not value)
+                errors.append(f"第 {index} 行缺少：{missing}")
+                continue
+            key = (name, phone)
+            if key in seen:
+                errors.append(f"第 {index} 行与前面记录重复：{name} / {phone}")
+                continue
+            seen.add(key)
+            normalized.append(row)
+
+        if errors:
+            preview = "；".join(errors[:5])
+            if len(errors) > 5:
+                preview += f"；另有 {len(errors) - 5} 条错误"
+            raise ValueError(preview)
+
+        created = [self.create_customer(row) for row in normalized]
+        return {
+            "imported": len(created),
+            "customers": created,
+            "ids": [customer["id"] for customer in created],
+        }
 
     def get_customer(self, customer_id: int) -> dict | None:
         with self._lock:

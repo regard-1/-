@@ -111,6 +111,29 @@
     conversations.set(id,{id,customer_id:id,scene:'consult',messages:[{role:'operator',content:`您好${name.slice(0,1)}老师，我是负责您的顾问${owner}，先和您确认一下目前最想了解的内容。`,time:'待发送'}],suggestion:null});
     return ok(c,201);
   }
+  async function importCustomers(p){
+    const rows=Array.isArray(p.rows)?p.rows:[];
+    if(!rows.length)return fail('至少需要一行客户数据',400);
+    if(rows.length>500)return fail('单次最多导入 500 位客户',400);
+    const seen=new Set(),errors=[];
+    rows.forEach((row,index)=>{
+      if(!row||typeof row!=='object'){errors.push(`第 ${index+1} 行不是有效客户记录`);return}
+      const name=String(row.name||'').trim(),phone=String(row.phone||'').trim(),owner=String(row.owner||'').trim();
+      const missing=['姓名','手机号','归属顾问'].filter((label,i)=>![name,phone,owner][i]);
+      if(missing.length)errors.push(`第 ${index+1} 行缺少：${missing.join('、')}`);
+      const key=`${name}|${phone}`;
+      if(seen.has(key))errors.push(`第 ${index+1} 行与前面记录重复：${name} / ${phone}`);
+      seen.add(key);
+    });
+    if(errors.length)return fail(errors.slice(0,5).join('；')+(errors.length>5?`；另有 ${errors.length-5} 条错误`:''),400);
+    const created=[];
+    for(const row of rows){
+      const response=await newCustomer(row);
+      const json=await response.json();
+      created.push(json.data);
+    }
+    return ok({imported:created.length,customers:created,ids:created.map(c=>c.id)},201);
+  }
   function suggestionFor(c,message,scene,task){
     const sensitive=/治疗|治好|药|医生|怀孕|孕期|严重|胸痛|呼吸困难/.test(message);
     const address=c.name;
@@ -159,6 +182,7 @@
     if(path==='/api/v1/private/workbench')return ok({metrics:{due:tasks.filter(x=>x.status==='pending').length,waiting:customers.filter(x=>x.stage==='待回复'||x.stage==='对话中').length,followups:customers.filter(x=>x.stage==='待跟进').length,paused:customers.filter(x=>x.stage==='暂停触达').length},categories,queue:tasks.filter(x=>x.status==='pending').slice(0,6).map(t=>({...t,customer:customer(t.customer_id)})),completed_today:3});
     if(path==='/api/v1/private/user-assets')return ok({categories,updated_at:now()});
     if(path==='/api/v1/private/customers'&&method==='POST')return newCustomer(body(options));
+    if(path==='/api/v1/private/customers/import'&&method==='POST')return importCustomers(body(options));
     let m=path.match(/^\/api\/v1\/private\/user-assets\/([\w-]+)\/customers$/);
     if(m){const audience=categories.find(x=>x.code===m[1]);if(!audience)return fail('人群不存在');const q=(url.searchParams.get('q')||'').toLowerCase();let items=customers.filter(x=>x.assetCodes.includes(m[1]));if(q)items=items.filter(x=>`${x.name}${x.phone}${x.owner}${x.product_focus}${x.stage}`.toLowerCase().includes(q));return ok({audience,items,pagination:{page:1,total:items.length}})}
     m=path.match(/^\/api\/v1\/private\/customers\/(\d+)$/);if(m){const c=customer(m[1]);return c?ok(c):fail('用户不存在')}
