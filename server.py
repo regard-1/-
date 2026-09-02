@@ -26,6 +26,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import demo_backend
+
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.environ.get("DB_PATH", str(BASE_DIR / "data.db")))
@@ -275,18 +277,18 @@ CREATE INDEX IF NOT EXISTS idx_messages_conversation_seq ON agent_messages(conve
 
 
 CUSTOMER_SEED = [
-    ("林女士", "小林", "13800138001", "女", "上海", "企微", "周顾问", "上海静安店", "active_member", 1),
-    ("陈先生", "陈叔", "13800138002", "男", "杭州", "社群", "赵顾问", "杭州西湖店", "customer", 1),
-    ("王女士", "Wendy", "13800138003", "女", "深圳", "门店", "林顾问", "深圳南山店", "active_member", 1),
-    ("赵女士", "阿赵", "13800138004", "女", "北京", "活动", "钱顾问", "北京朝阳店", "prospect", 1),
-    ("周先生", "老周", "13800138005", "男", "南京", "企微", "周顾问", "南京新街口店", "dormant", 1),
-    ("孙女士", "Sally", "13800138006", "女", "成都", "小程序", "吴顾问", "成都太古里店", "active_member", 1),
-    ("吴先生", "吴老师", "13800138007", "男", "苏州", "转介绍", "赵顾问", "苏州中心店", "customer", 1),
-    ("郑女士", "Amy", "13800138008", "女", "广州", "公众号", "林顾问", "广州天河店", "prospect", 1),
-    ("冯女士", "冯姐", "13800138009", "女", "青岛", "社群", "钱顾问", "青岛市南店", "active_member", 1),
-    ("褚先生", "Tony", "13800138010", "男", "武汉", "门店", "吴顾问", "武汉江汉店", "customer", 0),
-    ("卫女士", "Vivi", "13800138011", "女", "厦门", "企微", "周顾问", "厦门思明店", "active_member", 1),
-    ("蒋先生", "蒋哥", "13800138012", "男", "宁波", "活动", "赵顾问", "宁波鄞州店", "prospect", 1),
+    ("示例用户01", "用户01", "00000000001", "未标注", "华东地区", "演示渠道A", "演示顾问A", "示例门店A", "active_member", 1),
+    ("示例用户02", "用户02", "00000000002", "未标注", "华东地区", "演示渠道B", "演示顾问A", "示例门店B", "customer", 1),
+    ("示例用户03", "用户03", "00000000003", "未标注", "华南地区", "演示渠道C", "演示顾问B", "示例门店C", "active_member", 1),
+    ("示例用户04", "用户04", "00000000004", "未标注", "华北地区", "演示渠道D", "演示顾问C", "示例门店D", "prospect", 1),
+    ("示例用户05", "用户05", "00000000005", "未标注", "华东地区", "演示渠道A", "演示顾问A", "示例门店E", "dormant", 1),
+    ("示例用户06", "用户06", "00000000006", "未标注", "西南地区", "演示渠道E", "演示顾问D", "示例门店F", "active_member", 1),
+    ("示例用户07", "用户07", "00000000007", "未标注", "华东地区", "演示渠道F", "演示顾问A", "示例门店G", "customer", 1),
+    ("示例用户08", "用户08", "00000000008", "未标注", "华南地区", "演示渠道G", "演示顾问B", "示例门店H", "prospect", 1),
+    ("示例用户09", "用户09", "00000000009", "未标注", "华北地区", "演示渠道B", "演示顾问C", "示例门店I", "active_member", 1),
+    ("示例用户10", "用户10", "00000000010", "未标注", "华中地区", "演示渠道C", "演示顾问D", "示例门店J", "customer", 0),
+    ("示例用户11", "用户11", "00000000011", "未标注", "华东地区", "演示渠道A", "演示顾问A", "示例门店K", "active_member", 1),
+    ("示例用户12", "用户12", "00000000012", "未标注", "华东地区", "演示渠道D", "演示顾问A", "示例门店L", "prospect", 1),
 ]
 
 MEMBERSHIP_SEED = [
@@ -325,10 +327,11 @@ def init_db(db_path: Path | str = DB_PATH) -> None:
 
 def seed(conn: sqlite3.Connection) -> None:
     if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
-        password = os.environ.get("ADMIN_PASSWORD", "Dotbest@2026")
+        username = os.environ.get("ADMIN_USERNAME", "demo_operator")
+        password = os.environ.get("ADMIN_PASSWORD", "demo")
         conn.execute(
             "INSERT INTO users(username,password_hash,display_name,role,data_scope,created_at) VALUES(?,?,?,?,?,?)",
-            ("admin", password_hash(password), "运营管理员", "superadmin", "all", now_iso()),
+            (username, password_hash(password), "演示运营", "superadmin", "all", now_iso()),
         )
     for index, (code, item) in enumerate(AUDIENCES.items(), 1):
         conn.execute(
@@ -380,10 +383,10 @@ def seed(conn: sqlite3.Connection) -> None:
         for row in campaigns:
             conn.execute("INSERT INTO campaigns(name,audience_code,status,goal,reached,converted,created_at) VALUES(?,?,?,?,?,?,?)", (*row, now_iso()))
         communities = [
-            ("NMN焕活会员群", "健康管理", "周顾问", 186, 0.64, 0.18),
-            ("焕亮生活研究社", "麦角硫因", "林顾问", 142, 0.58, 0.15),
-            ("每日活力打卡群", "辅酶Q10", "赵顾问", 208, 0.71, 0.21),
-            ("多特倍斯会员之家", "综合营养", "吴顾问", 326, 0.46, 0.12),
+            ("示例健康管理群A", "健康管理", "演示顾问A", 120, 0.60, 0.15),
+            ("示例营养交流社B", "麦角硫因", "演示顾问B", 90, 0.55, 0.12),
+            ("示例活力打卡群C", "辅酶Q10", "演示顾问C", 150, 0.65, 0.18),
+            ("示例会员服务群D", "综合营养", "演示顾问D", 200, 0.45, 0.10),
         ]
         for row in communities:
             conn.execute("INSERT INTO communities(name,theme,owner,member_count,active_rate,conversion_rate) VALUES(?,?,?,?,?,?)", row)
@@ -805,49 +808,44 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json_response(200, {"id": user["id"], "username": user["username"], "display_name": user["display_name"], "role": user["role"]})
             if path == "/api/v1/private/dashboard":
                 return self.json_response(200, dashboard(conn))
+            if path == "/api/v1/private/workbench":
+                return self.json_response(200, demo_backend.demo_store.workbench())
             if path in ("/api/v1/private/user-assets", "/api/v1/private/user-assets/categories"):
-                return self.json_response(200, {"categories": asset_categories(conn), "updated_at": now_iso()})
+                return self.json_response(200, demo_backend.demo_store.user_assets())
             match = re.fullmatch(r"/api/v1/private/user-assets/([a-z0-9_-]+)/customers", path)
             if match:
                 code = match.group(1)
-                if code not in AUDIENCES:
+                data = demo_backend.demo_store.audience_customers(code, query.get("q", [""])[0].strip())
+                if data is None:
                     return self.json_response(404, error={"code": "NOT_FOUND", "message": "用户资产分类不存在"})
-                q = query.get("q", [""])[0].strip()
-                page = max(1, int(query.get("page", ["1"])[0]))
-                page_size = min(100, max(1, int(query.get("page_size", ["20"])[0])))
-                params = [code]
-                where = "m.audience_code=? AND m.is_active=1"
-                if q:
-                    where += " AND (c.name LIKE ? OR c.nickname LIKE ? OR c.phone LIKE ? OR c.owner LIKE ?)"
-                    like = f"%{q}%"
-                    params.extend([like, like, like, like])
-                total = conn.execute(f"SELECT COUNT(DISTINCT c.id) FROM customers c JOIN customer_asset_memberships m ON m.customer_id=c.id WHERE {where}", params).fetchone()[0]
-                rows = conn.execute(
-                    f"""SELECT DISTINCT c.* FROM customers c JOIN customer_asset_memberships m ON m.customer_id=c.id
-                        WHERE {where} ORDER BY c.updated_at DESC LIMIT ? OFFSET ?""",
-                    (*params, page_size, (page - 1) * page_size),
-                ).fetchall()
-                return self.json_response(200, {"audience": {"code": code, **AUDIENCES[code]}, "items": [customer_summary(conn, row) for row in rows], "pagination": {"page": page, "page_size": page_size, "total": total}})
-            match = re.fullmatch(r"/api/v1/private/user-assets/([a-z0-9_-]+)/customers/(\d+)", path)
-            if match:
-                return self.json_response(200, customer_detail(conn, int(match.group(2))))
+                return self.json_response(200, data)
             match = re.fullmatch(r"/api/v1/private/customers/(\d+)", path)
             if match:
-                return self.json_response(200, customer_detail(conn, int(match.group(1))))
-            match = re.fullmatch(r"/api/v1/private/customers/(\d+)/ai-profile", path)
+                customer = demo_backend.demo_store.get_customer(int(match.group(1)))
+                if customer is None:
+                    return self.json_response(404, error={"code": "NOT_FOUND", "message": "用户不存在"})
+                return self.json_response(200, customer)
+            match = re.fullmatch(r"/api/v1/private/conversations", path)
             if match:
-                cid = int(match.group(1))
-                history = [profile_payload(row) for row in conn.execute("SELECT * FROM customer_ai_profiles WHERE customer_id=? ORDER BY generated_at DESC LIMIT 10", (cid,))]
-                return self.json_response(200, {"current": get_profile(conn, cid), "history": history})
+                return self.json_response(200, demo_backend.demo_store.conversations_list())
             match = re.fullmatch(r"/api/v1/private/agent-conversations/(\d+)", path)
             if match:
-                conversation = conn.execute("SELECT * FROM agent_conversations WHERE id=?", (int(match.group(1)),)).fetchone()
-                if not conversation:
+                data = demo_backend.demo_store.get_conversation(int(match.group(1)))
+                if data is None:
                     return self.json_response(404, error={"code": "NOT_FOUND", "message": "会话不存在"})
-                messages = [dict(row) for row in conn.execute("SELECT * FROM agent_messages WHERE conversation_id=? ORDER BY sequence_no", (conversation["id"],))]
-                for item in messages:
-                    item["suggestion"] = json.loads(item.pop("suggestion_json")) if item["suggestion_json"] else None
-                return self.json_response(200, {"conversation": dict(conversation), "messages": messages})
+                return self.json_response(200, data)
+            if path == "/api/v1/private/tasks":
+                return self.json_response(200, demo_backend.demo_store.tasks_list(query.get("category", ["all"])[0]))
+            match = re.fullmatch(r"/api/v1/private/tasks/([A-Za-z0-9_-]+)", path)
+            if match:
+                task = demo_backend.demo_store.get_task(match.group(1))
+                if task is None:
+                    return self.json_response(404, error={"code": "NOT_FOUND", "message": "任务不存在"})
+                return self.json_response(200, task)
+            if path == "/api/v1/private/scripts":
+                return self.json_response(200, demo_backend.demo_store.scripts_payload())
+            if path == "/api/v1/private/governance":
+                return self.json_response(200, demo_backend.demo_store.governance())
             if path == "/api/v1/private/members":
                 rows = conn.execute("SELECT m.*,c.name,c.city,c.owner FROM member_accounts m JOIN customers c ON c.id=m.customer_id ORDER BY m.growth_value DESC").fetchall()
                 return self.json_response(200, [{**dict(row), "benefits": json.loads(row["benefits_json"])} for row in rows])
@@ -905,46 +903,41 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json_response(200, {"logged_out": True}, headers={"Set-Cookie": "session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"})
             match = re.fullmatch(r"/api/v1/private/customers/(\d+)/ai-profile/refresh", path)
             if match:
-                cid = int(match.group(1))
-                profile = refresh_profile(conn, cid, force=True)
-                audit(conn, user["id"], "profile.refresh", "customer", str(cid), {"data_version": profile["data_version"]})
+                profile = demo_backend.demo_store.refresh_profile(int(match.group(1)))
+                if profile is None:
+                    return self.json_response(404, error={"code": "NOT_FOUND", "message": "用户不存在"})
                 return self.json_response(200, profile)
             match = re.fullmatch(r"/api/v1/private/customers/(\d+)/agent-conversations", path)
             if match:
-                cid = int(match.group(1))
-                if not conn.execute("SELECT 1 FROM customers WHERE id=?", (cid,)).fetchone():
+                conversation = demo_backend.demo_store.get_or_create_conversation(int(match.group(1)))
+                if conversation is None:
                     return self.json_response(404, error={"code": "NOT_FOUND", "message": "用户不存在"})
-                scene = payload.get("scene", "consult")
-                audience_code = payload.get("audience_code")
-                stamp = now_iso()
-                cursor = conn.execute(
-                    "INSERT INTO agent_conversations(customer_id,audience_code,scene,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?)",
-                    (cid, audience_code, scene, user["id"], stamp, stamp),
-                )
-                conn.commit()
-                audit(conn, user["id"], "conversation.create", "agent_conversation", str(cursor.lastrowid), {"customer_id": cid})
-                return self.json_response(201, {"id": cursor.lastrowid, "customer_id": cid, "scene": scene})
+                return self.json_response(201, conversation)
             match = re.fullmatch(r"/api/v1/private/agent-conversations/(\d+)/messages", path)
             if match:
                 conversation_id = int(match.group(1))
-                conversation = conn.execute("SELECT * FROM agent_conversations WHERE id=?", (conversation_id,)).fetchone()
-                if not conversation:
+                message = str(payload.get("message") or "").strip()
+                scene = str(payload.get("scene") or "")
+                result = demo_backend.demo_store.post_message(conversation_id, message, scene, payload.get("task_id"))
+                if result is None:
                     return self.json_response(404, error={"code": "NOT_FOUND", "message": "会话不存在"})
-                message = str(payload.get("message", "")).strip()
-                if not message:
-                    return self.json_response(400, error={"code": "VALIDATION_ERROR", "message": "请输入客户消息"})
-                scene = str(payload.get("scene") or conversation["scene"])
-                seq = conn.execute("SELECT COALESCE(MAX(sequence_no),0) FROM agent_messages WHERE conversation_id=?", (conversation_id,)).fetchone()[0]
-                conn.execute("INSERT INTO agent_messages(conversation_id,sequence_no,role,content,created_at) VALUES(?,?,?,?,?)", (conversation_id, seq + 1, "customer", message, now_iso()))
-                history = [dict(row) for row in conn.execute("SELECT role,content FROM agent_messages WHERE conversation_id=? ORDER BY sequence_no DESC LIMIT 8", (conversation_id,))]
-                suggestion = build_agent_suggestion(conn, conversation["customer_id"], message, scene, list(reversed(history)))
-                conn.execute(
-                    "INSERT INTO agent_messages(conversation_id,sequence_no,role,content,suggestion_json,created_at) VALUES(?,?,?,?,?,?)",
-                    (conversation_id, seq + 2, "assistant", suggestion["reply"], json.dumps(suggestion, ensure_ascii=False), now_iso()),
+                return self.json_response(200, result)
+            match = re.fullmatch(r"/api/v1/private/agent-conversations/(\d+)/mark-sent", path)
+            if match:
+                result = demo_backend.demo_store.mark_sent(
+                    int(match.group(1)), str(payload.get("reply") or ""), payload.get("task_id")
                 )
-                conn.execute("UPDATE agent_conversations SET scene=?,summary=?,updated_at=? WHERE id=?", (scene, message[:120], now_iso(), conversation_id))
-                conn.commit()
-                return self.json_response(200, {"conversation_id": conversation_id, "suggestion": suggestion})
+                if result is None:
+                    return self.json_response(404, error={"code": "NOT_FOUND", "message": "会话不存在"})
+                return self.json_response(200, result)
+            if path == "/api/v1/private/tasks/optimization/refresh":
+                return self.json_response(200, demo_backend.demo_store.refresh_optimization())
+            match = re.fullmatch(r"/api/v1/private/tasks/([A-Za-z0-9_-]+)/status", path)
+            if match:
+                task = demo_backend.demo_store.set_task_status(match.group(1), payload.get("status"))
+                if task is None:
+                    return self.json_response(404, error={"code": "NOT_FOUND", "message": "任务不存在"})
+                return self.json_response(200, task)
             if path == "/api/chat":
                 question = str(payload.get("question", "")).strip()
                 customer_id = payload.get("customer_id")
@@ -969,7 +962,7 @@ def main() -> None:
     init_db()
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     print(f"多特倍斯运营中台已启动：http://localhost:{PORT}")
-    print("演示账号：admin / " + os.environ.get("ADMIN_PASSWORD", "Dotbest@2026"))
+    print("演示账号：" + os.environ.get("ADMIN_USERNAME", "demo_operator") + " / " + os.environ.get("ADMIN_PASSWORD", "demo"))
     try:
         server.serve_forever()
     except KeyboardInterrupt:

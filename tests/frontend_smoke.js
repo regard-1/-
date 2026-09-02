@@ -30,7 +30,7 @@ async function request(url,options){const response=await fetch(url,options);retu
   const generated=await request(`/api/v1/private/agent-conversations/${conversationId}/messages`,{method:'POST',body:JSON.stringify({message:'我正在用药，这个能治好吗？',scene:'objection'})});
   const reply=generated.body.data.suggestion.reply;
   assert.match(reply,/医生或药师/);
-  assert.doesNotMatch(reply,/高优先|内部|标签|评分|置信度|138\*\*\*\*8001/);
+  assert.doesNotMatch(reply,/高优先|内部|标签|评分|置信度|000\*\*\*\*0001/);
   assert.ok(generated.body.data.suggestion.policy_flags.includes('需要人工确认'));
   assert.ok(generated.body.data.suggestion.human_score >= 80);
   assert.equal(generated.body.data.suggestion.next_turns.length,3);
@@ -41,7 +41,7 @@ async function request(url,options){const response=await fetch(url,options);retu
   const tasks=await request('/api/v1/private/tasks');
   assert.equal(tasks.body.data.pending,11);
   assert.equal(tasks.body.data.categories.length,7);
-  assert.equal(tasks.body.data.performance.metrics.opening_rate,63.8);
+  assert.equal(tasks.body.data.performance.metrics.opening_rate,62);
   assert.ok(tasks.body.data.performance.optimization.adjustments.length >= 3);
   const careTasks=await request('/api/v1/private/tasks?category=purchase_care');
   assert.equal(careTasks.body.data.items.length,2);
@@ -57,7 +57,7 @@ async function request(url,options){const response=await fetch(url,options);retu
   assert.equal(playbook.body.data.lifecycle.length,2);
   assert.ok(playbook.body.data.items.some(x=>x.id==='new-payment'));
   assert.ok(playbook.body.data.items.some(x=>x.id==='old-wakeup'));
-  assert.equal(playbook.body.data.historical_learning.totals.touches,491946);
+  assert.equal(playbook.body.data.historical_learning.totals.touches,12000);
   const done=await request('/api/v1/private/tasks/t1/status',{method:'POST',body:JSON.stringify({status:'done'})});
   assert.equal(done.body.data.status,'done');
 
@@ -65,4 +65,3 @@ async function request(url,options){const response=await fetch(url,options);retu
   assert.equal(forbidden.status,404);
   console.log('operator frontend smoke: all checks passed');
 })().catch(error=>{console.error(error);process.exitCode=1});
-
