@@ -84,5 +84,15 @@ async function request(url,options){const response=await fetch(url,options);retu
   ]})});
   assert.equal(invalidImport.status,400);
   assert.match(invalidImport.body.error.message,/缺少/);
+  const maskedImport=await request('/api/v1/private/customers/import',{method:'POST',body:JSON.stringify({rows:[
+    {name:'脱敏导入A',phone:'13912345678',owner:'演示顾问A'},
+    {name:'脱敏导入B',phone:'8888',owner:'演示顾问B'}
+  ]})});
+  assert.equal(maskedImport.status,201);
+  assert.equal(maskedImport.body.data.customers[0].phone,'5678');
+  assert.equal(maskedImport.body.data.customers[1].phone,'8888');
+  const shortPhone=await request('/api/v1/private/customers/import',{method:'POST',body:JSON.stringify({rows:[{name:'手机号不足',phone:'123',owner:'演示顾问C'}]})});
+  assert.equal(shortPhone.status,400);
+  assert.match(shortPhone.body.error.message,/4 位数字/);
   console.log('operator frontend smoke: all checks passed');
 })().catch(error=>{console.error(error);process.exitCode=1});

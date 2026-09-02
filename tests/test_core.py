@@ -78,6 +78,28 @@ class CoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             server.demo_backend.demo_store.create_customer({"name": "测试新客", "phone": "0823"})
 
+    def test_create_customer_masks_full_phone_to_last_four(self):
+        customer = server.demo_backend.demo_store.create_customer(
+            {"name": "脱敏录入", "phone": "13912345678", "owner": "演示顾问A"}
+        )
+        self.assertEqual("5678", customer["phone"])
+
+    def test_import_customers_masks_phone_and_rejects_short_phone(self):
+        result = server.demo_backend.demo_store.import_customers(
+            [
+                {"name": "脱敏批量A", "phone": "13912345678", "owner": "演示顾问A"},
+                {"name": "脱敏批量B", "phone": "1234", "owner": "演示顾问B"},
+            ]
+        )
+        self.assertEqual("5678", result["customers"][0]["phone"])
+        self.assertEqual("1234", result["customers"][1]["phone"])
+        count_before = len(server.demo_backend.demo_store._customers)
+        with self.assertRaises(ValueError):
+            server.demo_backend.demo_store.import_customers(
+                [{"name": "手机号不足", "phone": "123", "owner": "演示顾问C"}]
+            )
+        self.assertEqual(count_before, len(server.demo_backend.demo_store._customers))
+
     def test_import_customers_creates_batch_and_returns_ids(self):
         result = server.demo_backend.demo_store.import_customers(
             [
