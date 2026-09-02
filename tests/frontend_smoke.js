@@ -71,5 +71,18 @@ async function request(url,options){const response=await fetch(url,options);retu
   const fetched=await request(`/api/v1/private/customers/${created.body.data.id}`);
   assert.equal(fetched.body.data.name,'演示新客');
   assert.deepEqual(fetched.body.data.assetCodes,['coq10','regular']);
+  const imported=await request('/api/v1/private/customers/import',{method:'POST',body:JSON.stringify({rows:[
+    {name:'批量客户A',phone:'1101',owner:'演示顾问A',city:'华东地区',product_focus:'辅酶Q10日常方案',assetCodes:['coq10']},
+    {name:'批量客户B',phone:'2202',owner:'演示顾问B',city:'华南地区',product_focus:'NMN焕活方案',assetCodes:['nmn','regular']}
+  ]})});
+  assert.equal(imported.status,201);
+  assert.equal(imported.body.data.imported,2);
+  assert.deepEqual(imported.body.data.customers.map(x=>x.name),['批量客户A','批量客户B']);
+  const invalidImport=await request('/api/v1/private/customers/import',{method:'POST',body:JSON.stringify({rows:[
+    {name:'本行有效',phone:'3303',owner:'演示顾问C'},
+    {name:'',phone:'4404',owner:'演示顾问D'}
+  ]})});
+  assert.equal(invalidImport.status,400);
+  assert.match(invalidImport.body.error.message,/缺少/);
   console.log('operator frontend smoke: all checks passed');
 })().catch(error=>{console.error(error);process.exitCode=1});
