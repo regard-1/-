@@ -26,6 +26,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import demo_backend
+
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.environ.get("DB_PATH", str(BASE_DIR / "data.db")))
@@ -806,49 +808,44 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json_response(200, {"id": user["id"], "username": user["username"], "display_name": user["display_name"], "role": user["role"]})
             if path == "/api/v1/private/dashboard":
                 return self.json_response(200, dashboard(conn))
+            if path == "/api/v1/private/workbench":
+                return self.json_response(200, demo_backend.demo_store.workbench())
             if path in ("/api/v1/private/user-assets", "/api/v1/private/user-assets/categories"):
-                return self.json_response(200, {"categories": asset_categories(conn), "updated_at": now_iso()})
+                return self.json_response(200, demo_backend.demo_store.user_assets())
             match = re.fullmatch(r"/api/v1/private/user-assets/([a-z0-9_-]+)/customers", path)
             if match:
                 code = match.group(1)
-                if code not in AUDIENCES:
+                data = demo_backend.demo_store.audience_customers(code, query.get("q", [""])[0].strip())
+                if data is None:
                     return self.json_response(404, error={"code": "NOT_FOUND", "message": "用户资产分类不存在"})
-                q = query.get("q", [""])[0].strip()
-                page = max(1, int(query.get("page", ["1"])[0]))
-                page_size = min(100, max(1, int(query.get("page_size", ["20"])[0])))
-                params = [code]
-                where = "m.audience_code=? AND m.is_active=1"
-                if q:
-                    where += " AND (c.name LIKE ? OR c.nickname LIKE ? OR c.phone LIKE ? OR c.owner LIKE ?)"
-                    like = f"%{q}%"
-                    params.extend([like, like, like, like])
-                total = conn.execute(f"SELECT COUNT(DISTINCT c.id) FROM customers c JOIN customer_asset_memberships m ON m.customer_id=c.id WHERE {where}", params).fetchone()[0]
-                rows = conn.execute(
-                    f"""SELECT DISTINCT c.* FROM customers c JOIN customer_asset_memberships m ON m.customer_id=c.id
-                        WHERE {where} ORDER BY c.updated_at DESC LIMIT ? OFFSET ?""",
-                    (*params, page_size, (page - 1) * page_size),
-                ).fetchall()
-                return self.json_response(200, {"audience": {"code": code, **AUDIENCES[code]}, "items": [customer_summary(conn, row) for row in rows], "pagination": {"page": page, "page_size": page_size, "total": total}})
-            match = re.fullmatch(r"/api/v1/private/user-assets/([a-z0-9_-]+)/customers/(\d+)", path)
-            if match:
-                return self.json_response(200, customer_detail(conn, int(match.group(2))))
+                return self.json_response(200, data)
             match = re.fullmatch(r"/api/v1/private/customers/(\d+)", path)
             if match:
-                return self.json_response(200, customer_detail(conn, int(match.group(1))))
-            match = re.fullmatch(r"/api/v1/private/customers/(\d+)/ai-profile", path)
+                customer = demo_backend.demo_store.get_customer(int(match.group(1)))
+                if customer is None:
+                    return self.json_response(404, error={"code": "NOT_FOUND", "message": "用户不存在"})
+                return self.json_response(200, customer)
+            match = re.fullmatch(r"/api/v1/private/conversations", path)
             if match:
-                cid = int(match.group(1))
-                history = [profile_payload(row) for row in conn.execute("SELECT * FROM customer_ai_profiles WHERE customer_id=? ORDER BY generated_at DESC LIMIT 10", (cid,))]
-                return self.json_response(200, {"current": get_profile(conn, cid), "history": history})
+                return self.json_response(200, demo_backend.demo_store.conversations_list())
             match = re.fullmatch(r"/api/v1/private/agent-conversations/(\d+)", path)
             if match:
-                conversation = conn.execute("SELECT * FROM agent_conversations WHERE id=?", (int(match.group(1)),)).fetchone()
-                if not conversation:
+                data = demo_backend.demo_store.get_conversation(int(match.group(1)))
+                if data is None:
                     return self.json_response(404, error={"code": "NOT_FOUND", "message": "会话不存在"})
-                messages = [dict(row) for row in conn.execute("SELECT * FROM agent_messages WHERE conversation_id=? ORDER BY sequence_no", (conversation["id"],))]
-                for item in messages:
-                    item["suggestion"] = json.loads(item.pop("suggestion_json")) if item["suggestion_json"] else None
-                return self.json_response(200, {"conversation": dict(conversation), "messages": messages})
+                return self.json_response(200, data)
+            if path == "/api/v1/private/tasks":
+                return self.json_response(200, demo_backend.demo_store.tasks_list(query.get("category", ["all"])[0]))
+            match = re.fullmatch(r"/api/v1/private/tasks/([A-Za-z0-9_-]+)", path)
+            if match:
+                task = demo_backend.demo_store.get_task(match.group(1))
+                if task is None:
+                    return self.json_response(404, error={"code": "NOT_FOUND", "message": "任务不存在"})
+                return self.json_response(200, task)
+            if path == "/api/v1/private/scripts":
+                return self.json_response(200, demo_backend.demo_store.scripts_payload())
+            if path == "/api/v1/private/governance":
+                return self.json_response(200, demo_backend.demo_store.governance())
             if path == "/api/v1/private/members":
                 rows = conn.execute("SELECT m.*,c.name,c.city,c.owner FROM member_accounts m JOIN customers c ON c.id=m.customer_id ORDER BY m.growth_value DESC").fetchall()
                 return self.json_response(200, [{**dict(row), "benefits": json.loads(row["benefits_json"])} for row in rows])
@@ -906,46 +903,41 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json_response(200, {"logged_out": True}, headers={"Set-Cookie": "session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"})
             match = re.fullmatch(r"/api/v1/private/customers/(\d+)/ai-profile/refresh", path)
             if match:
-                cid = int(match.group(1))
-                profile = refresh_profile(conn, cid, force=True)
-                audit(conn, user["id"], "profile.refresh", "customer", str(cid), {"data_version": profile["data_version"]})
+                profile = demo_backend.demo_store.refresh_profile(int(match.group(1)))
+                if profile is None:
+                    return self.json_response(404, error={"code": "NOT_FOUND", "message": "用户不存在"})
                 return self.json_response(200, profile)
             match = re.fullmatch(r"/api/v1/private/customers/(\d+)/agent-conversations", path)
             if match:
-                cid = int(match.group(1))
-                if not conn.execute("SELECT 1 FROM customers WHERE id=?", (cid,)).fetchone():
+                conversation = demo_backend.demo_store.get_or_create_conversation(int(match.group(1)))
+                if conversation is None:
                     return self.json_response(404, error={"code": "NOT_FOUND", "message": "用户不存在"})
-                scene = payload.get("scene", "consult")
-                audience_code = payload.get("audience_code")
-                stamp = now_iso()
-                cursor = conn.execute(
-                    "INSERT INTO agent_conversations(customer_id,audience_code,scene,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?)",
-                    (cid, audience_code, scene, user["id"], stamp, stamp),
-                )
-                conn.commit()
-                audit(conn, user["id"], "conversation.create", "agent_conversation", str(cursor.lastrowid), {"customer_id": cid})
-                return self.json_response(201, {"id": cursor.lastrowid, "customer_id": cid, "scene": scene})
+                return self.json_response(201, conversation)
             match = re.fullmatch(r"/api/v1/private/agent-conversations/(\d+)/messages", path)
             if match:
                 conversation_id = int(match.group(1))
-                conversation = conn.execute("SELECT * FROM agent_conversations WHERE id=?", (conversation_id,)).fetchone()
-                if not conversation:
+                message = str(payload.get("message") or "").strip()
+                scene = str(payload.get("scene") or "")
+                result = demo_backend.demo_store.post_message(conversation_id, message, scene, payload.get("task_id"))
+                if result is None:
                     return self.json_response(404, error={"code": "NOT_FOUND", "message": "会话不存在"})
-                message = str(payload.get("message", "")).strip()
-                if not message:
-                    return self.json_response(400, error={"code": "VALIDATION_ERROR", "message": "请输入客户消息"})
-                scene = str(payload.get("scene") or conversation["scene"])
-                seq = conn.execute("SELECT COALESCE(MAX(sequence_no),0) FROM agent_messages WHERE conversation_id=?", (conversation_id,)).fetchone()[0]
-                conn.execute("INSERT INTO agent_messages(conversation_id,sequence_no,role,content,created_at) VALUES(?,?,?,?,?)", (conversation_id, seq + 1, "customer", message, now_iso()))
-                history = [dict(row) for row in conn.execute("SELECT role,content FROM agent_messages WHERE conversation_id=? ORDER BY sequence_no DESC LIMIT 8", (conversation_id,))]
-                suggestion = build_agent_suggestion(conn, conversation["customer_id"], message, scene, list(reversed(history)))
-                conn.execute(
-                    "INSERT INTO agent_messages(conversation_id,sequence_no,role,content,suggestion_json,created_at) VALUES(?,?,?,?,?,?)",
-                    (conversation_id, seq + 2, "assistant", suggestion["reply"], json.dumps(suggestion, ensure_ascii=False), now_iso()),
+                return self.json_response(200, result)
+            match = re.fullmatch(r"/api/v1/private/agent-conversations/(\d+)/mark-sent", path)
+            if match:
+                result = demo_backend.demo_store.mark_sent(
+                    int(match.group(1)), str(payload.get("reply") or ""), payload.get("task_id")
                 )
-                conn.execute("UPDATE agent_conversations SET scene=?,summary=?,updated_at=? WHERE id=?", (scene, message[:120], now_iso(), conversation_id))
-                conn.commit()
-                return self.json_response(200, {"conversation_id": conversation_id, "suggestion": suggestion})
+                if result is None:
+                    return self.json_response(404, error={"code": "NOT_FOUND", "message": "会话不存在"})
+                return self.json_response(200, result)
+            if path == "/api/v1/private/tasks/optimization/refresh":
+                return self.json_response(200, demo_backend.demo_store.refresh_optimization())
+            match = re.fullmatch(r"/api/v1/private/tasks/([A-Za-z0-9_-]+)/status", path)
+            if match:
+                task = demo_backend.demo_store.set_task_status(match.group(1), payload.get("status"))
+                if task is None:
+                    return self.json_response(404, error={"code": "NOT_FOUND", "message": "任务不存在"})
+                return self.json_response(200, task)
             if path == "/api/chat":
                 question = str(payload.get("question", "")).strip()
                 customer_id = payload.get("customer_id")

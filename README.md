@@ -5,8 +5,7 @@
 ## 在线体验
 
 - GitHub Pages：<https://regard-1.github.io/->
-- GitHub 仓库：<https://github.com/regard-1/-.git>（推送权限受限，需有权限者推送）
-- Gitee 仓库（镜像备份）：<https://gitee.com/danchengWeisong/Dotbest>
+- Gitee 仓库：<https://gitee.com/danchengWeisong/Dotbest>
 - 演示账号：`demo_operator`
 - 演示密码：`demo`
 
