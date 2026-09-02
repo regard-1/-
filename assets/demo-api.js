@@ -94,10 +94,11 @@
   const fail=(message,status=404)=>Promise.resolve(new Response(JSON.stringify({success:false,data:null,error:{message},request_id:'operator-demo'}),{status,headers:{'Content-Type':'application/json; charset=utf-8'}}));
   const body=options=>{try{return JSON.parse(options?.body||'{}')}catch{return {}}};
   const customer=id=>customers.find(x=>x.id===Number(id));
+  const maskPhone=v=>String(v||'').replace(/\D/g,'').slice(-4);
   function newCustomer(p){
-    const name=String(p.name||'').trim(),phone=String(p.phone||'').trim(),owner=String(p.owner||'').trim();
+    const name=String(p.name||'').trim(),phone=maskPhone(p.phone),owner=String(p.owner||'').trim();
     if(!name)return fail('客户姓名不能为空',400);
-    if(!phone)return fail('需提供脱敏手机号（如后四位）',400);
+    if(phone.length!==4)return fail('手机号后四位必须为 4 位数字，请勿上传完整手机号',400);
     if(!owner)return fail('归属顾问不能为空',400);
     const city=String(p.city||'').trim()||'待补充';
     const product_focus=String(p.product_focus||'').trim()||'待确认';
@@ -118,9 +119,10 @@
     const seen=new Set(),errors=[];
     rows.forEach((row,index)=>{
       if(!row||typeof row!=='object'){errors.push(`第 ${index+1} 行不是有效客户记录`);return}
-      const name=String(row.name||'').trim(),phone=String(row.phone||'').trim(),owner=String(row.owner||'').trim();
+      const name=String(row.name||'').trim(),phone=maskPhone(row.phone),owner=String(row.owner||'').trim();
       const missing=['姓名','手机号','归属顾问'].filter((label,i)=>![name,phone,owner][i]);
       if(missing.length)errors.push(`第 ${index+1} 行缺少：${missing.join('、')}`);
+      if(phone&&phone.length!==4)errors.push(`第 ${index+1} 行手机号后四位必须为 4 位数字`);
       const key=`${name}|${phone}`;
       if(seen.has(key))errors.push(`第 ${index+1} 行与前面记录重复：${name} / ${phone}`);
       seen.add(key);

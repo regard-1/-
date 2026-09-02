@@ -165,6 +165,13 @@ SENSITIVE_RE = re.compile(r"治疗|治好|药|医生|怀孕|孕期|严重|胸痛
 
 MAX_CUSTOMER_BATCH = 500
 
+
+def _mask_phone(value: object) -> str:
+    """只保留手机号后四位，避免把 11 位号码写入内存或日志。"""
+    digits = re.sub(r"\D", "", str(value or ""))
+    return digits[-4:] if len(digits) >= 4 else digits
+
+
 NEW_CUSTOMER_PERSONA = {
     "age_band": "待确认",
     "gender": "未标注",
@@ -354,14 +361,14 @@ class DemoStore:
 
     def create_customer(self, payload: dict) -> dict:
         name = str(payload.get("name") or "").strip()
-        phone = str(payload.get("phone") or "").strip()
+        phone = _mask_phone(payload.get("phone"))
         owner = str(payload.get("owner") or "").strip()
         city = str(payload.get("city") or "").strip() or "待补充"
         product_focus = str(payload.get("product_focus") or "").strip() or "待确认"
         if not name:
             raise ValueError("客户姓名不能为空")
-        if not phone:
-            raise ValueError("需提供脱敏手机号（如后四位）")
+        if len(phone) != 4:
+            raise ValueError("手机号后四位必须为 4 位数字，请勿上传完整手机号")
         if not owner:
             raise ValueError("归属顾问不能为空")
         with self._lock:
@@ -432,11 +439,14 @@ class DemoStore:
                 errors.append(f"第 {index} 行不是有效客户记录")
                 continue
             name = str(row.get("name") or "").strip()
-            phone = str(row.get("phone") or "").strip()
+            phone = _mask_phone(row.get("phone"))
             owner = str(row.get("owner") or "").strip()
             if not name or not phone or not owner:
                 missing = "、".join(label for label, value in (("姓名", name), ("手机号", phone), ("归属顾问", owner)) if not value)
                 errors.append(f"第 {index} 行缺少：{missing}")
+                continue
+            if len(phone) != 4:
+                errors.append(f"第 {index} 行手机号后四位必须为 4 位数字")
                 continue
             key = (name, phone)
             if key in seen:
