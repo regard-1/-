@@ -89,6 +89,15 @@ git status           # 确认工作区干净
 
 AI **不得**自动 `git push`，必须用户明确说"推送/push/部署"才执行。
 
+### 4a. 双仓库同步规则（用户在 2026-09-02 指定）
+
+每轮功能迭代完成后，代码需同时更新两个公开仓库，保持内容一致：
+
+- **GitHub 主线**：`https://github.com/regard-1/-.git`，分支 `main`。这是唯一对外演示源，GitHub Pages 会读取此仓库自动部署。
+- **Gitee 镜像备份**：`https://gitee.com/danchengWeisong/Dotbest.git`，分支 `main`。仅作备份链，不使用 Gitee Pages。
+
+两个公开仓库只能包含脱敏演示数据，禁止恢复真实客户、密码、数据库内容、访问令牌或经营统计。本机用令牌存放在 macOS 钥匙串（`account=regard-1` / `service=github.com`；`account=regard1e` / `service=gitee.com`），不得写入仓库或聊天记录。
+
 ### 5. 冲突必须停下问
 
 `pull --rebase` 遇冲突，AI **禁止**自行选边覆盖。必须告诉用户：哪几个文件冲突、冲突点是什么、请用户定夺。
@@ -125,11 +134,10 @@ AI **不得**自动 `git push`，必须用户明确说"推送/push/部署"才执
 
 - 后端入口：`server.py`（端口 8090，`python server.py` 或 `.\start.ps1` 启动）
 
-- 前端：GitHub Pages（<https://regard-1.github.io/->），push 到 github main 自动部署；推送权限受限，需有权限者推送
+- 前端：GitHub Pages（<https://regard-1.github.io/->），从 GitHub `main` 自动部署
 
 - 数据库：SQLite（`data.db`），`init_db()` 函数初始化
 
-- 测试：`tests/frontend_smoke.js`（前端冒烟，Node 跑）；后端暂无 unittest，AI 改后端时建议补（见 `quality-gate`）
+- 测试：`tests/frontend_smoke.js`（前端冒烟，Node 跑）+ `tests/test_core.py`（Python 核心 unittest）
 
 - 演示账号：`demo_operator` / `demo`
-
