@@ -471,10 +471,72 @@
       {when:'用户说再考虑',reply:'确认其考虑点和下次联系时间，不马上追加优惠。'},
       {when:'用户拒绝或不需要',reply:'接受拒绝，确认是否暂停同类消息，并结束本轮。'}
     ];
+    const baseFacts=[
+      `称呼：${displayName}`,
+      `顾问：${c.owner||'待确认'}`,
+      purchased?`已购线索：${lastProduct}`:`关注方向：${focus}`,
+      `关心点：${concern||'待确认'}`,
+      `关系温度：${p.warmth||'待建立'}`,
+      `互动状态：${p.engagement||'暂无统计'}`,
+      `沟通偏好：${p.content_preference||'待观察'}`,
+      `授权状态：${c.consent||'待确认'}`
+    ].filter(Boolean);
+    const objectiveMap={
+      birthday:'完成自然祝福，并留下一个可回应的服务话题',
+      public_event:'完成中性提醒，并确认是否需要帮助',
+      purchase_care:'确认使用节奏，判断是否需要调整或复购服务',
+      reactivation:'拿到一句“继续了解”或“先暂停”的明确回复',
+      daily:'确认用户当前处于了解、比较还是准备使用阶段',
+      intent:'定位一个具体卡点，为下一步方案做准备'
+    };
+    const goal=sensitive
+      ?'先给专业边界，再确认用户是否需要整理公开资料'
+      :objectiveMap[task?.category]||(scene==='objection'
+        ?'把顾虑拆成一个可回答的问题'
+        :scene==='close'
+          ?'确认明细是否清楚，并获得推进或暂停的回复'
+          :'优先获得一条真实回复，再进入需求确认');
+    const paused=String(c.stage).includes('暂停')||String(c.consent).includes('拒绝');
+    const openingPlan={
+      priority:paused?'暂停观察':(p.value_tier==='高价值'||p.warmth==='高'||purchased?'A · 优先开口':'B · 低压建联'),
+      goal,
+      first_question:direct,
+      basis:baseFacts,
+      reply_routes:[
+        {
+          type:'愿意回复',
+          advisor_next:'只补一条最相关的信息，再问“这个方向是否符合您的情况”；确认后进入搭配方案。',
+          profile_value:'沉淀兴趣方向、当前阶段和有效开口方式。',
+          conversion_value:'从开口进入需求确认，为方案或复购服务建立路径。'
+        },
+        {
+          type:'犹豫或提问',
+          advisor_next:'不连续推销，先用知识库回应一个问题，再问用户最想先解决哪一点。',
+          profile_value:'沉淀具体顾虑、决策方式和偏好内容。',
+          conversion_value:'把模糊观望转成可处理的单一卡点，提高下一次转化准确度。'
+        },
+        {
+          type:'拒绝或暂停',
+          advisor_next:'接受用户边界，确认暂停范围，结束本轮；不追加活动或优惠。',
+          profile_value:'记录暂停授权、敏感话题和打扰信号。',
+          conversion_value:'保护长期关系，只保留用户主动发起的服务入口。'
+        },
+        {
+          type:'本轮未回复',
+          advisor_next:'登记本次尝试和偏好的非打扰时段；下次换一个更轻的问候或服务入口。',
+          profile_value:'记录触达结果，避免同一话术连续重复。',
+          conversion_value:'通过低频、高质量触达逐步提高开口概率。'
+        }
+      ],
+      stop_rule:paused
+        ?'该用户已处于暂停边界：不主动发送营销内容，只在用户主动咨询或完成授权复核后处理。'
+        :'用户要求暂停、涉及医疗判断、表达拒绝或连续没有回应时，停止同类主动触达并转人工复核。'
+    };
     return {
       reply:direct,
       alternatives:[restrained,consultant],
       strategies,
+      opening_plan:openingPlan,
       next_turns:nextTurns,
       human_score:sensitive?86:92,
       human_checks:['承接真实上下文','一条消息一个目标','只留一个易答问题','无虚构稀缺与效果','称呼来自现有资料','三种风格均不暴露内部判断'],

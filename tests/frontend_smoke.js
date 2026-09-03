@@ -1,4 +1,5 @@
 const assert=require('node:assert/strict');
+const fs=require('node:fs');
 const path=require('node:path');
 global.location={href:'http://127.0.0.1:8091/'};
 global.window=global;
@@ -43,6 +44,16 @@ async function request(url,options){const response=await fetch(url,options);retu
   assert.ok(generated.body.data.suggestion.policy_flags.includes('需要人工确认'));
   assert.ok(generated.body.data.suggestion.human_score >= 80);
   assert.equal(generated.body.data.suggestion.next_turns.length,3);
+  const openingPlan=generated.body.data.suggestion.opening_plan;
+  assert.ok(openingPlan.goal);
+  assert.ok(openingPlan.first_question);
+  assert.equal(openingPlan.reply_routes.length,4);
+  assert.ok(openingPlan.reply_routes.every(route=>route.advisor_next&&route.profile_value&&route.conversion_value));
+  assert.ok(openingPlan.stop_rule);
+  const planText=JSON.stringify(openingPlan);
+  assert.match(planText,/愿意回复|犹豫或提问|拒绝或暂停|本轮未回复/);
+  assert.doesNotMatch(planText,/意向度|转化可能|判断置信|内部评分/);
+  assert.doesNotMatch(planText,/\d{7,}/);
 
   const sent=await request(`/api/v1/private/agent-conversations/${conversationId}/mark-sent`,{method:'POST',body:JSON.stringify({reply})});
   assert.equal(sent.body.data.sent,true);
@@ -103,5 +114,12 @@ async function request(url,options){const response=await fetch(url,options);retu
   const shortPhone=await request('/api/v1/private/customers/import',{method:'POST',body:JSON.stringify({rows:[{name:'手机号不足',phone:'123',owner:'演示顾问C'}]})});
   assert.equal(shortPhone.status,400);
   assert.match(shortPhone.body.error.message,/4 位数字/);
+  const appSource=fs.readFileSync(path.join(__dirname,'..','assets','app.js'),'utf8');
+  const cssSource=fs.readFileSync(path.join(__dirname,'..','assets','app.css'),'utf8');
+  assert.match(appSource,/className='strategy-panel'/);
+  assert.match(appSource,/openingPlanHtml\(c\)/);
+  assert.ok(appSource.indexOf('panel.appendChild(resourceNode)')>appSource.indexOf('conversation-center'));
+  assert.match(cssSource,/grid-template-areas:"threads strategy center context"/);
+  assert.match(cssSource,/resource-side/);
   console.log('operator frontend smoke: all checks passed');
 })().catch(error=>{console.error(error);process.exitCode=1});
