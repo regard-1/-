@@ -3,6 +3,7 @@ const path=require('node:path');
 global.location={href:'http://127.0.0.1:8091/'};
 global.window=global;
 global.NMN_DEMO_SEED=require(path.join(__dirname,'..','assets','nmn-demo-seed.js'));
+global.CHAT_PERSONA_SEED=require(path.join(__dirname,'..','assets','chat-persona-seed.js'));
 require(path.join(__dirname,'..','assets','demo-api.js'));
 
 async function request(url,options){const response=await fetch(url,options);return {status:response.status,body:await response.json()}}
@@ -23,6 +24,10 @@ async function request(url,options){const response=await fetch(url,options);retu
   assert.equal(audience.body.data.pagination.total,4489);
   assert.ok(audience.body.data.items.every(item=>/^\d{4}$/.test(item.phone)));
   assert.ok(audience.body.data.items.filter(item=>item.id>8).every(item=>item.name&&typeof item.remark==='string'));
+  const nmnEnriched=audience.body.data.items.filter(item=>item.id>8&&item.ai_profile.confidence>0);
+  assert.ok(nmnEnriched.length>100,'NMN 画像回填应覆盖相当数量的名单用户');
+  assert.ok(nmnEnriched.every(item=>!/\d{7,}/.test(JSON.stringify(item.ai_profile))||!/\d{7,}/.test(item.next_action)),'画像与策略不得包含 7 位以上数字串');
+  assert.ok(nmnEnriched.every(item=>item.persona.sources.includes('近一年聊天互动脱敏统计')),'画像应标注聊天统计来源');
   assert.ok(audience.body.data.items[0].ai_profile.summary);
   assert.ok(audience.body.data.items[0].ai_profile.evidence.length);
   assert.ok(audience.body.data.items[0].persona.occupation);

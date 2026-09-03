@@ -37,7 +37,15 @@
     interactions:[{type:'客户消息',content:c.last_message,time:c.last_time,channel:'企业微信'},{type:'系统记录',content:c.next_action,time:'待执行',channel:'运营中台'}]
   })});
   const nmnSeed=(typeof window!=='undefined'&&Array.isArray(window.NMN_DEMO_SEED))?window.NMN_DEMO_SEED:[];
+  const personaSeed=(typeof window!=='undefined'&&Array.isArray(window.CHAT_PERSONA_SEED))?window.CHAT_PERSONA_SEED:[];
+  const personaByPhone=new Map(personaSeed.map(x=>[x.p,x]));
   const nmnCategory=categories.find(x=>x.code==='nmn');
+  const tierMap={
+    '已购活跃':{stage:'待跟进',intent:85,conversion:62,confidence:76,purchase:['NMN产品 · 历史购买信号（脱敏）']},
+    '高价值':{stage:'待跟进',intent:88,conversion:68,confidence:74,purchase:[]},
+    '沉睡':{stage:'已读未回',intent:30,conversion:18,confidence:70,purchase:[]},
+    '待培育':{stage:'待跟进',intent:45,conversion:30,confidence:68,purchase:[]}
+  };
   nmnSeed.forEach((record,index)=>{
     const id=9+index;
     const name=String(record?.name||'').trim()||`NMN用户${String(index+1).padStart(4,'0')}`;
@@ -52,6 +60,50 @@
       ai_profile:{summary:`${name}已按NMN用户名单统一归入，当前暂无真实沟通事实，需通过首次触达采集授权与需求。`,tags:['NMN名单导入','待采集需求','未生成推断'],confidence:0,generated_at:now(),evidence:[{label:'统一归入NMN人群，尚无沟通事实',source:'NMN名单导入'}],guardrails:['不承诺疾病治疗效果','不把推断描述成用户事实','不按政治立场或敏感属性定向沟通','发送前由运营人员确认']},
       interactions:[{type:'系统记录',content:'按NMN用户名单导入，尚未开始首次触达',time:'名单导入',channel:'运营中台'}]
     };
+    const px=personaByPhone.get(phone);
+    if(px){
+      const tier=tierMap[px.value_tier]||{stage:'待首次触达',intent:0,conversion:0,confidence:0,purchase:[]};
+      const warmNote=px.warmth==='高'?'关系亲近、回应积极':px.warmth==='中'?'有一定互动基础':px.warmth==='需挽回'?'关系趋冷，需谨慎挽回':'互动较少，需重建连接';
+      const engNote=px.engagement==='高频'?'互动高频':px.engagement==='中频'?'互动中频':'互动低频';
+      const concernNote=px.concerns||'使用与复购';
+      const follow=px.follow_angle||px.next_step||'先做一次低压力确认，采集当前需求与授权边界';
+      const evidence=[
+        {label:`近一年脱敏互动 ${px.messages} 条`,source:'聊天记录脱敏统计'},
+        {label:`活跃 ${px.active_months} 个月 · ${warmNote}`,source:'聊天记录脱敏统计'},
+        {label:`${px.value_tier} · ${px.loyalty}忠诚度 · ${engNote}`,source:'聊天记录脱敏统计'},
+        {label:`关注点：${concernNote}`,source:'聊天记录脱敏统计'}
+      ];
+      c.owner=px.owner||c.owner;
+      c.stage=tier.stage;
+      c.priority=px.priority||c.priority;
+      c.product_focus=px.product_focus||c.product_focus;
+      c.last_message=`该客户近一年互动${px.messages}条，关注${concernNote}（已脱敏汇总）`;
+      c.last_time=px.last_active||c.last_time;
+      c.next_action=follow;
+      c.next_at=px.recency_days<=7?'今天':px.recency_days<=30?'近期安排':'唤醒后安排';
+      c.consent='历史沟通渠道（需确认当前授权）';
+      c.traits=(px.tags&&px.tags.length)?px.tags.slice(0,5):[`${px.value_tier}`,`${engNote}`];
+      c.facts=evidence.map(e=>e.label);
+      c.purchase=tier.purchase;
+      Object.assign(c.persona,{
+        personality:`${warmNote}、忠诚度${px.loyalty}、${engNote}`,
+        decision_style:`${px.value_tier}，重视使用节奏与可见变化；沟通中注意${concernNote}。建议先服务、再方案，避免强推。`,
+        content_preference:px.engagement==='高频'?'简短结论 + 快速确认':px.engagement==='中频'?'结构化信息 + 低压力跟进':'先确认意愿，降低推送频次',
+        available_time:px.recency_days<=7?'近一周活跃':px.recency_days<=30?'近一月活跃':'已长期未活跃，需唤醒',
+        intention_score:tier.intent,conversion_probability:tier.conversion,confidence:tier.confidence,
+        sources:['NMN名单导入','近一年聊天互动脱敏统计']
+      });
+      c.ai_profile={
+        summary:`${name}近一年在私域有${px.messages}条脱敏互动，互动${px.engagement}、关系温度${px.warmth}；主要关注${concernNote}，产品方向为${c.product_focus}，价值层级为${px.value_tier}。建议：${follow}`,
+        tags:[...(c.traits||[]),px.value_tier,`关系温度${px.warmth}`,`忠诚度${px.loyalty}`],
+        confidence:tier.confidence/100,generated_at:now(),evidence,
+        guardrails:['不承诺疾病治疗效果','不把推断描述成用户事实','不按政治立场或敏感属性定向沟通','发送前由运营人员确认'].concat(px.avoid?[px.avoid]:[])
+      };
+      c.interactions=[
+        {type:'画像记录',content:`${px.value_tier} · ${px.engagement} · 关注${concernNote}。跟进建议：${follow}`,time:px.last_active||'近期',channel:'聊天记录（脱敏）'},
+        {type:'系统记录',content:follow,time:'待执行',channel:'运营中台'}
+      ];
+    }
     customers.push(c);
   });
   function refreshCategoryCounts(){
