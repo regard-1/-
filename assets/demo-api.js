@@ -56,6 +56,30 @@
     if(!s||s==='.'||/^[._\-—…·*#@?！!，,、；;:：~～]+$/.test(s))return `用户${phone}`;
     return s;
   };
+  const stripDecorations=value=>String(value||'').replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g,'').replace(/[^\u4e00-\u9fffA-Za-z0-9]/g,'');
+  const inferSalutation=(name,remark)=>{
+    const text=`${name||''} ${remark||''}`;
+    const female=/女|女士|小姐|姐|姐姐|妈|嫂|姨|妹|奶|姑|公主|阿姨/.test(text);
+    const male=/男|先生|哥|哥哥|叔|伯|爷|弟|兄|大哥|帅哥/.test(text);
+    const suffix=female?'姐':(male?'哥':'');
+    let clean=stripDecorations(name);
+    if(!clean)clean=String(name||'').trim().replace(/\s+/g,'');
+    if(!suffix)return clean;
+    let base=clean.replace(/先生|女士|小姐|姐姐|哥哥|哥|姐|男|女/g,'');
+    const cjk=base.match(/[\u4e00-\u9fff]/g);
+    base=cjk&&cjk.length?cjk[cjk.length-1]:base||clean;
+    return `${base}${suffix}`;
+  };
+  const RESOURCES_KEY='dotbest_resources_v2';
+  const defaultResources=()=>({activity:'',plan:'',knowledge:''});
+  let resources=defaultResources();
+  try{
+    const saved=window.localStorage&&window.localStorage.getItem(RESOURCES_KEY);
+    if(saved){const parsed=JSON.parse(saved);resources={...defaultResources(),...parsed};}
+  }catch{}
+  const persistResources=()=>{try{window.localStorage&&window.localStorage.setItem(RESOURCES_KEY,JSON.stringify(resources));}catch{}};
+  const activityBrief=()=>String(resources.activity||'').split(/\r?\n/)[0].trim().slice(0,48);
+  const activityLineFor=()=>{const a=activityBrief();return a?`另外，这个月有个「${a}」的活动，您有空我再简短说说，不着急。`:'';};
   const parsePurchaseRemark=value=>{
     const raw=String(value||'').trim();
     const note=cleanRemark(raw);
@@ -109,7 +133,7 @@
     const recencyLabel=px.recency_days<=7?'近7天活跃':px.recency_days<=30?'近30天活跃':`已约${Math.max(1,Math.round(px.recency_days/30))}个月未有效互动`;
     const persona={age_band:'待确认',gender:'未标注',occupation:'待确认（暂无推断依据）',life_stage:'待确认',personality:'待观察',decision_style:'暂无足够依据，先以用户自述为准',content_preference:'待观察',available_time:'待首次触达后确认',non_health_topics:[],intention_score:tier.intent,conversion_probability:tier.conversion,confidence:tier.confidence,sources:['NMN名单导入','近一年聊天互动脱敏统计'],value_tier:px.value_tier,loyalty:px.loyalty,engagement:px.engagement,warmth:px.warmth,recency_days:px.recency_days,messages:px.messages,active_months:px.active_months,concerns:concernNote,recency_label:recencyLabel};
     const c={
-      id:customers.length+1,name,phone,city:'待补充',owner,remark,member:'未绑定会员',stage:tier.stage,priority:px.priority||'中',assetCodes:['nmn'],product_focus:productFocus,last_message:`该客户近一年互动${px.messages}条，关注${concernNote}（已脱敏汇总）`,last_time:px.last_active||'近期',next_action:follow,next_at:px.recency_days<=7?'今天':px.recency_days<=30?'近期安排':'唤醒后安排',consent:'历史沟通渠道（需确认当前授权）',traits:traitList,facts:evidence.map(e=>e.label),purchase:purchaseItems,last_purchase:purchaseInsight,
+      id:customers.length+1,name,salutation:inferSalutation(name,remark),phone,city:'待补充',owner,remark,member:'未绑定会员',stage:tier.stage,priority:px.priority||'中',assetCodes:['nmn'],product_focus:productFocus,last_message:`该客户近一年互动${px.messages}条，关注${concernNote}（已脱敏汇总）`,last_time:px.last_active||'近期',next_action:follow,next_at:px.recency_days<=7?'今天':px.recency_days<=30?'近期安排':'唤醒后安排',consent:'历史沟通渠道（需确认当前授权）',traits:traitList,facts:evidence.map(e=>e.label),purchase:purchaseItems,last_purchase:purchaseInsight,
       persona,
       assets:[{code:'nmn',name:nmnCategory.name,basis:'名单归属与聊天匹配'}],
       ai_profile:{summary:buildProfileSummary(name,px,concernNote,productFocus,follow,purchaseInsight),tags:[...traitList,px.value_tier,recencyLabel,`关系温度${px.warmth}`,`忠诚度${px.loyalty}`,purchaseInsight.hasPurchase?`上次购买${purchaseInsight.product||'记录'}`:'暂无购买记录'],confidence:tier.confidence/100,generated_at:now(),evidence,guardrails:['不承诺疾病治疗效果','不把推断描述成用户事实','不按政治立场或敏感属性定向沟通','发送前由运营人员确认'].concat(px.avoid?[px.avoid]:[])},
@@ -158,6 +182,11 @@
   }
   refreshCategoryCounts();
   refreshSegmentCounts();
+  function ownerSummaries(list=customers){
+    const map=new Map();
+    list.forEach(c=>map.set(c.owner,(map.get(c.owner)||0)+1));
+    return [...map.entries()].map(([name,count])=>({name,count}));
+  }
   function segmentMembers(segment){
     const codes=segment.category_codes||[];
     return customers.filter(c=>c.assetCodes.some(code=>codes.includes(code)));
@@ -205,11 +234,11 @@
     {id:'new-logistics',customer_type:'新客',stage:'成交转化',scene:'物流通知',title:'简短告知并留下服务入口',purpose:'完成交付沟通',template:'{{称呼}}，给您同步一下：{{包裹状态}}。您收到后先别急着一起用，拍一下外包装或把到货情况告诉我，我再按您这次的内容逐项说明。',next_turn:'到货后转入服用指导。',avoid:'不把物流消息夹带复购促销。'},
     {id:'new-usage',customer_type:'新客',stage:'售后复购',scene:'服用指导',title:'结合实际内容给一步指导',purpose:'帮助正确开始使用',template:'{{称呼}}，您这次收到的是{{产品}}。先记一个最重要的点：{{核心用法}}。您准备从今天开始，还是明天开始？我按您的时间提醒一次就好。',next_turn:'记录开始日期，设置一次关怀节点。',avoid:'不一次发送冗长说明；涉及用药或特殊人群先提示专业咨询。'},
     {id:'new-effect',customer_type:'新客',stage:'售后复购',scene:'效果追踪',title:'问实际情况，不暗示效果',purpose:'了解执行和体验',template:'上次您说从{{开始日期}}开始用，我来问一句：最近是基本按计划在用，还是中间有几天忘了？有不舒服或不清楚的地方也直接告诉我。',next_turn:'先处理执行或疑问，再讨论周期。',avoid:'不问“效果是不是特别好”；不把主观感受包装成疗效。'},
-    {id:'new-repurchase',customer_type:'新客',stage:'售后复购',scene:'周期复购/增购',title:'从库存和真实需求判断',purpose:'自然进入复购或增购',template:'按上次的时间算，手上应该快到{{剩余周期}}了。您实际还剩多少？如果还够用就先不急；如果快接不上，我再按原方案和调整方案各算一版。',next_turn:'有需要才提供方案，先问库存再谈活动。',avoid:'不先发促销长图，不用虚假断档焦虑。'},
+    {id:'new-repurchase',customer_type:'新客',stage:'售后复购',scene:'周期复购/增购',title:'从库存和真实需求判断',purpose:'自然进入复购或增购',template:'{{称呼}}，想跟您确认一件事：手上现在大概还剩多少？如果还够用就先不急；如果快接不上，我再按原方案和调整方案各算一版。',next_turn:'有需要才提供方案，先问库存再谈活动。',avoid:'不先发促销长图，不用虚假断档焦虑。'},
     {id:'new-referral',customer_type:'新客',stage:'相关裂变',scene:'转介绍邀请',title:'基于满意反馈征得同意',purpose:'自然发起转介绍',template:'您刚才这句反馈我挺开心的，谢谢愿意告诉我。如果身边刚好有人也在了解{{主题}}，您愿意的话可以把我推给他；不方便也完全没关系。',next_turn:'用户同意后再介绍真实权益和参与方式。',avoid:'不让用户群发，不用人情压力换转介绍。'},
     {id:'old-wakeup',customer_type:'存量老客',stage:'沉睡唤醒',scene:'沉睡唤醒',title:'带着记忆回来，不假装熟络',purpose:'确认服务是否仍有价值',template:'{{称呼}}，前阵子您提过{{历史事实}}，我刚整理记录时看到，想问一句：这件事后来解决了吗？如果暂时不需要，我就不继续提醒。',next_turn:'有回复则进入关怀或需求确认；无回复则降低频次。',avoid:'不以“好久没买”开场，不直接发活动。'},
     {id:'old-care',customer_type:'存量老客',stage:'用户关怀',scene:'定期维护',title:'从已知生活节奏自然关怀',purpose:'维持真实关系',template:'{{称呼}}，上次您说{{具体生活/使用情境}}，最近这段时间还顺利吗？我就是顺手问一句，不急着回复。',next_turn:'先聊用户回应的内容，不立即转产品。',avoid:'不使用无法确认的职业、年龄或性格推断作为开场事实。'},
-    {id:'old-repurchase',customer_type:'存量老客',stage:'复购增购',scene:'复购增购',title:'先核对库存与变化',purpose:'识别真实复购时点',template:'上次是{{时间}}给您做的{{方案}}，现在家里大概还剩多少？最近需求有没有变化？我先按实际情况判断要不要续，不一定非得照原来买。',next_turn:'确认库存、需求变化后再给原方案/调整方案。',avoid:'不把历史购买直接等同于当前意向。'},
+    {id:'old-repurchase',customer_type:'存量老客',stage:'复购增购',scene:'复购增购',title:'先核对库存与变化',purpose:'识别真实复购时点',template:'{{称呼}}，您之前一直在用{{方案}}，我帮您看一眼现在的节奏：家里大概还剩多少？最近需求有没有变化？我先按实际情况判断要不要续，不一定非得照原来买。',next_turn:'确认库存、需求变化后再给原方案/调整方案。',avoid:'不把历史购买直接等同于当前意向。'},
     {id:'old-maintain',customer_type:'存量老客',stage:'定期维护',scene:'节点维护',title:'一次联系只做一件事',purpose:'形成可持续关系节奏',template:'{{称呼}}，今天只来确认一件事：{{明确事项}}。您回我“正常 / 有问题 / 暂停”都可以，我按您的情况处理。',next_turn:'根据三类回复进入服务、答疑或免打扰。',avoid:'不把关怀、调查、促销和裂变塞在同一条消息里。'},
     {id:'old-referral',customer_type:'存量老客',stage:'裂变转介',scene:'权益维护',title:'先感谢，再透明说明权益',purpose:'维护转介关系',template:'谢谢您愿意介绍朋友给我。权益我先说清楚：您这边是{{老客权益}}，朋友是{{新客权益}}，没有隐藏条件。需要我整理一段您方便转发的简短说明吗？',next_turn:'只在用户确认后提供可转发内容。',avoid:'不夸大权益，不泄露被推荐人的购买或咨询信息。'}
   ];
@@ -223,7 +252,7 @@
       {type:'风险信号',title:'全量长清单 + 多卖点促销',metric:'800触达 / 12回复',rate:'回复率 1.5%',note:'模拟样本用于展示内容过长时的打扰风险。'},
       {type:'风险信号',title:'稀缺催促式群发',metric:'600触达 / 0回复',rate:'回复率 0%',note:'模拟样本用于展示虚假紧迫感的沟通风险。'}
     ],
-    rules:['一句话只承担一个沟通目标','先承接已知事实，再问一个容易回答的问题','用户回复后复述关键词，再进入下一回合','促销、链接和产品长介绍延后到用户明确愿意了解之后','称呼来自真实偏好，不默认使用“亲、姐、哥”','最多使用一个自然表情，专业或谨慎型用户默认不用','不虚构库存、优惠、历史效果或客户关系']
+    rules:['一句话只承担一个沟通目标','先承接已知事实，再问一个容易回答的问题','用户回复后复述关键词，再进入下一回合','促销、链接和产品长介绍延后到用户明确愿意了解之后','称呼统一采用更亲切的“X哥/X姐”，运营可修改并避免“老师”等生疏称呼','话术中不提及具体购买日期与“多久之前购买”等生疏表达','结合当月活动与知识库内容自然穿插，但不虚构活动','最多使用一个自然表情，专业或谨慎型用户默认不用','不虚构库存、优惠、历史效果或客户关系']
   };
   const taskCategories=[
     {code:'daily',label:'每日用户触达',icon:'日',description:'新用户与日常服务触达'},
@@ -256,7 +285,7 @@
     {id:'t11',customer_id:novice2.id,category:'daily',type:'新用户基础触达',funnel:'低意向·初步了解',reason:'名单已进入首次问卷后24小时',objective:'让用户选一个最容易回答的问题',touch_angle:'跳出产品介绍，从日常节奏与信息偏好切入',prompt:`用户互动${novice2.persona.engagement}，先从一个低门槛生活问题自然开口。`,previous_touch:'尚未进行人工触达',recommended_scene:'ice_break',optimization_hint:'低意向新客使用生活场景问题，不直接问购买计划',due:'明天 18:30',status:'pending'}
   ];
   let optimizationVersion=3;
-  const performance=()=>({date_label:'演示昨日',is_demo:true,metrics:{assigned:100,completed:88,opening_rate:62,reply_rate:35,intent_rate:22,conversion_rate:8,care_positive_rate:70},deltas:{opening_rate:4,reply_rate:2,intent_rate:1,conversion_rate:-1},by_category:[{label:'客户消息回复',opening_rate:90,intent_rate:45,conversion_rate:16},{label:'意向逐层跟进',opening_rate:70,intent_rate:32,conversion_rate:12},{label:'购买后定期关怀',opening_rate:75,intent_rate:20,conversion_rate:7},{label:'生日关怀',opening_rate:82,intent_rate:12,conversion_rate:4},{label:'沉默用户唤醒',opening_rate:30,intent_rate:8,conversion_rate:2}],optimization:{version:`D+1 V${optimizationVersion}`,generated_at:now(),winners:['具体来由 + 单一问题：模拟样本200触达、24回复','基于模拟记录的个别跟进：80触达、12回复、3成交','模拟使用回访：240触达、18回复，优先于直接推活动'],adjustments:['模拟长清单样本800触达仅12回复，今日拆成单问题','模拟催促批次600触达0回复，默认禁用虚假紧迫感','称呼改用脱敏资料中的展示名，不再默认“亲、姐、哥”'],today_focus:'先开口、再判断、后推进：承接演示上下文，每条消息只留一个容易回答的问题，收到回复后再进入下一回合。',next_review:'今日 18:30 自动复盘'}});
+  const performance=()=>({date_label:'演示昨日',is_demo:true,metrics:{assigned:100,completed:88,opening_rate:62,reply_rate:35,intent_rate:22,conversion_rate:8,care_positive_rate:70},deltas:{opening_rate:4,reply_rate:2,intent_rate:1,conversion_rate:-1},by_category:[{label:'客户消息回复',opening_rate:90,intent_rate:45,conversion_rate:16},{label:'意向逐层跟进',opening_rate:70,intent_rate:32,conversion_rate:12},{label:'购买后定期关怀',opening_rate:75,intent_rate:20,conversion_rate:7},{label:'生日关怀',opening_rate:82,intent_rate:12,conversion_rate:4},{label:'沉默用户唤醒',opening_rate:30,intent_rate:8,conversion_rate:2}],optimization:{version:`D+1 V${optimizationVersion}`,generated_at:now(),winners:['具体来由 + 单一问题：模拟样本200触达、24回复','基于模拟记录的个别跟进：80触达、12回复、3成交','模拟使用回访：240触达、18回复，优先于直接推活动'],adjustments:['模拟长清单样本800触达仅12回复，今日拆成单问题','模拟催促批次600触达0回复，默认禁用虚假紧迫感','称呼统一采用更亲切的“X哥/X姐”，并移除购买日期等生疏表达'],today_focus:'先开口、再判断、后推进：承接演示上下文，每条消息只留一个容易回答的问题，收到回复后再进入下一回合。',next_review:'今日 18:30 自动复盘'}});
   let loggedIn=false,sequence=100;
   const conversations=new Map(customers.map(c=>[c.id,{id:c.id,customer_id:c.id,scene:'consult',messages:[{role:'operator',content:`您好${c.name.slice(0,1)}老师，上次关注的内容还有哪里需要我说明吗？`,time:'前次沟通'},{role:'customer',content:c.last_message,time:c.last_time}],suggestion:null}]));
   const ok=(data,status=200)=>Promise.resolve(new Response(JSON.stringify({success:true,data,error:null,request_id:'operator-demo'}),{status,headers:{'Content-Type':'application/json; charset=utf-8'}}));
@@ -269,6 +298,7 @@
     if(!name)return fail('客户姓名不能为空',400);
     if(phone.length!==4)return fail('手机号后四位必须为 4 位数字，请勿上传完整手机号',400);
     if(!owner)return fail('归属顾问不能为空',400);
+    const salutation=String(p.salutation||'').trim()||inferSalutation(name,remark);
     const city=String(p.city||'').trim()||'待补充';
     const product_focus=String(p.product_focus||'').trim()||'待确认';
     const categoryNames=Object.fromEntries(categories.map(x=>[x.code,x.name]));
@@ -276,9 +306,9 @@
     const codes=assetCodes.length?assetCodes:['regular'];
     const id=customers.reduce((m,c)=>Math.max(m,c.id),0)+1;
     const persona={age_band:'待确认',gender:'未标注',occupation:'待确认（暂无推断依据）',life_stage:'待确认',personality:'待观察',decision_style:'暂无足够依据，先以用户自述为准',content_preference:'待观察',available_time:'待确认',non_health_topics:[],intention_score:0,conversion_probability:0,confidence:0,sources:['人工录入基础信息']};
-    const c={id,name,phone,city,owner,remark,member:'未绑定会员',stage:'待首次触达',priority:'中',assetCodes:codes,product_focus,last_message:'新录入客户，尚未产生沟通记录',last_time:'刚刚录入',next_action:'完成首次真实沟通，采集明确需求与授权边界',next_at:'待安排',consent:'待确认授权',traits:['新录入','待采集'],facts:['录入时仅确认基础归属信息'],purchase:[],persona,assets:codes.map(code=>({code,name:categoryNames[code],basis:'人工归属'})),ai_profile:{summary:`${name}刚刚录入，暂无足够事实用于生成内部判断。请先通过首次真实沟通采集需求与授权边界，再生成辅助摘要。`,tags:['新录入','待采集需求','未生成推断'],confidence:0,generated_at:now(),evidence:[{label:'仅确认客户姓名、基础归属与授权状态',source:'人工录入'}],guardrails:['不承诺疾病治疗效果','不把推断描述成用户事实','不按政治立场或敏感属性定向沟通','发送前由运营人员确认']},interactions:[{type:'系统记录',content:'客户由运营人员新录入，尚未开始触达',time:'刚刚',channel:'运营中台'}]};
+    const c={id,name,salutation,phone,city,owner,remark,member:'未绑定会员',stage:'待首次触达',priority:'中',assetCodes:codes,product_focus,last_message:'新录入客户，尚未产生沟通记录',last_time:'刚刚录入',next_action:'完成首次真实沟通，采集明确需求与授权边界',next_at:'待安排',consent:'待确认授权',traits:['新录入','待采集'],facts:['录入时仅确认基础归属信息'],purchase:[],persona,assets:codes.map(code=>({code,name:categoryNames[code],basis:'人工归属'})),ai_profile:{summary:`${salutation||name}刚刚录入，暂无足够事实用于生成内部判断。请先通过首次真实沟通采集需求与授权边界，再生成辅助摘要。`,tags:['新录入','待采集需求','未生成推断'],confidence:0,generated_at:now(),evidence:[{label:'仅确认客户姓名、基础归属与授权状态',source:'人工录入'}],guardrails:['不承诺疾病治疗效果','不把推断描述成用户事实','不按政治立场或敏感属性定向沟通','发送前由运营人员确认']},interactions:[{type:'系统记录',content:'客户由运营人员新录入，尚未开始触达',time:'刚刚',channel:'运营中台'}]};
     customers.push(c);
-    conversations.set(id,{id,customer_id:id,scene:'consult',messages:[{role:'operator',content:`您好${name.slice(0,1)}老师，我是负责您的顾问${owner}，先和您确认一下目前最想了解的内容。`,time:'待发送'}],suggestion:null});
+    conversations.set(id,{id,customer_id:id,scene:'consult',messages:[{role:'operator',content:`${salutation||name}您好，我是负责您的顾问${owner}，先和您确认一下目前最想了解的内容。`,time:'待发送'}],suggestion:null});
     refreshCategoryCounts();
     refreshSegmentCounts();
     return ok(c,201);
@@ -309,7 +339,7 @@
   }
   function suggestionFor(c,message,scene,task){
     const p=c.persona||{};
-    const displayName=String(c.name||'').trim().replace(/\s+/g,'')||'您好';
+    const displayName=String(c.salutation||c.name||'').trim().replace(/\s+/g,'')||'您好';
     const focus=c.product_focus||'NMN焕活方案';
     const input=String(message||'').trim();
     const sensitive=/治疗|治好|药|医生|怀孕|孕期|严重|胸痛|呼吸困难/.test(input);
@@ -318,11 +348,12 @@
     const concernLead=concern?`您之前比较在意${concern}`:'您可能还在比较和选择';
     const recency=Number(p.recency_days);
     const recencyLead=Number.isFinite(recency)&&recency>0
-      ?(recency<=7?'您最近还比较活跃':recency<=30?'有阵子没聊了，怕信息一多反而乱':`${recency}天没打扰您了，今天先只确认一件事`)
+      ?(recency<=7?'您最近还比较活跃':recency<=30?'这段时间没怎么打扰您，怕信息一多反而乱':'这段时间一直没打扰您，今天先只确认一件事')
       :'想先和您确认一下';
     const lp=c.last_purchase||{};
     const purchased=Boolean(lp&&lp.hasPurchase);
-    const purchaseLead=purchased?`上次购买记录是${formatPurchaseInsight(lp)}，想先看看您用得顺不顺手`:'想先确认您目前的使用情况和需求';
+    const lastProduct=String((lp&&lp.product)||'').trim()||String(c.product_focus||'').split('、')[0].trim()||'您之前关注的产品';
+    const purchaseLead=purchased?`您之前在用${lastProduct}，想先看看这段时间用得顺不顺手`:'想先确认您目前的使用情况和需求';
     const priKey=p.warmth==='高'?'高关系温度':p.warmth==='中'?'中等关系温度':'尚待建立关系';
     const tierKey=p.value_tier||'';
     const rationaleBase=(styleHint)=>`该用户分层为${tierKey||'待分群'}、${priKey}、互动${p.engagement||'暂无统计'}，采用${styleHint}更贴合当前沟通温度。`;
@@ -409,7 +440,7 @@
       restrainedR=rationaleBase('克制型主动撤掉时间压力，减少反感');
       consultantR=rationaleBase('把决策拆成可核对的步骤，贴合谨慎型用户');
     }else if(scene==='proactive'){
-      const backRef=purchased?`您上次购买的${formatPurchaseInsight(lp)}这边有记录`:`您之前比较关注${concernPhrase}`;
+      const backRef=purchased?`您之前在用${lastProduct}，我这边还有印象`:`您之前比较关注${concernPhrase}`;
       direct=`${displayName}，${backRef}。今天先确认一件最实用的事：您是想按当前节奏继续，还是看看有没有更适合现在的选择？`;
       restrained=`${displayName}，${backRef}，我先不急着发方案。您如果想继续了解，我按最相关的一点做一页说明；暂时不需要也完全没关系。`;
       consultant=`${displayName}，${backRef}。我可以把${focus}的使用边界和可调整点整理一页，您方便时看，看完再按您的实际情况定下一步。`;
@@ -424,6 +455,11 @@
       restrainedR=rationaleBase('克制型尊重用户节奏，允许先暂停');
       consultantR=rationaleBase('顾问型把复杂内容切成小块，按点推进');
     }
+
+    const activityLine=activityLineFor();
+    const activityAllowed=Boolean(activityLine)&&!['purchase_care','reactivation','birthday','public_event'].includes(task?.category);
+    const activityFriendly=activityAllowed&&(['consult','ice_break','follow','intent','proactive','daily'].includes(scene)||['daily','intent'].includes(task?.category));
+    if(activityFriendly){direct+=` ${activityLine}`;consultant+=` ${activityLine}`;}
 
     const strategies=[
       {key:'direct',type:'直接型',label:'直接型',reply:direct,rationale:directR},
@@ -454,17 +490,19 @@
     if(path==='/api/logout'&&method==='POST'){loggedIn=false;return ok({})}
     if(path==='/api/me')return loggedIn?ok({id:1,display_name:'演示顾问A',role:'一线运营',permissions:['customer:read','conversation:reply','task:update']}):fail('请先登录',401);
     if(!loggedIn)return fail('请先登录',401);
+    if(path==='/api/v1/private/resources'&&method==='GET')return ok({...resources});
+    if(path==='/api/v1/private/resources'&&method==='PUT'){const p=body(options);resources={activity:String(p.activity||'').trim(),plan:String(p.plan||'').trim(),knowledge:String(p.knowledge||'').trim()};persistResources();return ok({...resources})}
     if(path==='/api/v1/private/workbench')return ok({metrics:{due:tasks.filter(x=>x.status==='pending').length,waiting:customers.filter(x=>x.stage==='待回复'||x.stage==='对话中').length,followups:customers.filter(x=>x.stage==='待跟进').length,paused:customers.filter(x=>x.stage==='暂停触达').length},categories,segments,queue:tasks.filter(x=>x.status==='pending').slice(0,6).map(t=>({...t,customer:customer(t.customer_id)})),completed_today:3});
-    if(path==='/api/v1/private/user-assets')return ok({segments,categories,total_users:customers.length,updated_at:now()});
+    if(path==='/api/v1/private/user-assets')return ok({segments,categories,owners:ownerSummaries(customers),total_users:customers.length,updated_at:now()});
     const segMatch=path.match(/^\/api\/v1\/private\/segments\/([\w-]+)\/overview$/);
     if(segMatch){const code=segMatch[1];const segment=segments.find(x=>x.code===code);if(!segment)return fail('板块不存在');return ok(segmentOverview(segment))}
     if(path==='/api/v1/private/customers'&&method==='POST')return newCustomer(body(options));
     if(path==='/api/v1/private/customers/import'&&method==='POST')return importCustomers(body(options));
     let m=path.match(/^\/api\/v1\/private\/user-assets\/([\w-]+)\/customers$/);
-    if(m){const code=m[1];const audience=categories.find(x=>x.code===code)||segments.find(x=>x.code===code);if(!audience)return fail('人群或板块不存在');const q=(url.searchParams.get('q')||'').toLowerCase();let items=audience.category_codes?customers.filter(x=>x.assetCodes.some(c=>audience.category_codes.includes(c))):customers.filter(x=>x.assetCodes.includes(code));if(q)items=items.filter(x=>`${x.name}${x.phone}${x.owner}${x.remark||''}${x.product_focus}${x.stage}`.toLowerCase().includes(q));return ok({audience,items,pagination:{page:1,total:items.length}})}
+    if(m){const code=m[1];const audience=categories.find(x=>x.code===code)||segments.find(x=>x.code===code);if(!audience)return fail('人群或板块不存在');const q=(url.searchParams.get('q')||'').toLowerCase();const owner=(url.searchParams.get('owner')||'').trim();const baseItems=audience.category_codes?customers.filter(x=>x.assetCodes.some(c=>audience.category_codes.includes(c))):customers.filter(x=>x.assetCodes.includes(code));let items=baseItems;if(owner)items=items.filter(x=>x.owner===owner);if(q)items=items.filter(x=>`${x.name}${x.salutation||''}${x.phone}${x.owner}${x.remark||''}${x.product_focus}${x.stage}`.toLowerCase().includes(q));return ok({audience,items,owners:ownerSummaries(baseItems),pagination:{page:1,total:items.length}})}
     m=path.match(/^\/api\/v1\/private\/customers\/(\d+)$/);if(m){const c=customer(m[1]);return c?ok(c):fail('用户不存在')}
     m=path.match(/^\/api\/v1\/private\/customers\/(\d+)\/ai-profile\/refresh$/);if(m&&method==='POST'){const c=customer(m[1]);c.ai_profile.generated_at=now();return ok(c.ai_profile)}
-    if(path==='/api/v1/private/conversations')return ok({items:customers.filter(x=>x.stage!=='暂停触达').map(c=>({conversation_id:c.id,customer_id:c.id,name:c.name,stage:c.stage,product_focus:c.product_focus,last_message:c.last_message,last_time:c.last_time,priority:c.priority,unread:c.stage==='待回复'||c.stage==='对话中'}))});
+    if(path==='/api/v1/private/conversations'){const owner=(url.searchParams.get('owner')||'').trim();const base=customers.filter(x=>x.stage!=='暂停触达');const items=base.filter(x=>!owner||x.owner===owner).map(c=>({conversation_id:c.id,customer_id:c.id,name:c.name,salutation:c.salutation,owner:c.owner,stage:c.stage,product_focus:c.product_focus,last_message:c.last_message,last_time:c.last_time,priority:c.priority,unread:c.stage==='待回复'||c.stage==='对话中'}));return ok({items,owners:ownerSummaries(base)})}
     m=path.match(/^\/api\/v1\/private\/customers\/(\d+)\/agent-conversations$/);if(m&&method==='POST'){const c=customer(m[1]);if(!c)return fail('用户不存在');return ok(conversations.get(c.id),201)}
     m=path.match(/^\/api\/v1\/private\/agent-conversations\/(\d+)$/);if(m){const conv=conversations.get(Number(m[1]));if(!conv)return fail('会话不存在');const cc=customer(conv.customer_id);return ok({conversation:{...conv,suggestion:conv.suggestion||suggestionFor(cc,'','proactive',null)},customer:cc})}
     m=path.match(/^\/api\/v1\/private\/agent-conversations\/(\d+)\/messages$/);if(m&&method==='POST'){const conv=conversations.get(Number(m[1]));if(!conv)return fail('会话不存在');const data=body(options),c=customer(conv.customer_id),task=tasks.find(x=>x.id===data.task_id);conv.scene=data.scene||task?.recommended_scene||'consult';conv.messages.push({role:data.task_id?'system_task':'customer',content:String(data.message||task?.prompt||''),time:'刚刚'});conv.suggestion=suggestionFor(c,String(data.message||task?.prompt||''),conv.scene,task);if(!data.task_id){c.last_message=String(data.message||'');c.last_time='刚刚';c.stage='待回复'}return ok({conversation_id:conv.id,suggestion:conv.suggestion,task})}
