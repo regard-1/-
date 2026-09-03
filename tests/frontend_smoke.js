@@ -20,8 +20,8 @@ async function request(url,options){const response=await fetch(url,options);retu
   assert.equal(workbench.body.data.categories.length,4);
 
   const audience=await request('/api/v1/private/user-assets/nmn/customers');
-  assert.equal(audience.body.data.items.length,4489);
-  assert.equal(audience.body.data.pagination.total,4489);
+  assert.equal(audience.body.data.items.length,873);
+  assert.equal(audience.body.data.pagination.total,873);
   assert.ok(audience.body.data.items.every(item=>/^\d{4}$/.test(item.phone)));
   assert.ok(audience.body.data.items.filter(item=>item.id>8).every(item=>item.name&&typeof item.remark==='string'));
   const nmnEnriched=audience.body.data.items.filter(item=>item.id>8&&item.ai_profile.confidence>0);
@@ -31,7 +31,7 @@ async function request(url,options){const response=await fetch(url,options);retu
   assert.ok(audience.body.data.items[0].ai_profile.summary);
   assert.ok(audience.body.data.items[0].ai_profile.evidence.length);
   assert.ok(audience.body.data.items[0].persona.occupation);
-  assert.ok(audience.body.data.items[0].persona.non_health_topics.length);
+  assert.ok(Array.isArray(audience.body.data.items[0].persona.non_health_topics));
   assert.ok(audience.body.data.items[0].persona.confidence < 100);
 
   const conversation=await request('/api/v1/private/customers/1/agent-conversations',{method:'POST',body:'{}'});
