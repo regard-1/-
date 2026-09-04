@@ -337,12 +337,443 @@
     }
     return ok({imported:created.length,customers:created,ids:created.map(c=>c.id)},201);
   }
+  const openingName=c=>{
+    const raw=String(c.salutation||c.name||'').trim().replace(/\s+/g,'').replace(/\d{7,}/g,'');
+    if(!raw)return '您好';
+    if(/哥|姐/.test(raw))return raw;
+    if(/先生/.test(raw))return raw.replace('先生','哥');
+    if(/女士|小姐/.test(raw))return raw.replace(/女士|小姐/,'姐');
+    return raw;
+  };
+  const openingOwner=c=>String(c.owner||'').replace(/^营养师/,'').trim()||'您的顾问';
+  const openingPurchase=c=>{
+    const lp=c.last_purchase||{};
+    const remark=parsePurchaseRemark(c.remark);
+    const source=String(lp.product||remark.product||String(c.product_focus||'').split('、')[0]||'').trim();
+    const token=productTokenMap.find(x=>x.re.test(source));
+    const product=token?token.label:(source?source.replace(/产品|方案/g,'').trim()||'产品':'产品');
+    return {
+      product,
+      quantity:lp.quantity||remark.quantity||null,
+      purchased:Boolean(lp.hasPurchase||remark.hasPurchase||(c.purchase||[]).some(x=>/购买/.test(String(x))))
+    };
+  };
+  const openingContactPaused=c=>/不触|不要发|勿扰|别发|暂停|拒绝/.test(`${c.remark||''}${c.consent||''}`)||String(c.stage).includes('暂停');
+  const openingConcernKind=concern=>{
+    if(/效果|作用|成分|来源|安全/.test(concern))return 'effect';
+    if(/价格|预算|费用|花费/.test(concern))return 'price';
+    if(/物流|发货|快递|售后/.test(concern))return 'logistics';
+    if(/复购|库存|补货/.test(concern))return 'repurchase';
+    if(/睡眠|精力|状态/.test(concern))return 'daily_state';
+    return 'general';
+  };
+  const openingActivityClause=(kind,brief)=>{
+    if(!brief||['sleep_wakeup','fresh_start','logistics_service','safety_boundary'].includes(kind))return '';
+    if(kind==='repurchase_inventory')return `这个月「${brief}」有安排，需要的话我一并帮您看。`;
+    if(kind==='usage_care')return `这个月「${brief}」有安排，我先不展开，等您方便我再补。`;
+    if(kind==='concern_solution')return `这个月「${brief}」也有搭配，我按您关心的那一点先筛。`;
+    if(kind==='high_intent_plan')return `这个月「${brief}」有安排，我看看哪一种贴合您的节奏。`;
+    return '';
+  };
+  const openingHash=value=>{const text=String(value||'');let h=2166136261;for(let i=0;i<text.length;i++){h^=text.charCodeAt(i);h=Math.imul(h,16777619)}return Math.abs(h)};
+  const openingPick=(list,c,seed='')=>list[openingHash(`${c.id}|${c.name}|${c.remark||''}|${c.owner||''}|${seed}`)%list.length]||list[0];
+  const openingOwnerShort=c=>String(c.owner||'').replace(/^营养师/,'').trim()||'您的顾问';
+  const openingIdentity=c=>{
+    const p=c.persona||{},stage=String(c.stage||''),channel=String(c.consent||'');
+    const warmth=String(p.warmth||''),engagement=String(p.engagement||''),loyalty=String(p.loyalty||''),tier=String(p.value_tier||'');
+    return {
+      owner:openingOwnerShort(c),city:String(c.city||'').trim(),stage,warmth,engagement,loyalty,tier,channel,
+      familiar:warmth==='高'||['对话中','待回复','待跟进'].includes(stage),
+      active:/近一周|近一月/.test(String(p.available_time||'')),
+      silent:/长期未活跃|沉睡/.test(String(p.available_time||''))||stage==='已读未回',
+      consentConfirmed:/确认|有效|授权/.test(channel)&&!/需确认|待确认|拒绝/.test(channel)
+    };
+  };
+  const openingContext=c=>{
+    const p=c.persona||{};
+    const product=openingPurchase(c).product;
+    const items=String(c.product_focus||'').split(/[、，,]/).map(x=>x.trim()).filter(Boolean);
+    const altProduct=items.find(x=>x!==product&&/NMN|麦角硫因|辅酶|PQQ|小仙弹|维生素|叶黄素/.test(x));
+    const note=String(c.remark||'').trim();
+    const tokens=[
+      ...note.match(/包裹卡|药盒|礼盒|会员|朋友|推荐|活动|半价/g)||[],
+      ...note.match(/(?:三|四|五|六|七|八|九|十|\d+)瓶/g)||[]
+    ];
+    return {...openingIdentity(c),concern:String(p.concerns||'').trim(),product,altProduct,note,tokens:[...new Set(tokens)].slice(0,2)};
+  };
+  function openingScriptTrio(c,kind,seed,make){
+    const variants=[0,1,2].map(make);
+    const direct=openingPick(variants,c,`${kind}|${seed}|first`);
+    const rest=variants.filter(x=>x!==direct);
+    const restrained=openingPick(rest,c,`${kind}|${seed}|second`);
+    const consultant=rest.find(x=>x!==restrained)||variants[1]||direct;
+    return {direct,restrained,consultant};
+  }
+  function openingAngle(c){
+    const ctx=openingContext(c);
+    const tokens=ctx.tokens||[];
+    if(tokens.includes('半价'))return '先不把优惠当成承诺，我帮您核对适不适合';
+    if(tokens.includes('药盒')||tokens.includes('包裹卡'))return '我先帮您把收货、收纳和使用提醒理顺';
+    if(tokens.includes('朋友')||tokens.includes('推荐'))return '不把推荐关系当成压力，先看您自己的节奏';
+    const bottle=tokens.find(x=>/瓶/.test(x));
+    if(bottle)return `我先按${bottle}的量帮您看节奏`;
+    if(ctx.altProduct)return `我先帮您把${ctx.product}和${ctx.altProduct}的顺序分开安排`;
+    if(/效果|成分|安全/.test(ctx.concern))return '先把您最关心的作用边界说清楚，再谈别的';
+    if(/价格|预算|花费/.test(ctx.concern))return '先把必要项和预算边界分开，不做多余推荐';
+    if(/物流|售后/.test(ctx.concern))return '先把服务和收货这件事处理顺';
+    if(/睡眠|精力|状态/.test(ctx.concern))return '先看当前节奏，再决定要不要调整';
+    if(ctx.familiar)return '先承接您最近的状态，再决定下一步';
+    if(ctx.silent)return '只留一个很轻的入口，方便您选继续或暂停';
+    if(ctx.engagement==='高频')return '我尽量一句说清楚，不占用您太多时间';
+    return '先用一个容易回答的问题确认方向';
+  }
+  function openingPersonalBit(c){
+    const ctx=openingContext(c);
+    if(ctx.loyalty==='高')return '我按您原来的习惯先整理。';
+    if(ctx.familiar)return '我先按您熟悉的方式记下来。';
+    if(ctx.active)return '您看到消息时回我就行。';
+    if(ctx.silent)return '不用马上回，我先登记这个方向。';
+    if(/价格|预算|花费/.test(ctx.concern))return '花费这边我先帮您卡住。';
+    if(/物流|售后/.test(ctx.concern))return '服务这边我先盯住。';
+    if(/效果|成分|安全/.test(ctx.concern))return '成分和用法我先分开讲。';
+    return '我先按您方便的节奏安排。';
+  }
+  function openingReplyRoutes(kind,product){
+    const commonNoReply={type:'本轮未回复',advisor_next:'登记本次尝试，7天内不重复同一入口，下次换更轻的服务问题。',profile_value:'记录有效开场方式和沉默边界。',conversion_value:'避免连续追问压低后续回复率。'};
+    if(kind==='repurchase_inventory'){
+      return [
+        {type:'愿意回复',advisor_next:'先确认剩余量和当前节奏；用户确认后再谈是否补，不先报活动。',profile_value:'沉淀产品剩余量、使用节奏和复购周期。',conversion_value:'把复购判断放在库存事实之后，减少被误解成催单。'},
+        {type:'犹豫或提问',advisor_next:'只回答用户问的那一点，再问是否需要把用法和搭配一起核一遍。',profile_value:'沉淀具体卡点，例如效果预期、花费或用法。',conversion_value:'把“要不要买”转成“现在适不适合”。'},
+        {type:'拒绝或暂停',advisor_next:'接受边界，停止库存提醒，只保留用户主动咨询入口。',profile_value:'记录暂停范围和不催复购偏好。',conversion_value:'保住长期信任，等下一次自然需求出现。'},
+        commonNoReply
+      ];
+    }
+    if(kind==='usage_care'){
+      return [
+        {type:'愿意回复',advisor_next:'先承接用户的实际体验，再确认是否需要调整用法；不先追加推荐。',profile_value:'沉淀当前使用节奏、体感表述和关注点。',conversion_value:'从服务确认进入下一轮精准复购或搭配。'},
+        {type:'犹豫或提问',advisor_next:'用知识库回应使用方式、成分边界或搭配，再问是否合适。',profile_value:'沉淀关心点和决策方式。',conversion_value:'把模糊回应变成可跟进的具体需求。'},
+        {type:'拒绝或暂停',advisor_next:'停止关怀触达，记录免打扰范围；用户主动咨询时再恢复。',profile_value:'沉淀打扰信号和暂停授权。',conversion_value:'减少流失风险，保留高价值用户关系。'},
+        commonNoReply
+      ];
+    }
+    if(kind==='sleep_wakeup'){
+      return [
+        {type:'愿意回复',advisor_next:'根据“继续看”或“先停停”给一个轻量下一步，不立刻发长资料。',profile_value:'沉淀当前意愿和偏好入口。',conversion_value:'先恢复对话，再筛选值得投入的用户。'},
+        {type:'犹豫或提问',advisor_next:'回应一个问题后，把话题收缩成单点确认。',profile_value:'沉淀仍存在的兴趣和具体顾虑。',conversion_value:'把沉默用户转回可判断的漏斗阶段。'},
+        {type:'拒绝或暂停',advisor_next:'立即停止同类唤醒，转人工确认暂停范围。',profile_value:'记录明确拒绝和免打扰要求。',conversion_value:'避免不可逆打扰，保留主动找回机会。'},
+        commonNoReply
+      ];
+    }
+    if(kind==='logistics_service'){
+      return [
+        {type:'愿意回复',advisor_next:'先处理物流或售后事实，完成后再确认是否需要使用安排。',profile_value:'沉淀售后事件、处理结果和响应偏好。',conversion_value:'用服务修复关系，提高下一次开口回复率。'},
+        {type:'犹豫或提问',advisor_next:'按用户描述确认单点，不扩散到产品推荐。',profile_value:'沉淀真实阻塞和沟通渠道偏好。',conversion_value:'先把阻塞解除，再进入正常运营节奏。'},
+        {type:'拒绝或暂停',advisor_next:'尊重边界，但保留“有事找我”的服务入口。',profile_value:'记录当前沟通边界和原因。',conversion_value:'防止售后问题被继续推销放大。'},
+        commonNoReply
+      ];
+    }
+    if(kind==='concern_solution'){
+      return [
+        {type:'愿意回复',advisor_next:'按用户选中的单点给一页式解释，结尾确认是否符合其情况。',profile_value:'沉淀优先顾虑和接受的信息颗粒度。',conversion_value:'把解释成本降低，方便下一步自然推进。'},
+        {type:'犹豫或提问',advisor_next:'不连续补内容，先让用户挑最想解决的一点。',profile_value:'沉淀决策顺序和顾虑强度。',conversion_value:'防止多卖点同时推进导致犹豫。'},
+        {type:'拒绝或暂停',advisor_next:'接受暂停，把未解决的顾虑写入画像，不追加优惠。',profile_value:'记录未解决卡点和暂停授权。',conversion_value:'保留未来用新信息恢复沟通的机会。'},
+        commonNoReply
+      ];
+    }
+    if(kind==='high_intent_plan'){
+      return [
+        {type:'愿意回复',advisor_next:'先确认适用范围和预算边界，再给一条不夸张的下一步。',profile_value:'沉淀准备阶段、预算范围和方案偏好。',conversion_value:'让用户自己确认推进节奏，降低成交阻力。'},
+        {type:'犹豫或提问',advisor_next:'只补充一个关键事实，再问是否进入明细。',profile_value:'沉淀犹豫原因和信息偏好。',conversion_value:'把高意向转成可核对的方案步骤。'},
+        {type:'拒绝或暂停',advisor_next:'停止推进，登记“暂不安排”和时间。',profile_value:'记录推迟原因和下次复核时间。',conversion_value:'避免高意向用户因催促流失。'},
+        commonNoReply
+      ];
+    }
+    if(kind==='fresh_start'){
+      return [
+        {type:'愿意回复',advisor_next:'先承接用户选择，再问一个具体使用场景。',profile_value:'沉淀当前阶段、兴趣方向和沟通入口。',conversion_value:'首次回复是分层依据，决定后续投入强度。'},
+        {type:'犹豫或提问',advisor_next:'只回答一个基础知识问题，不发送长介绍。',profile_value:'沉淀认知水平和优先关注点。',conversion_value:'降低首次决策压力，建立顾问身份。'},
+        {type:'拒绝或暂停',advisor_next:'停止主动建联，只保留用户主动咨询入口。',profile_value:'记录首次触达结果和边界。',conversion_value:'避免名单资源被低质量触达消耗。'},
+        commonNoReply
+      ];
+    }
+    return [
+      {type:'愿意回复',advisor_next:`承接回复中的关键词，再确认${product}相关的下一步。`,profile_value:'沉淀本次有效话题和回复偏好。',conversion_value:'让对话继续向服务或需求确认推进。'},
+      {type:'犹豫或提问',advisor_next:'用知识库回应单点，再把话题收缩成二选一。',profile_value:'沉淀具体问题和信息偏好。',conversion_value:'减少信息过载，提高可跟进度。'},
+      {type:'拒绝或暂停',advisor_next:'接受边界并停止同类触达。',profile_value:'记录拒绝原因和暂停授权。',conversion_value:'保护长期关系，等待自然需求。'},
+      commonNoReply
+    ];
+  }
+  function buildOpeningStrategy(c,task,scene,sensitive){
+    const p=c.persona||{};
+    const displayName=openingName(c);
+    const ownerShort=openingOwner(c);
+    const purchase=openingPurchase(c);
+    const product=purchase.product;
+    const concern=String(p.concerns||'').trim();
+    const concernKind=openingConcernKind(concern);
+    const recency=Number(p.recency_days);
+    const warmth=p.warmth;
+    const contactPaused=openingContactPaused(c);
+    const act=activityBrief();
+    const variation=(Number(c.id)||1)%3;
+    let kind='fresh_start',name='新客破冰',hook='名单已归属，但缺少真实需求事实，先用低压力选择建立联系。';
+    let direct='',restrained='',consultant='';
+    if(contactPaused){
+      kind='paused_review';name='暂停复核';hook='备注或状态包含不触达、暂停或拒绝信号；本轮只做人工复核，不发送营销开口。';
+      ({direct,restrained,consultant}=openingScriptTrio(c,kind,'pause',i=>[
+        `${displayName}，我先不主动发产品内容。您方便的时候回个“继续”或“先停”，我按您说的登记。`,
+        `${displayName}，备注里这边需要复核一下。我先不打扰，您想继续或暂停时说一声就好。`,
+        `${displayName}，我先停掉这类消息。后面您愿意继续看，还是保持暂停？回一个词就行。`
+      ][i]));
+    }else if(sensitive){
+      kind='safety_boundary';name='专业边界';hook='用户消息涉及医疗判断，先守住专业边界，再提供公开资料。';
+      ({direct,restrained,consultant}=openingScriptTrio(c,kind,'safety',i=>[
+        `${displayName}，这件事建议先问医生或药师。我可以把${product}的公开成分和注意事项整理给您，方便您带去确认。`,
+        `${displayName}，这个我不替您下结论。您问医生或药师会更稳妥，要不要我整理一份${product}的成分和注意要点，您带着去确认。`,
+        `${displayName}，先以医生或药师的意见为准。我先帮您准备${product}的公开资料，您确认后我再把适合带去咨询的部分发您。`
+      ][i]));
+    }else if(task?.category==='birthday'){
+      kind='birthday_touch';name='生日关怀';hook='只送祝福，不夹带产品；关系较熟时才留一个低压力问候。';
+      if(warmth==='高'){
+        direct=`${displayName}，提前祝您生日快乐。今天就是来送祝福，家里和最近状态都顺顺利利。`;
+        restrained=`${displayName}，生日快乐。今天不用特意回我，等您方便我再联系。`;
+        consultant=`${displayName}，生日快乐。最近有没有好好休息？有需要我安排的地方直接说。`;
+      }else{
+        direct=`${displayName}，提前祝您生日快乐，愿新的一岁顺心顺利。`;
+        restrained=`${displayName}，生日快乐。我就不打扰了，后续有需要随时找我。`;
+        consultant=`${displayName}，祝您生日快乐。如果最近有想安排的事，我也可以帮您提前确认。`;
+      }
+    }else if(task?.category==='public_event'){
+      kind='public_service';name='中性提醒';hook='公共信息只做服务提醒，不加入营销和购买建议。';
+      ({direct,restrained,consultant}=openingScriptTrio(c,kind,'public',i=>[
+        `${displayName}，最近${c.city||'您所在地'}天气变化比较大，出门多留一点时间，注意安全。`,
+        `${displayName}，顺手提醒一下天气和出行。不用特意回我。`,
+        `${displayName}，${c.city||'您所在地'}出行可能有影响。需要我帮您整理一份简短注意事项吗？`
+      ][i]));
+    }else if(task?.category==='purchase_care'||(purchase.purchased&&concernKind==='repurchase')){
+      kind='repurchase_inventory';name='库存确认';hook=`已购线索是${product}；不提购买间隔，直接用剩余量让用户易答。`;
+      if(concernKind==='price'){
+        ({direct,restrained,consultant}=openingScriptTrio(c,kind,`${product}|price`,i=>[
+          `${displayName}，您的${product}大概还剩多少？只回“有”或“没有”就行，我帮您判断要不要补，不做多余推荐。`,
+          `${displayName}，${product}还剩多少？您方便时说一声就好，我先不推方案。`,
+          `${displayName}，您的${product}用到现在，剩余量大概是什么情况？我先帮您把补或不补算清楚。`
+        ][i]));
+      }else if(concernKind==='effect'){
+        ({direct,restrained,consultant}=openingScriptTrio(c,kind,`${product}|effect`,i=>[
+          `${displayName}，您的${product}用得还顺吗？如果顺手，我再帮您看剩余量；如果没达预期，我先帮您调整用法。`,
+          `${displayName}，${product}还剩多少？方便时回一下就行，不顺的地方我等您说。`,
+          `${displayName}，您的${product}现在还剩多少？我先按这个和您的用法一起看，不给您乱加搭配。`
+        ][i]));
+      }else{
+        const q=purchase.quantity?`我看线索里记到${purchase.quantity}，`:'';
+        ({direct,restrained,consultant}=openingScriptTrio(c,kind,`${product}|${q}`,i=>[
+          `${displayName}，您的${product}大概还剩多少？您回个数字就行，我按节奏帮您看。`,
+          `${displayName}，${q}您的${product}还剩几瓶？方便时回一下，我帮您确认要不要安排。`,
+          `${displayName}，您的${product}还剩多少？如果快见底了，我先帮您核对；不着急也告诉我。`,
+          `${displayName}，${q}我帮您看${product}的量。回“够”或“不够”就行，我按您的选择处理。`,
+          `${displayName}，${product}这边的量还好吗？够用我先不安排，接不上我再帮您排。`
+        ][i]));
+      }
+    }else if(task?.category==='purchase_care'||purchase.purchased){
+      kind='usage_care';name='使用关怀';hook=`已知${product}购买线索；先关心使用体验，不先提复购。`;
+      if(concernKind==='logistics'){
+        ({direct,restrained,consultant}=openingScriptTrio(c,kind,`${product}|logistics`,i=>[
+          `${displayName}，您的${product}和物流都还好吧？如果都收到了，回一下就行。`,
+          `${displayName}，${product}这边有没有需要我处理的？没有的话我就不打扰了。`,
+          `${displayName}，我先确认${product}和服务有没有卡点。方便的话告诉我目前状态。`
+        ][i]));
+      }else if(concernKind==='price'){
+        ({direct,restrained,consultant}=openingScriptTrio(c,kind,`${product}|price-care`,i=>[
+          `${displayName}，您现在的${product}用得顺吗？我先不聊加购，只确认节奏。`,
+          `${displayName}，${product}用着怎么样？您方便时回一句就好。`,
+          `${displayName}，您的${product}目前怎么安排的？我按实际情况帮您看，不额外增加花费。`
+        ][i]));
+      }else if(warmth==='高'){
+        ({direct,restrained,consultant}=openingScriptTrio(c,kind,`${product}|warm`,i=>[
+          `${displayName}，最近还好吗？您的${product}用得顺不顺手？`,
+          `${displayName}，最近忙不忙？${product}的节奏有没有需要我帮您调一下？`,
+          `${displayName}，先问一句，您现在的${product}用着还习惯吗？`,
+          `${displayName}，我是${ownerShort}，顺手问一下${product}最近用得怎么样？`,
+          `${displayName}，最近状态还好吧？${product}那边需要我帮您微调吗？`
+        ][i]));
+      }else{
+        ({direct,restrained,consultant}=openingScriptTrio(c,kind,`${product}|care`,i=>[
+          `${displayName}，先不聊别的，您的${product}用得顺不顺手？`,
+          `${displayName}，${product}这边方便时回一下就好，不顺的地方也可以直接说。`,
+          `${displayName}，您的${product}现在用得怎么样？我按实际情况帮您看。`,
+          `${displayName}，我是${ownerShort}。${product}用起来有疑问的话，直接丢给我就行。`,
+          `${displayName}，${product}按现在的节奏还行吗？我先帮您看要不要调整。`
+        ][i]));
+      }
+    }else if(task?.category==='reactivation'||String(c.stage).includes('已读未回')||(Number.isFinite(recency)&&recency>45&&p.messages<=6)){
+      kind='sleep_wakeup';name='沉睡唤醒';hook='长期沉默用户只给“继续/暂停”二选一，降低回复成本。';
+      if(concernKind==='price'){
+        ({direct,restrained,consultant}=openingScriptTrio(c,kind,'sleep-price',i=>[
+          `${displayName}，我不推新品。您是想先暂停，还是只看一版更省的搭配？`,
+          `${displayName}，回“停”或“看”两个字就行，我按您的选择来。`,
+          `${displayName}，咱们可以先只看预算这一件事：继续了解，还是先暂停？`,
+          `${displayName}，我不给您加东西。您看是先停一停，还是只核一个更省的安排？`
+        ][i]));
+      }else if(warmth==='高'){
+        ({direct,restrained,consultant}=openingScriptTrio(c,kind,'sleep-warm',i=>[
+          `${displayName}，最近忙吗？一句“继续看”或“先停停”就行。`,
+          `${displayName}，最近还好吗？不用长回，一个字我就明白。`,
+          `${displayName}，您现在想继续了解，还是先放一放？我按您说的安排。`,
+          `${displayName}，我是${ownerShort}。您方便时说“继续”或“暂停”，我就不再追问。`
+        ][i]));
+      }else{
+        ({direct,restrained,consultant}=openingScriptTrio(c,kind,'sleep-quiet',i=>[
+          `${displayName}，您还想继续了解吗？回“看”或“停”两个字就好。`,
+          `${displayName}，如果您暂时不需要，我就不再发；想继续了解时回“看”。`,
+          `${displayName}，我这边先不推内容。您看是继续了解，还是先暂停？`,
+          `${displayName}，我先不占时间。您想让我继续陪您看，还是先安静下来？`
+        ][i]));
+      }
+    }else if(concernKind==='logistics'){
+      kind='logistics_service';name='售后先行';hook='已有售后物流信号；先处理服务事实，不混入推荐。';
+      ({direct,restrained,consultant}=openingScriptTrio(c,kind,'logistics',i=>[
+        `${displayName}，您之前关心的物流我先跟一下：现在还有没落实的地方吗？`,
+        `${displayName}，物流那边还有问题吗？没有我就先不打扰。`,
+        `${displayName}，我先确认物流或售后有没有卡点。您方便时告诉我，我先处理这一件事。`,
+        `${displayName}，我先只处理服务这一件事。物流、收货或使用里哪个还没顺？`
+      ][i]));
+    }else if(['effect','price'].includes(concernKind)||(concern&&concern!=='使用与复购')){
+      kind='concern_solution';name='顾虑拆解';hook=`画像里有「${concern}」；把多个顾虑压成一个可答选择。`;
+      if(concernKind==='effect'){
+        ({direct,restrained,consultant}=openingScriptTrio(c,kind,'concern-effect',i=>[
+          `${displayName}，关于${product}，您最想先弄清楚成分来源、使用方式，还是适合范围？`,
+          `${displayName}，咱们先不推进。您想先看哪一点，还是先放一放？`,
+          `${displayName}，我先把${product}里您最关心的“是否适合”讲清楚。您想从成分还是用法开始？`,
+          `${displayName}，${product}这件事我不做判断。您想先看来源、用法，还是适合边界？`
+        ][i]));
+      }else if(concernKind==='price'){
+        ({direct,restrained,consultant}=openingScriptTrio(c,kind,'concern-price',i=>[
+          `${displayName}，咱们先不推方案。您更想先算一个周期的预算，还是先看哪些搭配可以先不买？`,
+          `${displayName}，预算这件事我会帮您卡住。您想先看基础安排，还是先暂停？`,
+          `${displayName}，我先把${product}的费用和必要项分开。您想先看哪一块？`,
+          `${displayName}，我先不推荐加购。您想让我帮您算基础项，还是先看必买项？`
+        ][i]));
+      }else{
+        ({direct,restrained,consultant}=openingScriptTrio(c,kind,`concern-${concern}`,i=>[
+          `${displayName}，您之前更在意${concern}。咱们先解决一个：您想先看方式，还是先看适合范围？`,
+          `${displayName}，关于${concern}，您想继续了解还是先放一放？`,
+          `${displayName}，我把${concern}拆成一个小问题。您希望我先帮您核对哪一点？`,
+          `${displayName}，${concern}这件事我先不展开。您想让我帮您核对方式，还是先确认适不适合？`
+        ][i]));
+      }
+    }else if(task?.category==='intent'||Number(p.intention_score)>=80||warmth==='高'){
+      kind='high_intent_plan';name='方案推进';hook='意向或关系温度足够，用推进型问题确认准备阶段。';
+      if(concernKind==='repurchase'){
+        ({direct,restrained,consultant}=openingScriptTrio(c,kind,'intent-repurchase',i=>[
+          `${displayName}，您现在打算继续安排，还是想先对比一下搭配？`,
+          `${displayName}，您看是继续了解，还是先放着？我按您的节奏来。`,
+          `${displayName}，咱们可以把${product}的下一步定清楚。您想先看安排方式，还是先核对适用情况？`,
+          `${displayName}，我不催决定。您想先看${product}的当前安排，还是先看搭配边界？`
+        ][i]));
+      }else if(warmth==='高'){
+        ({direct,restrained,consultant}=openingScriptTrio(c,kind,'intent-warm',i=>[
+          `${displayName}，您准备先安排，还是想我再核一遍适合情况？`,
+          `${displayName}，您方便时定一下方向就行，我不催。`,
+          `${displayName}，咱们下一步看安排方式还是适用情况？您选一个，我先核。`,
+          `${displayName}，我不着急要答案。您想让我先核安排，还是先核适合情况？`
+        ][i]));
+      }else{
+        ({direct,restrained,consultant}=openingScriptTrio(c,kind,'intent-plan',i=>[
+          `${displayName}，关于${product}，您现在更想先看安排方式，还是先确认适用范围？`,
+          `${displayName}，您可以先看要点，也可以先放着，方便时告诉我。`,
+          `${displayName}，我先不催决定。您想先核对哪一点，我再往下走。`,
+          `${displayName}，我是${ownerShort}。${product}这边您想先定节奏，还是先定适用范围？`
+        ][i]));
+      }
+    }else if(scene==='proactive'||scene==='ice_break'||task?.category==='daily'){
+      kind='fresh_start';name='低压建联';hook='缺少明确购买和顾虑事实，先用两个方向降低首次回复门槛。';
+      ({direct,restrained,consultant}=openingScriptTrio(c,kind,`${product}|fresh`,i=>[
+        `${displayName}，我是${ownerShort}。关于${product}，您想先看怎么用，还是先看适合范围？`,
+        `${displayName}，关于${product}，您是刚开始了解，还是已经对比过一些？`,
+        `${displayName}，我是${ownerShort}。我先不发资料，您更想先看基础用法还是注意事项？`,
+        `${displayName}，关于${product}，您想让我帮您核对适合边界，还是先聊日常怎么安排？`,
+        `${displayName}，${product}这边我先不推。您更想先弄清楚用法，还是先看它和别的怎么配合？`,
+        `${displayName}，我是${ownerShort}。您可以先说一个最想解决的问题，我按这个帮您筛。`
+      ][i]));
+    }else{
+      kind='usage_care';name='节奏确认';hook='没有足够转化信号，先确认当前使用或了解节奏。';
+      ({direct,restrained,consultant}=openingScriptTrio(c,kind,`${product}|rhythm`,i=>[
+        `${displayName}，您现在${product}的节奏还好吗？需要调整的地方告诉我。`,
+        `${displayName}，您方便时回一下当前情况就好，我先不打扰。`,
+        `${displayName}，我先确认您的当前节奏，再决定要不要给下一步。`,
+        `${displayName}，${product}是按原来的方式用着，还是最近有变化？我按实际情况帮您看。`
+      ][i]));
+    }
+    const clause=openingActivityClause(kind,act);
+    if(clause){
+      if(kind==='repurchase_inventory')direct+=` ${clause}`;
+      else if(kind==='high_intent_plan')consultant+=` ${clause}`;
+      else if(kind==='concern_solution')consultant+=` ${clause}`;
+      else if(kind==='usage_care')consultant+=` ${clause}`;
+    }
+    if(!['paused_review','safety_boundary','birthday_touch','public_service'].includes(kind)){
+      direct+=` ${openingPersonalBit(c)}`;
+    }
+    const goalMap={
+      paused_review:'人工复核暂停信号，不发送主动营销',
+      safety_boundary:'守住专业边界，并提供可带去咨询的公开资料',
+      birthday_touch:'完成生日祝福，保留低压力服务入口',
+      public_service:'完成中性提醒，确认是否需要帮助',
+      repurchase_inventory:'拿到剩余量或使用节奏回复，再判断是否复购',
+      usage_care:'拿到使用体验或节奏反馈，再决定下一步服务',
+      sleep_wakeup:'拿到“继续”或“暂停”的明确回复',
+      logistics_service:'先解决物流或售后卡点，再恢复正常沟通',
+      concern_solution:'把顾虑收缩成一个可回答的单点',
+      high_intent_plan:'确认用户当前准备阶段和下一步',
+      fresh_start:'获得首次回复，并确认了解阶段'
+    };
+    return {kind,name,hook,goal:goalMap[kind]||'优先获得真实回复，再进入需求确认',direct,restrained,consultant,reply_routes:openingReplyRoutes(kind,product),angle:openingAngle(c),personal_bit:openingPersonalBit(c)};
+  }
   function suggestionFor(c,message,scene,task){
     const p=c.persona||{};
     const displayName=String(c.salutation||c.name||'').trim().replace(/\s+/g,'')||'您好';
     const focus=c.product_focus||'NMN焕活方案';
     const input=String(message||'').trim();
     const sensitive=/治疗|治好|药|医生|怀孕|孕期|严重|胸痛|呼吸困难/.test(input);
+    const openingMode=sensitive||['proactive','ice_break','daily'].includes(scene)||['daily','intent','purchase_care','reactivation'].includes(task?.category);
+    if(openingMode){
+      const strategy=buildOpeningStrategy(c,task,scene,sensitive);
+      const ctx=openingContext(c);
+      const paused=strategy.kind==='paused_review';
+      const priority=paused?'暂停观察':(ctx.tier==='高价值'||ctx.warmth==='高'||ctx.familiar?'A · 优先开口':'B · 低压建联');
+      const rationale=(key)=>`${strategy.name}适合当前${ctx.tier||'未分层'}、${ctx.warmth||'待建立'}温度、${ctx.engagement||'暂无统计'}互动和「${ctx.concern||'待确认'}」状态。${key}版本保留一个明确目标，避免一次给多个卖点。`;
+      const strategies=[
+        {key:'direct',type:'直接型',label:`直接开口 · ${strategy.name}`,reply:strategy.direct,rationale:rationale('直接型')},
+        {key:'restrained',type:'克制型',label:`克制开口 · ${strategy.name}`,reply:strategy.restrained,rationale:rationale('克制型')},
+        {key:'consultant',type:'顾问型',label:`顾问开口 · ${strategy.name}`,reply:strategy.consultant,rationale:rationale('顾问型')}
+      ];
+      return {
+        reply:strategy.direct,
+        alternatives:[strategy.restrained,strategy.consultant],
+        strategies,
+        opening_plan:{
+          priority,
+          strategy_kind:strategy.kind,
+          strategy_name:strategy.name,
+          hook:strategy.hook,
+          angle:strategy.angle,
+          goal:strategy.goal,
+          first_question:strategy.direct,
+          basis:[strategy.hook,`称呼：${openingName(c)}`,`顾问：${c.owner||'待确认'}`,`产品线索：${ctx.product}`,`关心点：${ctx.concern||'待确认'}`,`关系温度：${ctx.warmth||'待建立'}`,`互动状态：${ctx.engagement||'暂无统计'}`,`授权状态：${c.consent||'待确认'}`],
+          reply_routes:strategy.reply_routes,
+          stop_rule:paused
+            ?'该用户已处于暂停边界：不主动发送营销内容，只在用户主动咨询或完成授权复核后处理。'
+            :'用户要求暂停、涉及医疗判断、表达拒绝或连续没有回应时，停止同类主动触达并转人工复核。'
+        },
+        next_turns:strategy.reply_routes.slice(0,3).map(route=>({when:route.type,reply:route.advisor_next})),
+        human_score:strategy.kind==='safety_boundary'?86:92,
+        human_checks:['称呼来自现有资料','一条消息只问一个目标','不提具体购买日期','不使用“多久之前购买”','不暴露内部评分、标签或优先级','发送前人工确认'],
+        historical_basis:'参考历史触达：具体上下文、亲切称呼与单一问题优先；长清单和强稀缺表达降权。',
+        reason:`以「${strategy.name}」处理${ctx.product}相关线索，并结合${ctx.concern||'当前待确认'}、${ctx.warmth||'待建立'}温度和${ctx.engagement||'暂无统计'}互动生成开口策略。`,
+        policy_flags:sensitive?['触发医疗边界','禁止个体化用药建议','需要人工确认']:['不使用绝对功效','不把推断当事实','不涉及政治立场定向','不暴露内部信息','发送前人工确认'],
+        provider:'Dotbest Human-tone Agent'
+      };
+    }
     const concern=String(p.concerns||'').trim();
     const concernPhrase=concern||'使用与复购';
     const concernLead=concern?`您之前比较在意${concern}`:'您可能还在比较和选择';

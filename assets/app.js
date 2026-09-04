@@ -98,7 +98,9 @@ function renderMessage(message){if(message.role==='system_task')return `<div cla
 function openingPlanHtml(c){
   const s=state.conversation?.suggestion,p=s?.opening_plan;
   if(!p)return '<div class="strategy-block"><b>暂无开口策略</b><span>请先在会话区生成本轮个性化话术。</span></div>';
-  return `<section class="strategy-block priority-block"><div><span>开口优先级</span><b>${esc(p.priority)}</b></div><div><span>本轮目标</span><p>${esc(p.goal)}</p></div></section>
+  return `<section class="strategy-block priority-block"><div><span>开口优先级</span><b>${esc(p.priority)}</b></div><div><span>本轮策略</span><p><b>${esc(p.strategy_name||'一人一策')}</b><small>${esc(p.hook||'')}</small></p></div></section>
+  <section class="strategy-block"><div><span>本轮目标</span><p>${esc(p.goal)}</p></div></section>
+  ${p.angle?`<section class="strategy-block"><b>开口切入</b><p>${esc(p.angle)}</p></section>`:''}
   <section class="strategy-block"><b>一人一策依据</b><div class="strategy-basis">${p.basis.map(x=>`<span>${esc(x)}</span>`).join('')}</div></section>
   <section class="strategy-block first-ask"><div><b>推荐首问</b><button class="secondary-button" onclick="useStrategy('direct')">设为主话术</button></div><p>${esc(p.first_question)}</p></section>
   <section class="strategy-routes">${p.reply_routes.map(route=>`<article class="strategy-route"><b>${esc(route.type)}</b><div><span>顾问下一步</span><p>${esc(route.advisor_next)}</p></div><div><span>沉淀到画像</span><p>${esc(route.profile_value)}</p></div><div><span>转化价值</span><p>${esc(route.conversion_value)}</p></div></article>`).join('')}</section>
