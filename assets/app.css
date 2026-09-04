@@ -204,33 +204,22 @@ button,input,select,textarea{font:inherit} button{cursor:pointer}.hidden{display
   .resource-save{align-self:stretch}
 }
 
-/* Leftmost editable project materials */
-.conversation-workspace{grid-template-columns:226px 218px 278px minmax(320px,1fr) 250px;grid-template-areas:"materials threads strategy center context"}
-.materials-panel{grid-area:materials;display:flex;flex-direction:column;min-height:0;overflow:auto;background:#eef3ee;border-right:1px solid var(--line)}
-.materials-head{position:sticky;top:0;z-index:2;padding:14px 13px 11px;background:#eef3ee;border-bottom:1px solid var(--line)}
-.materials-head strong{display:block;font-size:12px;color:#23624e}
-.materials-head span{display:block;margin-top:4px;color:#718078;font-size:9px;line-height:1.45}
-.materials-head a{display:inline-block;margin-top:7px;color:#2f7165;font-size:9px;text-decoration:none;border-bottom:1px solid #b8d0c4}
-.materials-body{display:flex;flex-direction:column;gap:8px;padding:10px 10px 8px}
-.material-card{background:#fff;border:1px solid #d9e1da;border-radius:10px;overflow:hidden}
-.material-card summary{display:flex;align-items:center;min-height:34px;padding:9px 11px;font-size:10px;font-weight:700;color:#3b584d;cursor:pointer;list-style:none}
-.material-card summary::-webkit-details-marker{display:none}
-.material-card summary::after{content:"+";margin-left:auto;color:#788d83}
-.material-card[open] summary{border-bottom:1px solid #e3e9e3;color:#206350}
-.material-card[open] summary::after{content:"−"}
-.material-card textarea{display:block;width:100%;min-height:112px;max-height:190px;resize:vertical;border:0;border-radius:0;padding:9px 10px;background:#fafdfb;font-size:9px;line-height:1.6;color:#52605b;outline:none}
-.materials-save{flex:none;margin:2px 10px 10px;padding:8px 10px;font-size:10px;font-weight:700;color:#2f7165;border-color:#b9d2c7;background:#fff}
-@media(max-width:1560px){
-  .conversation-workspace{grid-template-columns:1fr;grid-template-areas:"materials" "threads" "strategy" "center" "context";height:auto}
-  .materials-panel{max-height:420px;border-right:0;border-bottom:1px solid var(--line)}
-  .materials-body{display:grid;grid-template-columns:repeat(3,1fr)}
-  .materials-save{margin:8px 10px 10px}
-}
-@media(max-width:1280px){
-  .conversation-workspace{grid-template-columns:225px minmax(0,1fr);grid-template-areas:"threads center" "materials materials" "strategy strategy" "context context"}
-  .materials-body{grid-template-columns:1fr}
-}
-@media(max-width:900px){
-  .conversation-workspace{grid-template-columns:1fr;grid-template-areas:"materials" "threads" "strategy" "center" "context"}
-  .thread-list,.materials-panel,.strategy-panel,.context-panel{max-height:460px}
-}
+/* Global project materials page */
+.projects-hero{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;background:linear-gradient(118deg,#203034,#2d5c50)}
+.projects-hero h3{font-size:26px;margin:8px 0}
+.projects-hero p{margin:0;color:#c5d7d0;font-size:12px;line-height:1.75}
+.feishu-link{flex:none;margin-bottom:5px;padding:10px 14px;border:1px solid rgba(255,255,255,.24);border-radius:11px;background:rgba(255,255,255,.08);color:#fff;font-size:11px;text-decoration:none}
+.feishu-link:hover{background:rgba(255,255,255,.15)}
+.materials-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:18px}
+.material-card{padding:18px;border:1px solid var(--line);border-radius:17px;background:#fff}
+.material-card header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:13px}
+.material-card header strong{font-size:13px;color:#203932}
+.material-card header span{padding:5px 8px;border-radius:9px;background:#eef4f0;color:#4d7263;font-size:9px}
+.material-card textarea{display:block;width:100%;min-height:270px;resize:vertical;border:1px solid var(--line);border-radius:11px;background:#fafdfb;padding:12px;font-size:11px;line-height:1.7;color:#4f5b57;outline:none}
+.material-card textarea:focus{border-color:#3b9276;box-shadow:0 0 0 3px rgba(59,146,118,.08)}
+.material-card textarea::placeholder{color:#a5ada9}
+.material-card small{display:block;margin-top:10px;color:#76858a;font-size:9px;line-height:1.6}
+.materials-footer{display:flex;justify-content:space-between;align-items:center;gap:18px;margin-top:16px;padding:15px 17px;border:1px solid #d9e6de;border-radius:15px;background:#f2f7f4}
+.materials-footer span{color:#5e6f69;font-size:10px;line-height:1.6}
+.materials-save{flex:none;padding:10px 16px}
+@media(max-width:1180px){.materials-grid{grid-template-columns:1fr}.projects-hero{align-items:flex-start;flex-direction:column}.material-card textarea{min-height:210px}.materials-footer{align-items:flex-start;flex-direction:column}}

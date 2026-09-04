@@ -122,14 +122,23 @@ async function request(url,options){const response=await fetch(url,options);retu
   assert.equal(savedResources.body.data.activity,'演示活动机制');
   const appSource=fs.readFileSync(path.join(__dirname,'..','assets','app.js'),'utf8');
   const cssSource=fs.readFileSync(path.join(__dirname,'..','assets','app.css'),'utf8');
+  const htmlSource=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
   assert.match(appSource,/className='strategy-panel'/);
   assert.match(appSource,/openingPlanHtml\(c\)/);
-  assert.match(appSource,/projectMaterialsHtml\(r,tab\)/);
+  assert.doesNotMatch(appSource,/projectMaterialsHtml/);
+  assert.match(appSource,/async function renderProjects\(\)/);
   assert.match(appSource,/resource-activity/);
   assert.match(appSource,/当月活动机制/);
   assert.match(appSource,/产品搭配组合/);
   assert.match(appSource,/多特倍斯知识库/);
-  assert.match(cssSource,/grid-template-areas:"materials threads strategy center context"/);
-  assert.match(cssSource,/\.materials-panel/);
+  assert.match(htmlSource,/data-page="projects"/);
+  assert.ok(
+    htmlSource.indexOf('data-page="assets"') < htmlSource.indexOf('data-page="projects"')
+    && htmlSource.indexOf('data-page="projects"') < htmlSource.indexOf('data-page="conversations"'),
+    '项目资料应位于用户资产与会话工作台之间'
+  );
+  assert.match(cssSource,/\.materials-grid/);
+  assert.match(cssSource,/\.projects-hero/);
+  assert.doesNotMatch(cssSource,/\.materials-panel/);
   console.log('operator frontend smoke: all checks passed');
 })().catch(error=>{console.error(error);process.exitCode=1});
