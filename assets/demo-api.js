@@ -1,4 +1,5 @@
 (() => {
+  const networkFetch = window.fetch.bind(window);
   const now=()=>new Date().toISOString();
   const ago=hours=>new Date(Date.now()-hours*3600000).toISOString();
   const categories=[
@@ -979,6 +980,7 @@
   }
   window.fetch=async(input,options={})=>{
     const url=new URL(typeof input==='string'?input:input.url,location.href);const path=url.pathname.replace(/^\/[^/]+(?=\/api\/)/,'');const method=(options.method||'GET').toUpperCase();
+    if(url.pathname==='/api/studio'||url.pathname.startsWith('/api/studio/'))return networkFetch(input,options);
     if(path==='/api/login'&&method==='POST'){loggedIn=true;return ok({display_name:'演示顾问A',role:'一线运营'})}
     if(path==='/api/logout'&&method==='POST'){loggedIn=false;return ok({})}
     if(path==='/api/me')return loggedIn?ok({id:1,display_name:'演示顾问A',role:'一线运营',permissions:['customer:read','conversation:reply','task:update']}):fail('请先登录',401);

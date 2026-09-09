@@ -289,3 +289,186 @@ logging.handlers.RotatingFileHandler(
 - [ ] 关键业务节点有埋点（登录/消息发送/AI 调用）
 - [ ] 文件日志用 RotatingFileHandler，不直接 open
 - [ ] 日志文件放 `logs/`，不放入库目录
+
+---
+
+## 九、5xx 系统异常飞书告警
+
+### 1. 适用边界
+
+飞书告警只用于**5xx 系统异常**，让值班人员及时介入；它不是业务失败通知群。
+
+应推送：
+
+- `do_GET` / `do_POST` 兜底分支 `except Exception`
+- `sqlite3.Error`、数据库连接、迁移或事务异常
+- 第三方接口失败，如 AI 服务、飞书下发服务不可用
+- 其他导致 handler 返回 500 的系统异常
+
+不推送：
+
+- 400 参数校验失败
+- 401 未登录或授权失败
+- 403 权限不足
+- 404 数据不存在或资源不存在
+- `KeyError` 归类为业务缺失时的正常分支
+
+原则：4xx 属于正常业务流，只按日志规范记录；不要打扰群成员，也不要把告警群变成排障噪音源。
+
+### 2. 推送函数与防刷屏
+
+`webhook` 必须从环境变量读取，禁止写入代码、数据库或仓库内 `.env`。演示环境未配置 `FEISHU_BOT_WEBHOOK` 时直接跳过。
+
+```python
+import json
+import os
+import re
+import time
+import threading
+import traceback
+import urllib.request
+
+_feishu_alert_cache: dict[tuple[str, str], float] = {}
+_feishu_alert_lock = threading.Lock()
+_FEISHU_ALERT_COOLDOWN_SECONDS = 60
+
+
+def _mask_alert_text(text: str) -> str:
+    """对自由文本中的敏感值做兜底脱敏。"""
+    masked = text
+    masked = re.sub(
+        r"(?i)(password|passwd|token|secret|access_token)\s*[:=]\s*([^\s&,'\"]+)",
+        r"\1=***",
+        masked,
+    )
+    masked = re.sub(
+        r"(?<!\d)(1[3-9]\d{9})(?!\d)",
+        lambda match: mask_phone(match.group(1)),
+        masked,
+    )
+    masked = re.sub(
+        r"(?<!\d)(\d{15}|\d{17}[0-9Xx])(?!\d)",
+        lambda match: mask_idcard(match.group(1)),
+        masked,
+    )
+    return masked
+
+
+def _notify_feishu(exc: BaseException, trace_id: str, path: str) -> None:
+    """推送 5xx 系统异常摘要；告警失败不能影响主请求。"""
+    try:
+        webhook = os.environ.get("FEISHU_BOT_WEBHOOK", "").strip()
+        if not webhook:
+            return
+
+        alert_key = (type(exc).__name__, path)
+        now = time.time()
+        with _feishu_alert_lock:
+            last_sent_at = _feishu_alert_cache.get(alert_key, 0)
+            if now - last_sent_at < _FEISHU_ALERT_COOLDOWN_SECONDS:
+                return
+            # 先占位再发起网络请求，避免并发异常同时进入并触发雪崩。
+            _feishu_alert_cache[alert_key] = now
+
+        stack_summary = "\n".join(traceback.format_exc().splitlines()[-5:])
+        detail = _mask_sensitive({
+            "message": _mask_alert_text(str(exc)),
+            "stack": _mask_alert_text(stack_summary),
+        })
+        occurred_at = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+
+        payload = {
+            "msg_type": "text",
+            "content": {
+                "text": "\n".join([
+                    "[5xx 系统异常]",
+                    f"类型：{type(exc).__name__}",
+                    f"消息：{detail['message']}",
+                    f"trace_id：{trace_id}",
+                    f"路径：{path}",
+                    f"时间：{occurred_at}",
+                    "堆栈摘要：",
+                    detail["stack"],
+                ])
+            },
+        }
+        request = urllib.request.Request(
+            webhook,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=3):
+            return
+    except Exception as alert_exc:  # noqa: BLE001 - 告警边界自身不能造成 500
+        print(f"飞书异常告警失败：{type(alert_exc).__name__}: {alert_exc}")
+```
+
+注意：`_mask_sensitive` 已对结构化字段做键级脱敏；因为异常消息和堆栈是自由文本，所以先经过 `_mask_alert_text`，再交给 `_mask_sensitive` 兜底。不要把完整请求体塞进告警 payload。
+
+### 3. 调用位置
+
+只在 `do_GET` / `do_POST` 的 500 兜底分支调用；调用顺序固定为“先落日志和堆栈，再触发告警，最后返回 500”。
+
+```python
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        ...
+        except Exception as exc:  # noqa: BLE001 - handler boundary returns a JSON 500
+            traceback.print_exc()
+            _notify_feishu(exc, trace_id_var.get(), urlparse(self.path).path)
+            return self.json_response(500, error={"code": "INTERNAL_ERROR", "message": str(exc)})
+        finally:
+            conn.close()
+
+    def do_POST(self):
+        ...
+        except (ValueError, json.JSONDecodeError) as exc:
+            # 4xx：业务异常，只记录日志，不调用 _notify_feishu。
+            return self.json_response(400, error={"code": "VALIDATION_ERROR", "message": str(exc)})
+        except KeyError:
+            # 4xx：数据不存在，不调用 _notify_feishu。
+            return self.json_response(404, error={"code": "NOT_FOUND", "message": "用户不存在"})
+        except Exception as exc:  # noqa: BLE001 - handler boundary returns a JSON 500
+            traceback.print_exc()
+            _notify_feishu(exc, trace_id_var.get(), urlparse(self.path).path)
+            return self.json_response(500, error={"code": "INTERNAL_ERROR", "message": str(exc)})
+        finally:
+            conn.close()
+```
+
+`sqlite3.Error`、第三方接口失败等如果已被内层 `except` 捕获并转换成 500，也应在外层 500 分支统一告警；不要在内层重复推送。
+
+### 4. 防刷屏规则
+
+- 告警键固定为 `(异常类型, 请求路径)`，不要包含每次都不同的错误消息、trace_id 或堆栈内容
+- 同一告警键 60 秒内最多推送一次
+- 模块级 `_feishu_alert_cache` 只保存时间戳，不保存异常详情、请求体、数据库内容或 webhook
+- 并发线程先检查并写入缓存，再发起网络请求，避免多个线程同时推送
+- 告警失败只 `print` 警告，不重试、不抛出、不阻塞主流程
+
+### 5. 禁止行为
+
+- 禁止推送 4xx 业务异常，包括参数校验、登录失败、权限不足、数据不存在和业务 `KeyError`
+- 禁止推送完整堆栈；只保留最后 5 行摘要
+- 禁止推送密码、token、身份证、手机号等敏感字段明文
+- 禁止推送完整请求体、响应体、数据库行、客户名单或经营统计数据
+- 禁止把 webhook URL 硬编码到代码、测试、配置文件或数据库中
+- 禁止把 webhook URL 写入日志或告警失败警告中
+- 禁止引入 `requests`；只使用已导入的标准库 `urllib.request`
+- 禁止同步等待超过 3 秒；必须设置 `timeout=3`
+- 禁止让告警失败影响原请求响应状态或抛出新异常
+- 禁止绕过防刷屏缓存直接推送
+
+### 6. 自检项
+
+- [ ] `FEISHU_BOT_WEBHOOK` 未配置时函数直接跳过，不报错
+- [ ] 只有 5xx 系统异常调用 `_notify_feishu`
+- [ ] `do_GET` 和 `do_POST` 的 4xx 分支不触发飞书推送
+- [ ] 推送内容包含异常类型、消息、`trace_id`、请求路径、时间和最后 5 行堆栈摘要
+- [ ] 异常消息和堆栈已脱敏；不包含密码、token、身份证、手机号明文
+- [ ] 相同 `(异常类型, 请求路径)` 60 秒内只推送一次
+- [ ] `_feishu_alert_cache` 是模块级字典，且不保存敏感内容
+- [ ] 使用 `urllib.request`、`timeout=3`，未引入 `requests`
+- [ ] 推送函数整体被 `try/except` 包裹，失败只打印警告
+- [ ] webhook URL 不存在于源码、日志、数据库或仓库内 `.env`

@@ -3,6 +3,8 @@ const fs=require('node:fs');
 const path=require('node:path');
 global.location={href:'http://127.0.0.1:8091/'};
 global.window=global;
+const studioNetworkRequests=[];
+global.fetch=async(url,options)=>{studioNetworkRequests.push({url,options});return new Response(JSON.stringify({success:false,error:{code:'AUTH_REQUIRED'}}),{status:401})};
 global.NMN_DEMO_SEED=require(path.join(__dirname,'..','assets','nmn-demo-seed.js'));
 global.CHAT_PERSONA_SEED=require(path.join(__dirname,'..','assets','chat-persona-seed.js'));
 require(path.join(__dirname,'..','assets','demo-api.js'));
@@ -10,6 +12,12 @@ require(path.join(__dirname,'..','assets','demo-api.js'));
 async function request(url,options){const response=await fetch(url,options);return {status:response.status,body:await response.json()}}
 
 (async()=>{
+  const protectedResponse=await request('/api/studio/me');
+  assert.equal(protectedResponse.body.error.code,'AUTH_REQUIRED');
+  assert.equal(studioNetworkRequests.length,1,'Studio requests must bypass the demo interceptor, including before demo login');
+  const hostSource=fs.readFileSync(path.join(__dirname,'..','assets','app.js'),'utf8');
+  assert.ok(hostSource.includes('id="studio-frame"'));
+  assert.ok(!hostSource.includes('location.assign('),'Opening the studio must not navigate away from the existing application');
   let result=await request('/api/me');
   assert.equal(result.status,401);
   result=await request('/api/login',{method:'POST',body:JSON.stringify({username:'operator',password:'demo'})});

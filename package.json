@@ -1,0 +1,24 @@
+{
+  "name": "dotbest-script-studio",
+  "private": true,
+  "scripts": {
+    "dev:studio": "node studio/dev.mjs",
+    "build:studio": "node studio/build.mjs",
+    "test:studio": "node --test tests/studio.test.mjs",
+    "test:browser": "node tests/studio.browser.mjs",
+    "test:frontend": "node tests/frontend_smoke.js",
+    "db:generate": "drizzle-kit generate --config studio/drizzle.config.mjs",
+    "eval:studio": "node studio/evaluate.mjs"
+  },
+  "dependencies": {
+    "lucide": "1.43.0"
+  },
+  "devDependencies": {
+    "@openai/sites-vite-plugin": "0.2.0",
+    "drizzle-kit": "0.31.10",
+    "drizzle-orm": "0.45.1",
+    "esbuild": "0.28.2",
+    "playwright": "1.62.1",
+    "vite": "8.2.2"
+  }
+}
