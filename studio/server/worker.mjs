@@ -21,13 +21,15 @@ export async function api(request, env, dependencies = {}) {
   const store = new Store(env.DB);
   if (!['GET', 'POST', 'PUT'].includes(method)) fail(405, '不支持此操作');
   if (method !== 'GET') checkOrigin(request);
-  if (route === '/api/studio/status' && method === 'GET') {
-    const count = await store.query('SELECT COUNT(*) AS n FROM studio_users').first();
-    return json({ model_configured: !!(env.STUDIO_LLM_API_KEY && env.STUDIO_LLM_BASE_URL), local_setup: localSetup(request, env) && !count.n, model: MODEL });
-  }
-  if (route === '/api/studio/setup' && method === 'POST') {
-    if (!localSetup(request, env)) fail(404, '接口不存在');
-    const body = await readBody(request);
+ if (route === '/api/studio/status' && method === 'GET') {
+   const count = await store.query('SELECT COUNT(*) AS n FROM studio_users').first();
+    const noUsers = !count.n;
+    return json({ model_configured: !!(env.STUDIO_LLM_API_KEY && env.STUDIO_LLM_BASE_URL), local_setup: noUsers, model: MODEL });
+ }
+ if (route === '/api/studio/setup' && method === 'POST') {
+    const existing = await store.query('SELECT COUNT(*) AS n FROM studio_users').first();
+    if (existing.n) fail(404, '接口不存在');
+   const body = await readBody(request);
     if (!cleanName(body.username)) fail(400, '账号需为 3 至 40 位字母、数字、点或下划线，并以字母开头');
     const hash = await passwordHash(checkPassword(body.password));
     const result = await store.query(`INSERT INTO studio_users(id,username,display_name,password_hash,role,active,must_change,created_at)
