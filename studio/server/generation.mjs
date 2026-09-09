@@ -170,6 +170,8 @@ export async function generate(store, user, raw, env, fetchModel = fetch) {
   } catch (error) {
     if (!settled) await store.settle(entry, 'failed', cost, usage);
     if (error.status) throw error;
-    fail(502, '生成超时或连接异常，输入已保留，请稍后重试', 'MODEL_UNAVAILABLE');
+    const msg = error?.message || String(error);
+    console.error('generation_error', + JSON.stringify({ name: error?.name, msg: msg.slice(0, 200) }));
+    fail(502, `生成失败：${msg.slice(0, 100)}`, 'MODEL_UNAVAILABLE');
   }
 }
