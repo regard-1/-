@@ -98,7 +98,7 @@ async function renderConversations(){
 }
   const area=$('#conversation-messages');area.scrollTop=area.scrollHeight;
 }
-function renderMessage(message){if(message.role==='system_task')return `<div class="task-context-message"><span>触达任务上下文</span><p>${esc(message.content)}</p></div>`;const role=message.role==='customer'?'customer':'operator';return `<div class="conversation-message ${role}"><span>${role==='customer'?'客户':'运营'}</span><div>${esc(message.content)}</div><time>${esc(message.time||'')}</time></div>`}
+function renderMessage(message){if(message.role==='system_task')return `<div class="task-context-message"><span>触达任务上下文</span><p>${esc(message.content)}</p></div>`;const role=message.role==='customer'?'customer':'operator';return `<div class="conversation-message ${role}"><span>${role==='customer'?'客户':'营养师'}</span><div>${esc(message.content)}</div><time>${esc(message.time||'')}</time></div>`}
 function openingPlanHtml(c){
   const s=state.conversation?.suggestion,p=s?.opening_plan;
   if(!p)return '<div class="strategy-block"><b>暂无开口策略</b><span>请先在会话区生成本轮个性化话术。</span></div>';
