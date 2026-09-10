@@ -80,7 +80,7 @@ async function run(style = 'normal') {
   try {
     const result = await post('/generations', body, { signal: state.controller.signal });
     if (current !== state.sequence) return;
-    state.result = result; if(result.budget_warning && state.user?.role==='admin') notify('本月预算已使用或预占八成以上，请查看用量。');
+    state.result = result;
   } catch (error) { if (current !== state.sequence) return; state.error = error.name === 'AbortError' ? '已取消生成' : error.message; }
   finally { if (current === state.sequence) { state.pending = false; if (state.user && state.page === 'generate') generator(); } }
 }
@@ -103,15 +103,15 @@ async function usersPage() {
 }
 async function usagePage() {
   state.page = 'usage'; const version = state.sequence; const data = await request('/usage'); if (version !== state.sequence || !state.user) return; shell('用量与反馈');
-  const {budget:b,summary:s}=data; const amount=v=>((v||0)/1000000).toFixed(2);
-  $('#main').innerHTML = `<div class="row between page-intro"><h2>${esc(b.month)} · 模型用量</h2><span class="badge blue">${state.user.role==='admin'?'小组汇总':'我的使用'}</span></div>${data.warning?'<div class="warning">小组本月预算已使用或预占八成以上，请留意剩余额度。</div>':''}<div class="usage-grid"><div class="usage-stat"><small>小组已结算 / 月度上限</small><strong>¥${amount(b.spent)} / ${amount(b.ceiling)}</strong><small>预占 ¥${amount(b.reserved)}</small></div><div class="usage-stat"><small>本月调用</small><strong>${s.calls||0}</strong><small>含待补信息和失败请求</small></div><div class="usage-stat"><small>已评价回复可用率</small><strong>${s.rated?Math.round(s.adopted/s.rated*100)+'%':'待评价'}</strong><small>${s.rated||0} 条评价 · 直接可用或小改可用</small></div></div><progress class="usage-meter" max="${b.ceiling}" value="${Math.min(b.ceiling,b.spent+b.reserved)}" aria-label="月度预算用量"></progress><p class="small">十秒内完成：${s.fast||0} / ${s.ready||0} 条完整回复。调用结果不明确的请求按预占金额计入用量，费用以服务商账单为准。</p>`; iconsNow();
+  const {summary:s}=data;
+  $('#main').innerHTML = `<div class="row between page-intro"><h2>模型用量</h2><span class="badge blue">${state.user.role==='admin'?'小组汇总':'我的使用'}</span></div><div class="usage-grid"><div class="usage-stat"><small>本月调用</small><strong>${s.calls||0}</strong><small>含待补信息和失败请求</small></div><div class="usage-stat"><small>已评价回复可用率</small><strong>${s.rated?Math.round(s.adopted/s.rated*100)+'%':'待评价'}</strong><small>${s.rated||0} 条评价 · 直接可用或小改可用</small></div><div class="usage-stat"><small>十秒内完成</small><strong>${s.ready?Math.round(s.fast/s.ready*100)+'%':'待统计'}</strong><small>${s.fast||0} / ${s.ready||0} 条完整回复</small></div></div><p class="small">用量不限。调用结果不明确的请求按预占金额计入用量，费用以服务商账单为准。</p>`; iconsNow();
 }
 function passwordDialog(forced = false) { showModal(`${modalHead(forced ? '首次登录 · 修改临时密码' : '修改密码')}<form id="password-form">${field('current-password','当前密码','',{type:'password',required:true,autocomplete:'current-password',max:128})}${field('new-password','新密码（至少12位，含字母和数字）','',{type:'password',required:true,autocomplete:'new-password',max:128})}<div class="form-error" role="alert"></div><footer><button type="submit" class="primary">保存并重新登录</button></footer></form>`); }
 function userEditor(id = '') { showModal(`${modalHead(id?'重置临时密码':'添加试用账号')}<form id="user-form" data-id="${esc(id)}">${id?'':`${field('new-username','账号','',{required:true,max:40})}${field('display-name','显示名称','',{required:true,max:40})}<div class="field"><label for="user-role">角色</label><select name="role" id="user-role"><option value="sales">销售</option><option value="admin">管理员</option></select></div>`}${field('temporary-password','临时密码（至少12位，含字母和数字）','',{type:'password',required:true,autocomplete:'new-password',max:128})}<div class="form-error" role="alert"></div><footer><button type="submit" class="primary">${id?'重置密码':'创建账号'}</button></footer></form>`); }
 async function enter() {
   const me = await request('/me'); state.user = me.user; state.csrf = me.csrf; state.configured = me.model_configured;
   if (state.user.must_change) { shell('首次登录'); $('#main').innerHTML = '<div class="warning">请先修改临时密码。</div>'; iconsNow(); passwordDialog(true); return; }
-  await loadMaterials(); generator(); if(state.user.role==='admin') { const usage=await request('/usage'); if(usage.warning) notify('本月预算已使用或预占八成以上，请查看用量。'); }
+  await loadMaterials(); generator();
 }
 document.addEventListener('input', e => { if (e.target.id in state.draft) { state.draft[e.target.id] = maskText(e.target.value); if (state.pending) { state.controller?.abort(); state.sequence++; state.pending=false; } if (state.result) { state.result=null; $('.result-column').innerHTML='<h2>回复建议</h2><p class="muted">咨询内容已调整，请重新生成。</p>'; } const runButton=$('[data-action="run"]'); if(runButton) { runButton.disabled=!state.configured; runButton.textContent='生成回复'; } } if (e.target.id === 'composer-text') { state.composer.text = maskText(e.target.value); if (state.pending) { state.controller?.abort(); state.sequence++; state.pending=false; } if (state.result) { state.result=null; $('.result-column').innerHTML='<h2>回复建议</h2><p class="muted">咨询内容已调整，请重新生成。</p>'; } const rb=$('[data-action="run"]'); if(rb) { rb.disabled=!canGenerate(); } } });
 document.addEventListener('change', e => {

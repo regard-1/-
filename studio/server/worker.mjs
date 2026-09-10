@@ -1,7 +1,7 @@
 import { Store } from './store.mjs';
 import { checkOrigin, readBody, fail, HttpError, json, checkPassword, passwordHash, verifyPassword, randomToken, digest, cookie } from './security.mjs';
 import { generate, validateMaterial } from './generation.mjs';
-import { maskText, MODEL } from '../shared.mjs';
+import { maskText, MODEL, monthKey } from '../shared.mjs';
 
 const cleanName = value => typeof value === 'string' && /^[a-zA-Z][a-zA-Z0-9_.-]{2,39}$/.test(value);
 const publicUser = u => ({ id: u.id, username: u.username, display_name: u.display_name, role: u.role, must_change: !!u.must_change });
@@ -117,14 +117,14 @@ export async function api(request, env, dependencies = {}) {
     return json({ recorded: true });
   }
   if (route === '/api/studio/usage' && method === 'GET') {
-    const budget = await store.budget();
+    const month = monthKey();
     const own = await store.query(`SELECT COUNT(*) AS calls,SUM(cost) AS cost,
       SUM(CASE WHEN feedback IN ('direct','edited') THEN 1 ELSE 0 END) AS adopted,
       SUM(CASE WHEN feedback IS NOT NULL THEN 1 ELSE 0 END) AS rated,
       SUM(CASE WHEN status='ready' AND elapsed_ms<=10000 THEN 1 ELSE 0 END) AS fast,
       SUM(CASE WHEN status='ready' THEN 1 ELSE 0 END) AS ready
-      FROM studio_usage WHERE month=? AND (?='admin' OR user_id=?)`, budget.month, user.role, user.id).first();
-    return json({ budget, warning: budget.spent + budget.reserved >= budget.ceiling * 0.8, summary: own });
+      FROM studio_usage WHERE month=? AND (?='admin' OR user_id=?)`, month, user.role, user.id).first();
+    return json({ summary: own });
   }
   if (route === '/api/studio/users' && method === 'GET') {
     admin(user); return json({ items: await store.all('SELECT id,username,display_name,role,active,must_change,created_at FROM studio_users ORDER BY created_at') });

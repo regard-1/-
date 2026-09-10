@@ -165,8 +165,7 @@ export async function generate(store, user, raw, env, fetchModel = fetch) {
       if (!latest || latest.version !== source.version || !materialAvailable(latest, input.audience)) fail(409, '生成期间资料已变化，请重新选择资料后生成', 'MATERIAL_CHANGED');
     }
     await store.settle(entry, result.status, cost, usage); settled = true;
-    const budget = await store.budget();
-    return { ...result, generation_id: entry.id, model: MODEL, elapsed_ms: Date.now() - entry.started, budget_warning: budget.spent + budget.reserved >= budget.ceiling * 0.8 };
+    return { ...result, generation_id: entry.id, model: MODEL, elapsed_ms: Date.now() - entry.started };
   } catch (error) {
     if (!settled) await store.settle(entry, 'failed', cost, usage);
     if (error.status) throw error;

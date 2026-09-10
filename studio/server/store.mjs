@@ -1,5 +1,5 @@
 import { digest, fail, sessionToken } from './security.mjs';
-import { MONTHLY_LIMIT, MODEL, monthKey } from '../shared.mjs';
+import { MODEL, monthKey } from '../shared.mjs';
 
 export class Store {
   constructor(db) { this.db = db; }
@@ -22,19 +22,18 @@ export class Store {
     return user;
   }
   async budget() {
-    return await this.query('SELECT * FROM studio_budgets WHERE month=?', monthKey()).first() || { month: monthKey(), spent: 0, reserved: 0, ceiling: MONTHLY_LIMIT };
+    return await this.query('SELECT * FROM studio_budgets WHERE month=?', monthKey()).first() || { month: monthKey(), spent: 0, reserved: 0, ceiling: 999999999999 };
   }
   async reserve(user, input, reservation) {
     const month = monthKey(), id = crypto.randomUUID(), now = Date.now();
-    // A batch is a transaction. changes() couples the ledger insert to the guarded budget update.
     const results = await this.db.batch([
-      this.query('INSERT OR IGNORE INTO studio_budgets(month,spent,reserved,ceiling) VALUES(?,0,0,?)', month, MONTHLY_LIMIT),
-      this.query(`UPDATE studio_budgets SET reserved=reserved+? WHERE month=? AND spent+reserved+?<=ceiling
-        AND (SELECT COUNT(*) FROM studio_usage WHERE user_id=? AND status='pending')<1 RETURNING month`, reservation, month, reservation, user.id),
+      this.query('INSERT OR IGNORE INTO studio_budgets(month,spent,reserved,ceiling) VALUES(?,0,0,999999999999)', month),
+      this.query(`UPDATE studio_budgets SET reserved=reserved+? WHERE month=?
+        AND (SELECT COUNT(*) FROM studio_usage WHERE user_id=? AND status='pending')<1 RETURNING month`, reservation, month, user.id),
       this.query(`INSERT INTO studio_usage(id,user_id,month,audience,scene,model,status,reservation,cost,created_at)
         SELECT ?,?,?,?,?,?,'pending',?,0,? WHERE changes()=1 RETURNING id`, id, user.id, month, input.audience, input.scene, MODEL, reservation, now),
     ]);
-    if (!results[2].results.length) fail(429, '正在生成，或本月可用预算不足，请查看用量', 'BUDGET_OR_BUSY');
+    if (!results[2].results.length) fail(429, '正在生成中，请等待当前回复完成', 'BUSY');
     return { id, month, reservation, started: now };
   }
   async settle(entry, status, cost, usage = {}, elapsed = Date.now() - entry.started) {
@@ -51,7 +50,6 @@ export class Store {
       this.query('DELETE FROM studio_sessions WHERE expires_at<=?', now),
       this.query('DELETE FROM studio_rate_limits WHERE expires_at<=?', now),
     ]);
-    // Unknown upstream outcomes retain their maximum charge; a crashed request cannot reset the cap.
     const stale = await this.all("SELECT id,month,reservation,created_at FROM studio_usage WHERE status='pending' AND created_at<? LIMIT 100", now - 120000);
     for (const row of stale) await this.settle({ ...row, started: row.created_at }, 'unknown', row.reservation);
   }
