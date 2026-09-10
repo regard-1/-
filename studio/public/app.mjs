@@ -47,9 +47,9 @@ function bubbleHtml(m, i) {
   const isCustomer = m.role === 'user';
   const aiBadge = m.ai ? `<span class="ai-badge" title="AI 生成回复">AI</span>` : '';
   if (state.editing === i) return `<div class="bubble-wrap ${isCustomer ? 'left' : 'right'}"><div class="bubble editing"><textarea id="edit-text" rows="3" maxlength="8000">${esc(m.content)}</textarea><div class="bubble-edit-actions">${action('save-edit', '确认', 'check', 'primary', `data-index="${i}"`)}${action('cancel-edit', '取消', 'x', 'quiet')}</div></div></div>`;
-  return `<div class="bubble-wrap ${isCustomer ? 'left' : 'right'}"><div class="bubble ${isCustomer ? 'customer' : 'staff'}">${aiBadge}<div class="bubble-content">${esc(m.content)}</div></div><div class="bubble-actions">${action('edit-message', '', 'pencil', 'icon-button quiet', `data-index="${i}" title="编辑" aria-label="编辑"`)}${action('delete-message', '', 'trash-2', 'icon-button quiet', `data-index="${i}" title="删除" aria-label="删除"`)}</div></div>`;
+  return `<div class="bubble-wrap ${isCustomer ? 'left' : 'right'}"><div class="bubble ${isCustomer ? 'customer' : 'staff'}">${aiBadge}<small class="bubble-role">${isCustomer ? '客户' : '营养师'}</small><div class="bubble-content">${esc(m.content)}</div></div><div class="bubble-actions">${action('edit-message', '', 'pencil', 'icon-button quiet', `data-index="${i}" title="编辑" aria-label="编辑"`)}${action('delete-message', '', 'trash-2', 'icon-button quiet', `data-index="${i}" title="删除" aria-label="删除"`)}</div></div>`;
 }
-function threadHtml() { return state.messages.length ? state.messages.map((m, i) => bubbleHtml(m, i)).join('') : '<div class="thread-empty">添加客户消息开始对话</div>'; }
+function threadHtml() { return state.messages.length ? state.messages.map((m, i) => bubbleHtml(m, i)).join('') : '<div class="thread-empty">添加营养师消息开始对话</div>'; }
 function canGenerate() { return state.configured && !state.pending && ((state.messages.length > 0 && state.messages[state.messages.length - 1].role === 'user') || (state.composer.text.trim() && state.composer.role === 'user')); }
 function generator() {
   state.page = 'generate'; shell('话术中心');
