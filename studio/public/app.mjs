@@ -30,7 +30,7 @@ function renderLogin(localSetup = false) {
 }
 function shell(title) {
   const admin = state.user.role === 'admin';
-  root.innerHTML = `<section class="studio-module"><header class="module-toolbar"><nav class="module-tabs" aria-label="话术中心功能">${action('generate-page', '生成回复', 'message-circle', state.page === 'generate' ? 'active' : '')}${action('materials', '团队资料', 'folder-open', state.page === 'materials' ? 'active' : '')}${action('usage', '用量与反馈', 'chart-no-axes-combined', state.page === 'usage' ? 'active' : '')}${admin ? action('users', '试用账号', 'user-round-cog', state.page === 'users' ? 'active' : '') : ''}</nav><div class="module-account"><span class="badge ${state.configured ? '' : 'warn'}">${state.configured ? '真实 AI · 小组试用' : '模型尚未配置'}</span><span class="small">${esc(state.user.display_name)}</span>${action('password', '', 'key-round', 'icon-button quiet', 'title="修改密码" aria-label="修改密码"')}${action('logout', '', 'log-out', 'icon-button quiet', 'title="退出话术服务" aria-label="退出话术服务"')}</div></header><main class="main" id="main" aria-label="${esc(title)}"></main></section>`;
+  root.innerHTML = `<section class="studio-module"><header class="module-toolbar"><nav class="module-tabs" aria-label="话术中心功能">${action('generate-page', '生成回复', 'message-circle', state.page === 'generate' ? 'active' : '')}${action('materials', '团队资料', 'folder-open', state.page === 'materials' ? 'active' : '')}${action('usage', '用量与反馈', 'chart-no-axes-combined', state.page === 'usage' ? 'active' : '')}${admin ? action('conversations', '对话留档', 'archive', state.page === 'conversations' ? 'active' : '') : ''}${admin ? action('users', '试用账号', 'user-round-cog', state.page === 'users' ? 'active' : '') : ''}</nav><div class="module-account"><span class="badge ${state.configured ? '' : 'warn'}">${state.configured ? '真实 AI · 小组试用' : '模型尚未配置'}</span><span class="small">${esc(state.user.display_name)}</span>${action('password', '', 'key-round', 'icon-button quiet', 'title="修改密码" aria-label="修改密码"')}${action('logout', '', 'log-out', 'icon-button quiet', 'title="退出话术服务" aria-label="退出话术服务"')}</div></header><main class="main" id="main" aria-label="${esc(title)}"></main></section>`;
 }
 function available(material) { const day = chinaDay(); return !!material?.active && ['all', state.audience].includes(material.audience) && (!material.valid_from || material.valid_from <= day) && (!material.valid_to || material.valid_to >= day); }
 function autoSelectMaterials() {
@@ -103,6 +103,68 @@ async function usagePage() {
   const {summary:s}=data;
   $('#main').innerHTML = `<div class="row between page-intro"><h2>模型用量</h2><span class="badge blue">${state.user.role==='admin'?'小组汇总':'我的使用'}</span></div><div class="usage-grid"><div class="usage-stat"><small>本月调用</small><strong>${s.calls||0}</strong><small>含待补信息和失败请求</small></div><div class="usage-stat"><small>已评价回复可用率</small><strong>${s.rated?Math.round(s.adopted/s.rated*100)+'%':'待评价'}</strong><small>${s.rated||0} 条评价 · 直接可用或小改可用</small></div><div class="usage-stat"><small>十秒内完成</small><strong>${s.ready?Math.round(s.fast/s.ready*100)+'%':'待统计'}</strong><small>${s.fast||0} / ${s.ready||0} 条完整回复</small></div></div><p class="small">用量不限。调用结果不明确的请求按预占金额计入用量，费用以服务商账单为准。</p>`; iconsNow();
 }
+function conversationsPage() {
+  state.page = 'conversations'; shell('对话留档');
+  const filters = state.convFilters || (state.convFilters = { user: '', scene: '', audience: '', feedback: '', status: '' });
+  $('#main').innerHTML = `<div class="conv-page"><div class="conv-filters"><select id="conv-filter-user" class="conv-select"><option value="">全部账号</option></select><select id="conv-filter-scene" class="conv-select"><option value="">全部场景</option>${SCENES.map(s => `<option value="${s.id}" ${filters.scene === s.id ? 'selected' : ''}>${s.label}</option>`).join('')}</select><select id="conv-filter-audience" class="conv-select"><option value="">全部人群</option>${Object.entries(AUDIENCES).map(([id, name]) => `<option value="${id}" ${filters.audience === id ? 'selected' : ''}>${name}</option>`).join('')}</select><select id="conv-filter-feedback" class="conv-select"><option value="">全部评价</option><option value="direct" ${filters.feedback === 'direct' ? 'selected' : ''}>直接可用</option><option value="edited" ${filters.feedback === 'edited' ? 'selected' : ''}>小改可用</option><option value="unusable" ${filters.feedback === 'unusable' ? 'selected' : ''}>不可用</option><option value="null" ${filters.feedback === 'null' ? 'selected' : ''}>未评价</option></select><select id="conv-filter-status" class="conv-select"><option value="">全部状态</option><option value="ready" ${filters.status === 'ready' ? 'selected' : ''}>已完成</option><option value="needs_input" ${filters.status === 'needs_input' ? 'selected' : ''}>待补信息</option><option value="failed" ${filters.status === 'failed' ? 'selected' : ''}>生成失败</option></select><button type="button" data-action="conv-search" class="primary">${icon('search')}查询</button></div><div id="conv-list" class="conv-list"><div class="conv-loading">加载中…</div></div></div>`;
+  iconsNow();
+  loadConversations();
+}
+async function loadConversations(page = 1) {
+  const f = state.convFilters || {};
+  const params = new URLSearchParams({ page, limit: 20 });
+  if (f.user) params.set('user', f.user);
+  if (f.scene) params.set('scene', f.scene);
+  if (f.audience) params.set('audience', f.audience);
+  if (f.feedback) params.set('feedback', f.feedback);
+  if (f.status) params.set('status', f.status);
+  try {
+    const data = await request('/conversations?' + params.toString());
+    const users = await request('/users');
+    const userSelect = $('#conv-filter-user');
+    if (userSelect) { userSelect.innerHTML = '<option value="">全部账号</option>' + users.items.map(u => `<option value="${u.id}" ${f.user === u.id ? 'selected' : ''}>${esc(u.display_name)}</option>`).join(''); }
+    state.convList = data;
+    renderConvList(data);
+  } catch (error) { $('#conv-list').innerHTML = '<div class="conv-error">加载失败，请重试</div>'; }
+}
+function renderConvList(data) {
+  if (!data.items.length) { $('#conv-list').innerHTML = '<div class="conv-empty">暂无留档记录</div>'; return; }
+  const fbLabel = { direct: '直接可用', edited: '小改可用', unusable: '不可用', null: '未评价' };
+  const stLabel = { ready: '已完成', needs_input: '待补信息', failed: '生成失败' };
+  const totalPages = Math.ceil(data.total / data.limit);
+  $('#conv-list').innerHTML = data.items.map(r => `<article class="conv-item" data-action="conv-detail" data-id="${r.id}"><div class="conv-item-head"><span class="conv-badge ${r.status}">${stLabel[r.status] || r.status}</span>${r.feedback ? `<span class="conv-badge feedback">${fbLabel[r.feedback]}</span>` : ''}<span class="small">${esc(r.display_name)}</span><span class="small">${esc(AUDIENCES[r.audience] || r.audience)}</span><span class="small">${esc(SCENES.find(s => s.id === r.scene)?.label || r.scene)}</span></div><div class="conv-item-preview">${r.messages.slice(0, 2).map(m => `<span class="conv-preview-role">${m.role === 'user' ? '客户' : '营养师'}</span><span>${esc(m.content.slice(0, 60))}${m.content.length > 60 ? '…' : ''}</span>`).join('')}</div>${r.reply ? `<div class="conv-item-reply"><strong>生成回复：</strong>${esc(r.reply.slice(0, 80))}${r.reply.length > 80 ? '…' : ''}</div>` : ''}<div class="conv-item-meta"><span class="small">${new Date(r.created_at).toLocaleString('zh-CN')}</span></div></article>`).join('') + (totalPages > 1 ? `<div class="conv-pagination">${data.page > 1 ? `<button type="button" data-action="conv-page" data-page="${data.page - 1}">上一页</button>` : ''}<span class="small">${data.page} / ${totalPages}</span>${data.page < totalPages ? `<button type="button" data-action="conv-page" data-page="${data.page + 1}">下一页</button>` : ''}</div>` : '');
+  iconsNow();
+}
+async function conversationDetail(id) {
+  state.page = 'conversations'; shell('对话详情');
+  $('#main').innerHTML = '<div class="conv-loading">加载中…</div>';
+  try {
+    const r = await request('/conversations/' + id);
+    const fbLabel = { direct: '直接可用', edited: '小改可用', unusable: '不可用' };
+    const stLabel = { ready: '已完成', needs_input: '待补信息', failed: '生成失败' };
+    const bubbles = r.messages.map((m, i) => `<div class="bubble-wrap ${m.role === 'user' ? 'left' : 'right'}"><div class="bubble ${m.role === 'user' ? 'customer' : 'staff'}"><small class="bubble-role">${m.role === 'user' ? '客户' : '营养师'}</small><div class="bubble-content">${esc(m.content)}</div></div></div>`).join('');
+    let replyHtml = '';
+    if (r.reply) {
+      replyHtml = `<div class="bubble-wrap right"><div class="bubble staff"><small class="bubble-role">AI 生成回复</small><div class="bubble-content">${esc(r.reply)}</div></div></div>`;
+      if (r.followups && r.followups.length) {
+        replyHtml += '<div class="conv-followups"><strong>后续接法</strong>' + r.followups.map(f => `<div class="conv-followup"><span class="small">客户回复：${esc(f.when)}</span><p>${esc(f.reply)}</p></div>`).join('') + '</div>';
+      }
+    }
+    let contextHtml = '';
+    if (r.salutation || r.needs || r.goal || r.supplement || r.instruction) {
+      contextHtml = '<div class="conv-context"><strong>补充信息</strong>';
+      if (r.salutation) contextHtml += `<div><span class="small">称呼</span>${esc(r.salutation)}</div>`;
+      if (r.needs) contextHtml += `<div><span class="small">需求</span>${esc(r.needs)}</div>`;
+      if (r.goal) contextHtml += `<div><span class="small">目标</span>${esc(r.goal)}</div>`;
+      if (r.supplement) contextHtml += `<div><span class="small">补充</span>${esc(r.supplement)}</div>`;
+      if (r.instruction) contextHtml += `<div><span class="small">侧重点</span>${esc(r.instruction)}</div>`;
+      contextHtml += '</div>';
+    }
+    $('#main').innerHTML = `<div class="conv-detail"><div class="conv-detail-head"><button type="button" data-action="conv-back" class="icon-button quiet">${icon('arrow-left')}</button><div><span class="conv-badge ${r.status}">${stLabel[r.status] || r.status}</span>${r.feedback ? `<span class="conv-badge feedback">${fbLabel[r.feedback] || r.feedback}</span>` : ''}</div><span class="small">${esc(r.display_name)} · ${new Date(r.created_at).toLocaleString('zh-CN')}</span></div><div class="conv-detail-info"><span>${esc(AUDIENCES[r.audience] || r.audience)}</span><span>${esc(SCENES.find(s => s.id === r.scene)?.label || r.scene)}</span></div><div class="conv-thread">${bubbles}${replyHtml}</div>${contextHtml}${r.next_step ? `<div class="conv-next-step"><strong>下一步建议</strong><p>${esc(r.next_step)}</p></div>` : ''}</div>`;
+  } catch (error) { $('#main').innerHTML = '<div class="conv-error">加载失败，请返回重试</div>'; }
+  iconsNow();
+}
+
 function passwordDialog(forced = false) { showModal(`${modalHead(forced ? '首次登录 · 修改临时密码' : '修改密码')}<form id="password-form">${field('current-password','当前密码','',{type:'password',required:true,autocomplete:'current-password',max:128})}${field('new-password','新密码（至少12位，含字母和数字）','',{type:'password',required:true,autocomplete:'new-password',max:128})}<div class="form-error" role="alert"></div><footer><button type="submit" class="primary">保存并重新登录</button></footer></form>`); }
 function userEditor(id = '') { showModal(`${modalHead(id?'重置临时密码':'添加试用账号')}<form id="user-form" data-id="${esc(id)}">${id?'':`${field('new-username','账号','',{required:true,max:40})}${field('display-name','显示名称','',{required:true,max:40})}<div class="field"><label for="user-role">角色</label><select name="role" id="user-role"><option value="sales">销售</option><option value="admin">管理员</option></select></div>`}${field('temporary-password','临时密码（至少12位，含字母和数字）','',{type:'password',required:true,autocomplete:'new-password',max:128})}<div class="form-error" role="alert"></div><footer><button type="submit" class="primary">${id?'重置密码':'创建账号'}</button></footer></form>`); }
 async function enter() {
@@ -142,11 +204,16 @@ document.addEventListener('click', async e => {
     if(a==='material-versions'){const data=await request(`/materials/${id}/versions`);showModal(`${modalHead('资料版本记录')}<div class="stack">${data.items.map(v=>{const m=JSON.parse(v.snapshot);return `<section><h3>V${v.version} · ${esc(m.title)}</h3><p class="small">${esc(new Date(v.updated_at).toLocaleString('zh-CN'))}</p><p class="resource-preview">${esc(m.content)}</p></section>`;}).join('')}</div>`);return;}
     if(a==='new-user'||a==='reset-user'){userEditor(id);return;}
     if(a==='toggle-user'){await request(`/users/${id}`,{method:'PUT',body:JSON.stringify({active:button.dataset.active!=='1'})});await usersPage();return;}
+    if(a==='conv-search'){state.convFilters={user:$('#conv-filter-user')?.value||'',scene:$('#conv-filter-scene')?.value||'',audience:$('#conv-filter-audience')?.value||'',feedback:$('#conv-filter-feedback')?.value||'',status:$('#conv-filter-status')?.value||''};loadConversations(1);return;}
+    if(a==='conv-detail'){conversationDetail(id);return;}
+    if(a==='conv-back'){conversationsPage();return;}
+    if(a==='conv-page'){loadConversations(Number(button.dataset.page));return;}
     capture();state.controller?.abort();const version=++state.sequence;state.pending=false;
     if(a==='materials'){await loadMaterials();if(version===state.sequence&&state.user)materialsPage();}
     if(a==='generate-page')generator();
     if(a==='users')await usersPage();
     if(a==='usage')await usagePage();
+    if(a==='conversations')conversationsPage();
   }catch(error){notify(error.message);}
 });
 document.addEventListener('submit', async e=>{

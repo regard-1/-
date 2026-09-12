@@ -114,6 +114,7 @@ export async function api(request, env, dependencies = {}) {
     if (!['direct', 'edited', 'unusable'].includes(body.rating) || typeof body.generation_id !== 'string') fail(400, '反馈格式不正确');
     const result = await store.query("UPDATE studio_usage SET feedback=? WHERE id=? AND user_id=? AND status='ready' RETURNING id", body.rating, body.generation_id, user.id).first();
     if (!result) fail(404, '未找到可反馈的本次生成');
+    await store.query("UPDATE studio_conversations SET feedback=? WHERE usage_id=? AND user_id=?", body.rating, body.generation_id, user.id).run();
     return json({ recorded: true });
   }
   if (route === '/api/studio/usage' && method === 'GET') {
@@ -125,6 +126,34 @@ export async function api(request, env, dependencies = {}) {
       SUM(CASE WHEN status='ready' THEN 1 ELSE 0 END) AS ready
       FROM studio_usage WHERE month=? AND (?='admin' OR user_id=?)`, month, user.role, user.id).first();
     return json({ summary: own });
+  }
+  if (route === '/api/studio/conversations' && method === 'GET') {
+    admin(user);
+    const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
+    const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit')) || 20));
+    const offset = (page - 1) * limit;
+    let where = '1=1', args = [];
+    const fUser = url.searchParams.get('user');
+    if (fUser) { where += ' AND c.user_id=?'; args.push(fUser); }
+    const fScene = url.searchParams.get('scene');
+    if (fScene) { where += ' AND c.scene=?'; args.push(fScene); }
+    const fAudience = url.searchParams.get('audience');
+    if (fAudience) { where += ' AND c.audience=?'; args.push(fAudience); }
+    const fFeedback = url.searchParams.get('feedback');
+    if (fFeedback) { where += ' AND c.feedback=?'; args.push(fFeedback); }
+    const fStatus = url.searchParams.get('status');
+    if (fStatus) { where += ' AND c.status=?'; args.push(fStatus); }
+    const total = await store.query(`SELECT COUNT(*) AS n FROM studio_conversations c WHERE ${where}`, ...args).first();
+    const rows = await store.all(`SELECT c.*,u.username,u.display_name FROM studio_conversations c
+      LEFT JOIN studio_users u ON u.id=c.user_id WHERE ${where} ORDER BY c.created_at DESC LIMIT ? OFFSET ?`, ...args, limit, offset);
+    return json({ items: rows.map(r => ({ ...r, messages: JSON.parse(r.messages), followups: JSON.parse(r.followups || '[]'), resources: JSON.parse(r.resources || '[]') })), total: total.n, page, limit });
+  }
+  const convMatch = route.match(/^\/api\/studio\/conversations\/([\w-]+)$/);
+  if (convMatch && method === 'GET') {
+    admin(user);
+    const row = await store.query('SELECT c.*,u.username,u.display_name FROM studio_conversations c LEFT JOIN studio_users u ON u.id=c.user_id WHERE c.id=?', convMatch[1]).first();
+    if (!row) fail(404, '留档记录不存在');
+    return json({ ...row, messages: JSON.parse(row.messages), followups: JSON.parse(row.followups || '[]'), resources: JSON.parse(row.resources || '[]') });
   }
   if (route === '/api/studio/users' && method === 'GET') {
     admin(user); return json({ items: await store.all('SELECT id,username,display_name,role,active,must_change,created_at FROM studio_users ORDER BY created_at') });

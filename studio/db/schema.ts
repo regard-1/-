@@ -33,3 +33,12 @@ export const usage = sqliteTable('studio_usage', {
   inputTokens: integer('input_tokens'), outputTokens: integer('output_tokens'), elapsedMs: integer('elapsed_ms'),
   feedback: text('feedback'), createdAt: integer('created_at').notNull(),
 });
+
+export const conversations = sqliteTable('studio_conversations', {
+  id: text('id').primaryKey(), usageId: text('usage_id').notNull(), userId: text('user_id').notNull(),
+  audience: text('audience').notNull(), scene: text('scene').notNull(),
+  messages: text('messages').notNull(), reply: text('reply'), nextStep: text('next_step'),
+  followups: text('followups'), resources: text('resources'), supplement: text('supplement'),
+  salutation: text('salutation'), needs: text('needs'), goal: text('goal'), instruction: text('instruction'),
+  status: text('status').notNull(), feedback: text('feedback'), createdAt: integer('created_at').notNull(),
+});

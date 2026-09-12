@@ -166,12 +166,33 @@ export async function generate(store, user, raw, env, fetchModel = fetch) {
       if (!latest || latest.version !== source.version || !materialAvailable(latest, input.audience)) fail(409, '生成期间资料已变化，请重新选择资料后生成', 'MATERIAL_CHANGED');
     }
     await store.settle(entry, result.status, cost, usage); settled = true;
+    await store.saveConversation({
+      id: entry.id, usage_id: entry.id, user_id: user.id,
+      audience: input.audience, scene: input.scene,
+      messages: input.messages, reply: result.reply,
+      next_step: result.next_step, followups: result.followups,
+      resources: input.resources, supplement: input.supplement,
+      salutation: input.salutation, needs: input.needs,
+      goal: input.goal, instruction: input.instruction,
+      status: result.status, created_at: entry.started,
+    });
     return { ...result, generation_id: entry.id, model: MODEL, elapsed_ms: Date.now() - entry.started };
   } catch (error) {
-    if (!settled) await store.settle(entry, 'failed', cost, usage);
+    if (!settled) {
+      await store.settle(entry, 'failed', cost, usage);
+      await store.saveConversation({
+        id: entry.id, usage_id: entry.id, user_id: user.id,
+        audience: input.audience, scene: input.scene,
+        messages: input.messages, reply: null,
+        next_step: null, followups: [],
+        resources: input.resources, supplement: input.supplement,
+        salutation: input.salutation, needs: input.needs,
+        goal: input.goal, instruction: input.instruction,
+        status: 'failed', created_at: entry.started,
+      });
+    }
     if (error.status) throw error;
-    const msg = error?.message || String(error);
-    console.error('generation_error', JSON.stringify({ name: error?.name, msg: msg.slice(0, 200) }));
-    fail(502, `生成失败：${msg.slice(0, 100)}`, 'MODEL_UNAVAILABLE');
+    console.error('generation_error', JSON.stringify({ name: error?.name, msg: (error?.message || String(error)).slice(0, 200) }));
+    fail(502, '生成超时或连接异常，输入已保留，请稍后重试', 'MODEL_UNAVAILABLE');
   }
 }

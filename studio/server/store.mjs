@@ -36,20 +36,30 @@ export class Store {
     if (!results[2].results.length) fail(429, '正在生成中，请等待当前回复完成', 'BUSY');
     return { id, month, reservation, started: now };
   }
-  async settle(entry, status, cost, usage = {}, elapsed = Date.now() - entry.started) {
-    await this.db.batch([
-      this.query(`UPDATE studio_usage SET status=?,cost=?,input_tokens=?,output_tokens=?,elapsed_ms=?
-        WHERE id=? AND status='pending'`, status, cost, usage.prompt_tokens ?? null, usage.completion_tokens ?? null, elapsed, entry.id),
-      this.query(`UPDATE studio_budgets SET reserved=MAX(0,reserved-?),spent=spent+?
-        WHERE month=? AND changes()=1`, entry.reservation, cost, entry.month),
-    ]);
-  }
-  async cleanup() {
-    const now = Date.now();
-    await this.db.batch([
-      this.query('DELETE FROM studio_sessions WHERE expires_at<=?', now),
-      this.query('DELETE FROM studio_rate_limits WHERE expires_at<=?', now),
-    ]);
+ async settle(entry, status, cost, usage = {}, elapsed = Date.now() - entry.started) {
+   await this.db.batch([
+     this.query(`UPDATE studio_usage SET status=?,cost=?,input_tokens=?,output_tokens=?,elapsed_ms=?
+       WHERE id=? AND status='pending'`, status, cost, usage.prompt_tokens ?? null, usage.completion_tokens ?? null, elapsed, entry.id),
+     this.query(`UPDATE studio_budgets SET reserved=MAX(0,reserved-?),spent=spent+?
+       WHERE month=? AND changes()=1`, entry.reservation, cost, entry.month),
+   ]);
+ }
+ async saveConversation(data) {
+   await this.query(`INSERT INTO studio_conversations(id,usage_id,user_id,audience,scene,messages,reply,next_step,followups,resources,supplement,salutation,needs,goal,instruction,status,feedback,created_at)
+     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?)`,
+     data.id, data.usage_id, data.user_id, data.audience, data.scene,
+     JSON.stringify(data.messages), data.reply ?? null, data.next_step ?? null,
+     JSON.stringify(data.followups ?? []), JSON.stringify(data.resources ?? []),
+     data.supplement ?? null, data.salutation ?? null, data.needs ?? null,
+     data.goal ?? null, data.instruction ?? null, data.status, data.created_at).run();
+ }
+ async cleanup() {
+   const now = Date.now();
+   await this.db.batch([
+     this.query('DELETE FROM studio_sessions WHERE expires_at<=?', now),
+     this.query('DELETE FROM studio_rate_limits WHERE expires_at<=?', now),
+     this.query('DELETE FROM studio_conversations WHERE created_at<?', now - 2592000000),
+   ]);
     const stale = await this.all("SELECT id,month,reservation,created_at FROM studio_usage WHERE status='pending' AND created_at<? LIMIT 100", now - 120000);
     for (const row of stale) await this.settle({ ...row, started: row.created_at }, 'unknown', row.reservation);
   }
