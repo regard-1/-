@@ -100,10 +100,17 @@ export async function api(request, env, dependencies = {}) {
           WHERE id=? AND version=? RETURNING id`, data.title, data.kind, data.audience, data.product, data.content, data.valid_from, data.valid_to, data.active, user.id, row.updated_at, id, body.version),
         store.query('INSERT INTO studio_material_versions(material_id,version,snapshot,updated_by,updated_at) SELECT ?,?,?,?,? WHERE changes()=1', id, row.version, JSON.stringify(row), user.id, row.updated_at),
       ]);
-      if (!result[0].results.length) fail(409, '资料已被更新，请刷新后再编辑', 'MATERIAL_CHANGED');
-      return json(row);
+     if (!result[0].results.length) fail(409, '资料已被更新，请刷新后再编辑', 'MATERIAL_CHANGED');
+     return json(row);
+   }
+    if (!materialMatch[2] && method === 'DELETE') {
+      await store.db.batch([
+        store.query('DELETE FROM studio_material_versions WHERE material_id=?', id),
+        store.query('DELETE FROM studio_materials WHERE id=?', id),
+      ]);
+      return json({ ok: true });
     }
-  }
+ }
   if (route === '/api/studio/generations' && method === 'POST') {
     await store.cleanup();
     await store.rateLimit(`generate:${user.id}`, 12, 60);
