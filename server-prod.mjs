@@ -30,7 +30,14 @@ const assets = {
       return new Response(await readFile(filePath), {
         headers: { 'Content-Type': mime[extname(filePath)] || 'application/octet-stream' },
       });
-    } catch { return new Response('Not found', { status: 404 }); }
+    } catch {
+      try {
+        const indexPath = resolve(filePath, 'index.html');
+        return new Response(await readFile(indexPath), {
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        });
+      } catch { return new Response('Not found', { status: 404 }); }
+    }
   },
 };
 
