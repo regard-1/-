@@ -91,11 +91,53 @@ export function makeModelBody(input, sources) {
 function conforms(value, schema) {
   const types = Array.isArray(schema.type) ? schema.type : [schema.type];
   if (value === null) return types.includes('null');
-  if (types.includes('object')) return typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(k => k in schema.properties) && schema.required.every(k => k in value && conforms(value[k], schema.properties[k]));
+  if (value === undefined) return false;
+  if (types.includes('object')) {
+    if (typeof value !== 'object' || Array.isArray(value)) return false;
+    return schema.required.every(k => k in value && conforms(value[k], schema.properties[k]));
+  }
   if (types.includes('array')) return Array.isArray(value) && value.length <= 20 && value.every(v => conforms(v, schema.items));
   if (types.includes('integer')) return Number.isInteger(value);
-  if (types.includes('string')) return typeof value === 'string' && value.length <= 2400 && (!schema.enum || schema.enum.includes(value));
+  if (types.includes('string')) {
+    if (typeof value === 'number') return true;
+    return typeof value === 'string' && value.length <= 2400 && (!schema.enum || schema.enum.includes(value));
+  }
   return false;
+}
+function normalizeOutput(raw) {
+  const o = { ...raw };
+  if (!o.status || !['ready', 'needs_input'].includes(o.status)) o.status = 'ready';
+  if (o.reply === undefined) o.reply = null;
+  if (typeof o.reply === 'number') o.reply = String(o.reply);
+  if (typeof o.next_step !== 'string') o.next_step = String(o.next_step || '');
+  if (!Array.isArray(o.followups)) o.followups = [];
+  if (!Array.isArray(o.missing_fields)) o.missing_fields = [];
+  if (!Array.isArray(o.conflicts)) o.conflicts = [];
+  if (!o.inferred || typeof o.inferred !== 'object') o.inferred = { needs: '', goal: '', evidence: '' };
+  if (!o.inferred.needs) o.inferred.needs = '';
+  if (!o.inferred.goal) o.inferred.goal = '';
+  if (!o.inferred.evidence) o.inferred.evidence = '';
+  if (!Array.isArray(o.used_sources)) o.used_sources = [];
+  if (!Array.isArray(o.facts)) o.facts = [];
+  o.followups = o.followups.filter(f => f && typeof f === 'object').map(f => ({
+    when: typeof f.when === 'string' ? f.when : String(f.when || ''),
+    reply: typeof f.reply === 'string' ? f.reply : String(f.reply || ''),
+  }));
+  o.missing_fields = o.missing_fields.filter(f => f && typeof f === 'object').map(f => ({
+    field: typeof f.field === 'string' ? f.field : String(f.field || ''),
+    question: typeof f.question === 'string' ? f.question : String(f.question || ''),
+  }));
+  o.used_sources = o.used_sources.filter(s => s && typeof s === 'object').map(s => ({
+    id: typeof s.id === 'string' ? s.id : String(s.id || ''),
+    version: Number.isInteger(s.version) ? s.version : 0,
+    quote: typeof s.quote === 'string' ? s.quote : String(s.quote || ''),
+  }));
+  o.facts = o.facts.filter(f => f && typeof f === 'object').map(f => ({
+    claim: typeof f.claim === 'string' ? f.claim : String(f.claim || ''),
+    source_id: typeof f.source_id === 'string' ? f.source_id : String(f.source_id || ''),
+    quote: typeof f.quote === 'string' ? f.quote : String(f.quote || ''),
+  }));
+  return o;
 }
  function extractJSON(text) {
    if (!text || typeof text !== 'string') return null;
@@ -109,8 +151,12 @@ function conforms(value, schema) {
    if (start === -1 || end === -1 || end <= start) return null;
    return s.slice(start, end + 1);
  }
- export function validateOutput(result, input, sources) {
-  if (!conforms(result, OUTPUT_SCHEMA)) fail(502, '生成结果格式异常，请重试', 'MODEL_FORMAT');
+export function validateOutput(rawResult, input, sources) {
+  const result = normalizeOutput(rawResult);
+  if (!conforms(result, OUTPUT_SCHEMA)) {
+    console.error('schema_error', JSON.stringify({ keys: Object.keys(rawResult), status: rawResult.status, reply_type: typeof rawResult.reply, has_inferred: !!rawResult.inferred, has_followups: Array.isArray(rawResult.followups), has_facts: Array.isArray(rawResult.facts) }));
+    fail(502, '生成结果格式异常，请重试', 'MODEL_FORMAT');
+  }
  const catalog = new Map(sources.map(s => [s.id, s]));
  if (input.supplement) catalog.set('supplement', { id: 'supplement', version: 0, content: input.supplement });
  const norm = s => (s || '').replace(/\s/g, '');
