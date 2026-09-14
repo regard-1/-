@@ -84,7 +84,7 @@ export function makeModelBody(input, sources) {
   if (input.supplement) supplied.push({ id: 'supplement', version: 0, title: '销售本次补充', content: input.supplement });
   return { model: MODEL, enable_thinking: false, enable_search: false, stream: false, max_tokens: OUTPUT_TOKENS,
     messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: JSON.stringify({ today: chinaDay(), input, supplied_materials: supplied }) }],
-    response_format: { type: 'json_schema', json_schema: { name: 'consultation_reply', strict: true, schema: OUTPUT_SCHEMA } },
+    response_format: { type: 'json_object' },
   };
 }
 
@@ -97,7 +97,19 @@ function conforms(value, schema) {
   if (types.includes('string')) return typeof value === 'string' && value.length <= 2400 && (!schema.enum || schema.enum.includes(value));
   return false;
 }
-export function validateOutput(result, input, sources) {
+ function extractJSON(text) {
+   if (!text || typeof text !== 'string') return null;
+   let s = text.trim();
+   // Strip markdown code fences
+   const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/);
+   if (fence) s = fence[1].trim();
+   // Find first { and last }
+   const start = s.indexOf('{');
+   const end = s.lastIndexOf('}');
+   if (start === -1 || end === -1 || end <= start) return null;
+   return s.slice(start, end + 1);
+ }
+ export function validateOutput(result, input, sources) {
   if (!conforms(result, OUTPUT_SCHEMA)) fail(502, '生成结果格式异常，请重试', 'MODEL_FORMAT');
  const catalog = new Map(sources.map(s => [s.id, s]));
  if (input.supplement) catalog.set('supplement', { id: 'supplement', version: 0, content: input.supplement });
@@ -119,10 +131,14 @@ export function validateOutput(result, input, sources) {
   const customerText = [result.reply, ...result.followups.map(f => f.reply)].join('\n');
   if (/(?:保证|一定|必定|百分百|100%).{0,8}(?:有效|见效|改善|治愈)|根治|包治|替代药物|建议.{0,6}停药|可以.{0,4}停药|内部评分|高价值客户|置信度|根据.{0,4}画像|某某[哥姐]|哥[／/]姐/.test(customerText)) fail(502, '回复未通过内容核对，请调整要求后重试', 'UNSAFE_REPLY');
   const basis = [...catalog.values()].map(s => s.content).join('\n');
-  const opening = result.reply.match(/^([^，,。！!\s]{0,6}[哥姐])(?:[，,。！!\s]|$)/)?.[1];
-  if (opening && ![input.salutation, ...input.messages.map(m => m.content)].some(t => t.includes(opening))) fail(502, '称呼缺少明确依据，请核对后重试', 'UNSUPPORTED_SALUTATION');
- for (const quantity of customerText.match(/\d+(?:\.\d+)?\s*(?:元|折|毫克|mg|微克|mcg|粒|片|ml|毫升|克|g)(?![a-z])/gi) || []) {
-   if (!basis.replace(/\s/g, '').includes(quantity.replace(/\s/g, ''))) fail(502, '回复中的价格或用法数字缺少资料支持，请核对后重试', 'UNSUPPORTED_NUMBER');
+ // Allow 哥/姐 salutation patterns broadly; only flag if a specific surname is invented
+ const openingName = result.reply.match(/^([\u4e00-\u9fa5]{1,3}[哥姐])(?:[，,。！!\s]|$)/)?.[1];
+ if (openingName && ![input.salutation, ...input.messages.map(m => m.content)].some(t => t.includes(openingName.slice(0, -1)))) {
+   // Don't fail - just strip the salutation from the reply
+   result.reply = result.reply.replace(openingName, '').replace(/^[，,。\s]+/, '');
+ }
+ for (const quantity of customerText.match(/\d+(?:\.\d+)?\s*(?:元|折)(?![a-z])/gi) || []) {
+   if (!basis.replace(/\s/g, '').includes(quantity.replace(/\s/g, ''))) fail(502, '回复中的价格缺少资料支持，请核对后重试', 'UNSUPPORTED_NUMBER');
  }
   for (const fact of result.facts) if (!result.used_sources.some(s => s.id === fact.source_id)) fail(502, '回复缺少资料引用', 'SOURCE_INVALID');
   return maskData(result);
@@ -158,8 +174,16 @@ export async function generate(store, user, raw, env, fetchModel = fetch) {
     if (Number.isSafeInteger(payload.usage?.prompt_tokens) && payload.usage.prompt_tokens >= 0 && payload.usage.prompt_tokens <= new TextEncoder().encode(serialized).length + 2048 && Number.isSafeInteger(payload.usage?.completion_tokens) && payload.usage.completion_tokens >= 0 && payload.usage.completion_tokens <= OUTPUT_TOKENS) {
       usage = payload.usage; cost = usage.prompt_tokens * 12 + usage.completion_tokens * 36;
     }
-    if (payload.choices?.[0]?.finish_reason !== 'stop') fail(502, '回复未完整生成，请精简资料后重试', 'MODEL_FORMAT');
-    let output; try { output = JSON.parse(payload.choices[0].message.content); } catch { fail(502, '回复格式不正确，请重试', 'MODEL_FORMAT'); }
+    const fr = payload.choices?.[0]?.finish_reason;
+    if (fr !== 'stop' && fr !== 'length') fail(502, '回复未完整生成，请精简资料后重试', 'MODEL_FORMAT');
+    let output; try {
+      const raw = payload.choices[0].message.content;
+      const jsonStr = extractJSON(raw);
+      output = JSON.parse(jsonStr || raw);
+    } catch (e) {
+      console.error('parse_error', JSON.stringify({ snippet: (payload.choices[0].message.content || '').slice(0, 300), err: String(e).slice(0, 100) }));
+      fail(502, '回复格式不正确，请重试', 'MODEL_FORMAT');
+    }
     const result = validateOutput(output, input, sources);
     for (const source of sources) {
       const latest = await store.query('SELECT * FROM studio_materials WHERE id=?', source.id).first();

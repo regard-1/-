@@ -11,7 +11,7 @@ export const SCENES = [
 ];
 export const MODEL = 'qwen3.8-max-0902';
 export const MONTHLY_LIMIT = 300_000_000; // Integer micro-yuan, never floating-point accounting.
-export const OUTPUT_TOKENS = 1800;
+export const OUTPUT_TOKENS = 3000;
 export function maskText(value = '') {
   return String(value)
     .replace(/(?:https?:\/\/)?[^\s]*\/hook\/[^\s]+/gi, '[已隐藏访问地址]')
