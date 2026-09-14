@@ -8,8 +8,8 @@ export class Store {
   async rateLimit(key, maximum, windowSeconds) {
     const now = Date.now();
     const result = await this.query(`INSERT INTO studio_rate_limits(key,attempts,expires_at) VALUES(?,1,?)
-      ON CONFLICT(key) DO UPDATE SET attempts=CASE WHEN expires_at<=? THEN 1 ELSE attempts+1 END,
-      expires_at=CASE WHEN expires_at<=? THEN excluded.expires_at ELSE expires_at END RETURNING attempts`, key, now + windowSeconds * 1000, now, now).first();
+      ON CONFLICT(key) DO UPDATE SET attempts=CASE WHEN studio_rate_limits.expires_at<=? THEN 1 ELSE studio_rate_limits.attempts+1 END,
+      expires_at=CASE WHEN studio_rate_limits.expires_at<=? THEN excluded.expires_at ELSE studio_rate_limits.expires_at END RETURNING attempts`, key, now + windowSeconds * 1000, now, now).first();
     if (result.attempts > maximum) fail(429, '操作较频繁，请稍后再试', 'RATE_LIMIT');
   }
   async authenticate(request) {
