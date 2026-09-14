@@ -4,10 +4,15 @@ import { readFileSync } from 'node:fs';
 // PostgreSQL adapter implementing the same interface as LocalDB.
 // Converts SQLite-style ? placeholders to $N, MAX(0,...) to GREATEST(0,...).
 export class PgDB {
-  constructor(connectionString) {
-    this.pool = new pg.Pool({ connectionString, max: 10 });
-    this._migrated = false;
-  }
+ constructor(connectionString) {
+    // Parse bigint/int8 as JS numbers (default is string, which breaks truthiness checks)
+    // OID 20=int8, 21=int2, 23=int4, 26=oid
+    for (const oid of [20, 21, 23, 26]) {
+      pg.types.setTypeParser(oid, (val) => (val === null ? null : Number(val)));
+    }
+   this.pool = new pg.Pool({ connectionString, max: 10 });
+   this._migrated = false;
+ }
 
   async _ensureMigrations() {
     if (this._migrated) return;
