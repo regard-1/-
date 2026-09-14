@@ -209,12 +209,12 @@ export async function handle(request, env, dependencies = {}) {
       return new Response(JSON.stringify({ success: false, error: { code: known ? error.code : 'INTERNAL_ERROR', message: known ? error.message : '服务暂时异常，请稍后重试', trace_id: trace } }), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
     }
   }
-  if (url.pathname === '/script-studio/') {
-    url.pathname = '/script-studio';
-    return new Response(null, { status: 302, headers: { Location: url.pathname + url.search, 'Cache-Control': 'no-store' } });
-  }
-  // The direct entry uses the original application shell; only the iframe loads the isolated tool.
-  if (url.pathname === '/script-studio') url.pathname = '/index.html';
+ if (url.pathname === '/script-studio/') {
+   url.pathname = '/script-studio';
+   return new Response(null, { status: 302, headers: { Location: url.pathname + url.search, 'Cache-Control': 'no-store' } });
+ }
+  // Serve the script studio's standalone page directly at /script-studio
+  if (url.pathname === '/script-studio') url.pathname = '/script-studio/index.html';
   if (!env.ASSETS) return new Response('Static assets are not configured', { status: 503 });
   const asset = await env.ASSETS.fetch(new Request(url, request));
   if (!url.pathname.startsWith('/script-studio')) return asset;
