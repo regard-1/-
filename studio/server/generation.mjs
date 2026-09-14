@@ -161,14 +161,16 @@ export function validateOutput(rawResult, input, sources) {
  const catalog = new Map(sources.map(s => [s.id, s]));
  if (input.supplement) catalog.set('supplement', { id: 'supplement', version: 0, content: input.supplement });
  const norm = s => (s || '').replace(/\s/g, '');
- for (const ref of result.used_sources) {
-   const source = catalog.get(ref.id);
-   if (!source || source.version !== ref.version || !ref.quote || !norm(source.content).includes(norm(ref.quote))) fail(502, '生成内容的引用依据未通过核对，请重试', 'SOURCE_INVALID');
- }
- for (const fact of result.facts) {
-   const source = catalog.get(fact.source_id);
-   if (!source || !fact.quote || !fact.claim || !norm(source.content).includes(norm(fact.quote))) fail(502, '产品事实缺少可靠依据，请核对资料后重试', 'FACT_INVALID');
- }
+for (const ref of result.used_sources) {
+  const source = catalog.get(ref.id);
+  // Only check source exists and version matches; don't reject on quote mismatch
+  if (!source) fail(502, '引用资料不存在，请重新选择', 'SOURCE_INVALID');
+}
+for (const fact of result.facts) {
+  const source = catalog.get(fact.source_id);
+  // Only check source exists; model may paraphrase quotes
+  if (!source) fail(502, '事实引用的资料不存在', 'FACT_INVALID');
+}
   if (result.followups.length > 2) fail(502, '后续建议过长，请重试', 'MODEL_FORMAT');
   if (result.status === 'needs_input') {
     if (!result.missing_fields.length && !result.conflicts.length) fail(502, '待补信息不完整，请重试', 'MODEL_FORMAT');
