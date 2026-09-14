@@ -19,7 +19,7 @@ export async function api(request, env, dependencies = {}) {
   const url = new URL(request.url), route = url.pathname.replace(/\/$/, ''), method = request.method;
   if (!env.DB) fail(503, '资料服务尚未配置', 'DATABASE_NOT_CONFIGURED');
   const store = new Store(env.DB);
-  if (!['GET', 'POST', 'PUT'].includes(method)) fail(405, '不支持此操作');
+  if (!['GET', 'POST', 'PUT', 'DELETE'].includes(method)) fail(405, '不支持此操作');
   if (method !== 'GET') checkOrigin(request);
  if (route === '/api/studio/status' && method === 'GET') {
    const count = await store.query('SELECT COUNT(*) AS n FROM studio_users').first();
