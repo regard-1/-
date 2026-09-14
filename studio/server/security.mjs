@@ -28,8 +28,11 @@ export function checkPassword(value) {
   return value;
 }
 export function cookie(token, request, age = 43200) {
-  const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : '';
-  return `studio_session=${token}; Path=/api/studio; HttpOnly; SameSite=Strict; Max-Age=${age}${secure}`;
+  // Use X-Forwarded-Proto when behind a reverse proxy (nginx) so cookies
+  // get the Secure flag on HTTPS deployments even though internal traffic is HTTP.
+  const proto = request.headers.get('X-Forwarded-Proto') || new URL(request.url).protocol.replace(':', '');
+  const secure = proto === 'https' ? '; Secure' : '';
+  return `studio_session=${token}; Path=/api/studio; HttpOnly; SameSite=Lax; Max-Age=${age}${secure}`;
 }
 export function sessionToken(request) {
   return (request.headers.get('Cookie') || '').split(';').map(x => x.trim()).find(x => x.startsWith('studio_session='))?.slice(15) || '';
@@ -54,7 +57,20 @@ export async function readBody(request) {
   } catch { fail(400, 'JSON 格式不正确'); }
 }
 export function checkOrigin(request) {
-  if (request.headers.get('Origin') !== new URL(request.url).origin) fail(403, '请求来源校验失败', 'ORIGIN_REJECTED');
+  const originHeader = request.headers.get('Origin');
+  if (!originHeader) fail(403, '请求来源校验失败', 'ORIGIN_REJECTED');
+  // Build expected origin from proxy headers (X-Forwarded-Proto, X-Forwarded-Host)
+  // so reverse-proxy deployments behind nginx work correctly.
+  const fwdProto = request.headers.get('X-Forwarded-Proto');
+  const fwdHost = request.headers.get('X-Forwarded-Host') || request.headers.get('Host');
+  const directOrigin = new URL(request.url).origin;
+  const proxiedOrigin = (fwdProto && fwdHost) ? `${fwdProto === 'http' ? 'http' : 'https'}://${fwdHost}` : null;
+  // Also allow env-configured allowed origins for multi-domain setups.
+  const allowed = (typeof process !== 'undefined' && process.env?.STUDIO_ALLOWED_ORIGINS)
+    ? process.env.STUDIO_ALLOWED_ORIGINS.split(',').map(s => s.trim())
+    : [];
+  if (originHeader === directOrigin || originHeader === proxiedOrigin || allowed.includes(originHeader)) return;
+  fail(403, '请求来源校验失败', 'ORIGIN_REJECTED');
 }
 export function json(data, status = 200, extra = {}) {
   return new Response(JSON.stringify({ success: true, data }), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...extra } });
