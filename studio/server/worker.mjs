@@ -204,8 +204,8 @@ export async function handle(request, env, dependencies = {}) {
     catch (error) {
       const known = error instanceof HttpError, status = known ? error.status : 500;
       // Never log exceptions, prompts or request/response bodies; record only a random trace identifier.
-      const trace = crypto.randomUUID();
-      if (!known) console.warn(`studio_error trace=${trace}`);
+     const trace = crypto.randomUUID();
+      if (!known) console.warn(`studio_error trace=${trace} error=${error?.message} stack=${error?.stack?.split('\n').slice(0,3).join(' | ')}`);
       return new Response(JSON.stringify({ success: false, error: { code: known ? error.code : 'INTERNAL_ERROR', message: known ? error.message : '服务暂时异常，请稍后重试', trace_id: trace } }), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' } });
     }
   }
