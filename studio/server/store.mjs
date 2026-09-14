@@ -27,21 +27,27 @@ export class Store {
   async reserve(user, input, reservation) {
     const month = monthKey(), id = crypto.randomUUID(), now = Date.now();
     const results = await this.db.batch([
-      this.query('INSERT OR IGNORE INTO studio_budgets(month,spent,reserved,ceiling) VALUES(?,0,0,999999999999)', month),
-      this.query(`UPDATE studio_budgets SET reserved=reserved+? WHERE month=?
-        AND (SELECT COUNT(*) FROM studio_usage WHERE user_id=? AND status='pending')<1 RETURNING month`, reservation, month, user.id),
-      this.query(`INSERT INTO studio_usage(id,user_id,month,audience,scene,model,status,reservation,cost,created_at)
-        SELECT ?,?,?,?,?,?,'pending',?,0,? WHERE changes()=1 RETURNING id`, id, user.id, month, input.audience, input.scene, MODEL, reservation, now),
+      this.query('INSERT INTO studio_budgets(month,spent,reserved,ceiling) VALUES(?,0,0,999999999999) ON CONFLICT DO NOTHING', month),
+      this.query(`WITH budget_update AS (
+        UPDATE studio_budgets SET reserved=reserved+? WHERE month=?
+          AND (SELECT COUNT(*) FROM studio_usage WHERE user_id=? AND status='pending')<1
+        RETURNING month)
+      INSERT INTO studio_usage(id,user_id,month,audience,scene,model,status,reservation,cost,created_at)
+        SELECT ?,?,?,?,?,?,'pending',?,0,? FROM budget_update RETURNING id`,
+        reservation, month, user.id, id, user.id, month, input.audience, input.scene, MODEL, reservation, now),
     ]);
-    if (!results[2].results.length) fail(429, '正在生成中，请等待当前回复完成', 'BUSY');
+    if (!results[1].results.length) fail(429, '正在生成中，请等待当前回复完成', 'BUSY');
     return { id, month, reservation, started: now };
   }
  async settle(entry, status, cost, usage = {}, elapsed = Date.now() - entry.started) {
    await this.db.batch([
-     this.query(`UPDATE studio_usage SET status=?,cost=?,input_tokens=?,output_tokens=?,elapsed_ms=?
-       WHERE id=? AND status='pending'`, status, cost, usage.prompt_tokens ?? null, usage.completion_tokens ?? null, elapsed, entry.id),
-     this.query(`UPDATE studio_budgets SET reserved=MAX(0,reserved-?),spent=spent+?
-       WHERE month=? AND changes()=1`, entry.reservation, cost, entry.month),
+     this.query(`WITH usage_update AS (
+       UPDATE studio_usage SET status=?,cost=?,input_tokens=?,output_tokens=?,elapsed_ms=?
+         WHERE id=? AND status='pending' RETURNING id)
+     UPDATE studio_budgets SET reserved=MAX(0,reserved-?),spent=spent+?
+       WHERE month=? AND EXISTS(SELECT 1 FROM usage_update)`,
+       status, cost, usage.prompt_tokens ?? null, usage.completion_tokens ?? null, elapsed, entry.id,
+       entry.reservation, cost, entry.month),
    ]);
  }
  async saveConversation(data) {

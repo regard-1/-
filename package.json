@@ -11,7 +11,8 @@
     "eval:studio": "node studio/evaluate.mjs"
   },
   "dependencies": {
-    "lucide": "1.43.0"
+    "lucide": "1.43.0",
+    "pg": "8.16.0"
   },
   "devDependencies": {
     "@openai/sites-vite-plugin": "0.2.0",

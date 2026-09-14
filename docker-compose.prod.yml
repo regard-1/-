@@ -10,6 +10,7 @@ services:
       STUDIO_LLM_BASE_URL: https://dashscope.aliyuncs.com/compatible-mode/v1
       STUDIO_DATA_DIR: /data
       STUDIO_PORT: "3000"
+      DATABASE_URL: postgresql://pdp_user:0f0a6b3bd7c9d9beedfd65606f0fdf54@pdp-postgres:5432/dotbest_ops
     volumes:
       - dotbest-ops-data:/data
     ports:

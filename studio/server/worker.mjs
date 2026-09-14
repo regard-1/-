@@ -11,8 +11,8 @@ const localSetup = (request, env) => env.STUDIO_LOCAL_SETUP === '1' && ['127.0.0
 async function bootstrap(store, env) {
   if (!env.STUDIO_BOOTSTRAP_USERNAME || !env.STUDIO_BOOTSTRAP_PASSWORD_HASH) return;
   if (!cleanName(env.STUDIO_BOOTSTRAP_USERNAME)) fail(503, '管理员初始化配置不正确');
-  await store.query(`INSERT OR IGNORE INTO studio_users(id,username,display_name,password_hash,role,active,must_change,created_at)
-    SELECT ?,?,?,?,'admin',1,0,? WHERE NOT EXISTS(SELECT 1 FROM studio_users)`, crypto.randomUUID(), env.STUDIO_BOOTSTRAP_USERNAME, '资料管理员', env.STUDIO_BOOTSTRAP_PASSWORD_HASH, Date.now()).run();
+  await store.query(`INSERT INTO studio_users(id,username,display_name,password_hash,role,active,must_change,created_at)
+    SELECT ?,?,?,?,'admin',1,0,? WHERE NOT EXISTS(SELECT 1 FROM studio_users) ON CONFLICT DO NOTHING`, crypto.randomUUID(), env.STUDIO_BOOTSTRAP_USERNAME, '资料管理员', env.STUDIO_BOOTSTRAP_PASSWORD_HASH, Date.now()).run();
 }
 
 export async function api(request, env, dependencies = {}) {
@@ -96,9 +96,13 @@ export async function api(request, env, dependencies = {}) {
       if (!Number.isInteger(body.version)) fail(400, '缺少资料版本');
       const row = { ...data, id, version: body.version + 1, updated_by: user.id, updated_at: Date.now() };
       const result = await store.db.batch([
-        store.query(`UPDATE studio_materials SET title=?,kind=?,audience=?,product=?,content=?,valid_from=?,valid_to=?,active=?,version=version+1,updated_by=?,updated_at=?
-          WHERE id=? AND version=? RETURNING id`, data.title, data.kind, data.audience, data.product, data.content, data.valid_from, data.valid_to, data.active, user.id, row.updated_at, id, body.version),
-        store.query('INSERT INTO studio_material_versions(material_id,version,snapshot,updated_by,updated_at) SELECT ?,?,?,?,? WHERE changes()=1', id, row.version, JSON.stringify(row), user.id, row.updated_at),
+        store.query(`WITH material_update AS (
+          UPDATE studio_materials SET title=?,kind=?,audience=?,product=?,content=?,valid_from=?,valid_to=?,active=?,version=version+1,updated_by=?,updated_at=?
+            WHERE id=? AND version=? RETURNING id)
+        INSERT INTO studio_material_versions(material_id,version,snapshot,updated_by,updated_at)
+          SELECT ?,?,?,?,? FROM material_update`,
+          data.title, data.kind, data.audience, data.product, data.content, data.valid_from, data.valid_to, data.active, user.id, row.updated_at, id, body.version,
+          id, row.version, JSON.stringify(row), user.id, row.updated_at),
       ]);
      if (!result[0].results.length) fail(409, '资料已被更新，请刷新后再编辑', 'MATERIAL_CHANGED');
      return json(row);

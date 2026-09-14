@@ -42,7 +42,15 @@ const assets = {
 };
 
 await mkdir(dataDir, { recursive: true });
-const db = new LocalDB(resolve(dataDir, 'studio.db'));
+let db;
+if (process.env.DATABASE_URL) {
+  const { PgDB } = await import('./studio/pg-db.mjs');
+  db = new PgDB(process.env.DATABASE_URL);
+  console.log('Using PostgreSQL database');
+} else {
+  db = new LocalDB(resolve(dataDir, 'studio.db'));
+  console.log('Using local SQLite database');
+}
 
 const server = createServer(async (req, res) => {
   try {
@@ -78,7 +86,7 @@ await new Promise((ok, reject) => {
 });
 
 console.log(`Production server running on port ${port}`);
-console.log(`Data directory: ${dataDir}`);
+if (!process.env.DATABASE_URL) console.log(`Data directory: ${dataDir}`);
 
 const stop = async () => { server.close(); db.close(); process.exit(0); };
 process.once('SIGINT', stop);
