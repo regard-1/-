@@ -148,7 +148,7 @@ export async function generate(store, user, raw, env, fetchModel = fetch) {
   let cost = reservation, usage = {}, settled = false;
   try {
     const response = await fetchModel(`${base.href.replace(/\/$/, '')}/chat/completions`, {
-      method: 'POST', signal: AbortSignal.timeout(25000),
+      method: 'POST', signal: AbortSignal.timeout(60000),
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.STUDIO_LLM_API_KEY}` }, body: serialized,
     });
     if (!response.ok) fail(502, '模型服务暂时不可用，请稍后重试', 'MODEL_UNAVAILABLE');
