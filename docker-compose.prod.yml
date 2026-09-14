@@ -1,0 +1,25 @@
+services:
+  dotbest-ops-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: dotbest-ops-app
+    restart: unless-stopped
+    environment:
+      STUDIO_LLM_API_KEY: ${STUDIO_LLM_API_KEY}
+      STUDIO_LLM_BASE_URL: https://dashscope.aliyuncs.com/compatible-mode/v1
+      STUDIO_DATA_DIR: /data
+      STUDIO_PORT: "3000"
+    volumes:
+      - dotbest-ops-data:/data
+    ports:
+      - "127.0.0.1:8300:3000"
+    networks:
+      - pdp-release_default
+
+volumes:
+  dotbest-ops-data:
+
+networks:
+  pdp-release_default:
+    external: true
