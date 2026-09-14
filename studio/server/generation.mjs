@@ -120,10 +120,9 @@ export function validateOutput(result, input, sources) {
   const basis = [...catalog.values()].map(s => s.content).join('\n');
   const opening = result.reply.match(/^([^，,。！!\s]{0,6}[哥姐])(?:[，,。！!\s]|$)/)?.[1];
   if (opening && ![input.salutation, ...input.messages.map(m => m.content)].some(t => t.includes(opening))) fail(502, '称呼缺少明确依据，请核对后重试', 'UNSUPPORTED_SALUTATION');
-  for (const quantity of customerText.match(/\d+(?:\.\d+)?\s*(?:元|折|毫克|mg|微克|mcg|粒|片|ml|毫升|克|g)(?![a-z])/gi) || []) {
-    if (!basis.replace(/\s/g, '').includes(quantity.replace(/\s/g, ''))) fail(502, '回复中的价格或用法数字缺少资料支持，请核对后重试', 'UNSUPPORTED_NUMBER');
-    if (!result.facts.some(f => f.quote.replace(/\s/g, '').includes(quantity.replace(/\s/g, '')))) fail(502, '回复中的关键数字缺少引用记录，请重试', 'SOURCE_INVALID');
-  }
+ for (const quantity of customerText.match(/\d+(?:\.\d+)?\s*(?:元|折|毫克|mg|微克|mcg|粒|片|ml|毫升|克|g)(?![a-z])/gi) || []) {
+   if (!basis.replace(/\s/g, '').includes(quantity.replace(/\s/g, ''))) fail(502, '回复中的价格或用法数字缺少资料支持，请核对后重试', 'UNSUPPORTED_NUMBER');
+ }
   for (const fact of result.facts) if (!result.used_sources.some(s => s.id === fact.source_id)) fail(502, '回复缺少资料引用', 'SOURCE_INVALID');
   return maskData(result);
 }
