@@ -9,7 +9,7 @@ export const SCENES = [
   { id: 'aftercare', label: '售后反馈', icon: 'heart-handshake', goal: '先处理使用体验和服务诉求' },
   { id: 'repurchase', label: '复购咨询', icon: 'refresh-cw', goal: '确认使用情况和本次补充需求' },
 ];
-export const MODEL = 'qwen3.8-max-0902';
+export const MODEL = 'deepseek-v4-pro-0813';
 export const MONTHLY_LIMIT = 300_000_000; // Integer micro-yuan, never floating-point accounting.
 export const OUTPUT_TOKENS = 3000;
 export function maskText(value = '') {
