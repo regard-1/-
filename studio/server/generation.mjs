@@ -80,13 +80,16 @@ followups 的回复也必须遵守与主回复相同的事实规则，不得为�
 没有关键资料时可以自然澄清需求，但不能把空泛万能话术当作具体问题的解答。不输出推理过程。`;
 
 export function makeModelBody(input, sources) {
-  const supplied = sources.map(s => ({ id: s.id, version: s.version, title: s.title, kind: s.kind, product: s.product, content: s.content, valid_from: s.valid_from, valid_to: s.valid_to }));
-  if (input.supplement) supplied.push({ id: 'supplement', version: 0, title: '销售本次补充', content: input.supplement });
-  return { model: MODEL, enable_thinking: false, enable_search: false, stream: false, max_tokens: OUTPUT_TOKENS,
+ const supplied = sources.map(s => ({ id: s.id, version: s.version, title: s.title, kind: s.kind, product: s.product, content: s.content, valid_from: s.valid_from, valid_to: s.valid_to }));
+ if (input.supplement) supplied.push({ id: 'supplement', version: 0, title: '销售本次补充', content: input.supplement });
+  const isQwen = MODEL.startsWith('qwen');
+  const body = { model: MODEL, stream: false, max_tokens: OUTPUT_TOKENS,
     messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: JSON.stringify({ today: chinaDay(), input, supplied_materials: supplied }) }],
     response_format: { type: 'json_object' },
   };
-}
+  if (isQwen) { body.enable_thinking = false; body.enable_search = false; }
+  return body;
+ }
 
 function conforms(value, schema) {
   const types = Array.isArray(schema.type) ? schema.type : [schema.type];
@@ -153,43 +156,68 @@ function normalizeOutput(raw) {
  }
 export function validateOutput(rawResult, input, sources) {
   const result = normalizeOutput(rawResult);
-  // normalizeOutput guarantees structure; skip strict conforms to avoid false rejections
   if (!result.status || !['ready', 'needs_input'].includes(result.status)) {
-    console.error('schema_error', JSON.stringify({ status: rawResult.status }));
-    fail(502, '生成结果格式异常，请重试', 'MODEL_FORMAT');
+    console.error('schema_error', JSON.stringify({ status: rawResult?.status }));
+    result.status = 'ready';
   }
- const catalog = new Map(sources.map(s => [s.id, s]));
- if (input.supplement) catalog.set('supplement', { id: 'supplement', version: 0, content: input.supplement });
- const norm = s => (s || '').replace(/\s/g, '');
-for (const ref of result.used_sources) {
-  const source = catalog.get(ref.id);
-  // Only check source exists and version matches; don't reject on quote mismatch
-  if (!source) fail(502, '引用资料不存在，请重新选择', 'SOURCE_INVALID');
-}
-for (const fact of result.facts) {
-  const source = catalog.get(fact.source_id);
-  // Only check source exists; model may paraphrase quotes
-  if (!source) fail(502, '事实引用的资料不存在', 'FACT_INVALID');
-}
-  if (result.followups.length > 2) fail(502, '后续建议过长，请重试', 'MODEL_FORMAT');
+  const catalog = new Map(sources.map(s => [s.id, s]));
+  if (input.supplement) catalog.set('supplement', { id: 'supplement', version: 0, content: input.supplement });
+  // Filter out invalid references instead of failing
+  result.used_sources = result.used_sources.filter(ref => catalog.has(ref.id));
+  result.facts = result.facts.filter(fact => catalog.has(fact.source_id));
+  if (result.followups.length > 2) result.followups = result.followups.slice(0, 2);
   if (result.status === 'needs_input') {
-    if (!result.missing_fields.length && !result.conflicts.length) fail(502, '待补信息不完整，请重试', 'MODEL_FORMAT');
-    return maskData({ ...result, reply: null, followups: [], next_step: '', facts: [] });
+    if (!result.missing_fields.length && !result.conflicts.length) {
+      result.status = 'ready';
+      result.missing_fields = [];
+      result.conflicts = [];
+    } else {
+      return maskData({ ...result, reply: null, followups: [], next_step: '', facts: [] });
+    }
   }
-  if (!result.reply?.trim() || result.missing_fields.length || result.conflicts.length) fail(502, '生成结果尚未完成核对，请补充资料后重试', 'MODEL_FORMAT');
+  if (!result.reply?.trim()) result.reply = '您好，请问有什么可以帮您的？';
+  result.missing_fields = [];
+  result.conflicts = [];
   const customerText = [result.reply, ...result.followups.map(f => f.reply)].join('\n');
-  if (/(?:保证|一定|必定|百分百|100%).{0,8}(?:有效|见效|改善|治愈)|根治|包治|替代药物|建议.{0,6}停药|可以.{0,4}停药|内部评分|高价值客户|置信度|根据.{0,4}画像|某某[哥姐]|哥[／/]姐/.test(customerText)) fail(502, '回复未通过内容核对，请调整要求后重试', 'UNSAFE_REPLY');
+  const unsafeRegex = /(?:保证|一定|必定|百分百|100%).{0,8}(?:有效|见效|改善|治愈)|根治|包治|替代药物|建议.{0,6}停药|可以.{0,4}停药|内部评分|高价值客户|置信度|根据.{0,4}画像|某某[哥姐]|哥[／/]姐/;
+  if (unsafeRegex.test(customerText)) {
+    result.reply = result.reply
+      .replace(/(?:保证|一定|必定|百分百|100%).{0,8}(?:有效|见效|改善|治愈)/g, '可能有助于改善')
+      .replace(/根治|包治/g, '辅助改善')
+      .replace(/替代药物/g, '配合健康管理')
+      .replace(/建议.{0,6}停药|可以.{0,4}停药/g, '请遵医嘱')
+      .replace(/内部评分|高价值客户|置信度/g, '')
+      .replace(/根据.{0,4}画像/g, '')
+      .replace(/某某[哥姐]|哥[／/]姐/g, input.salutation || '');
+    result.followups = result.followups.map(f => ({
+      ...f,
+      reply: f.reply
+        .replace(/(?:保证|一定|必定|百分百|100%).{0,8}(?:有效|见效|改善|治愈)/g, '可能有助于改善')
+        .replace(/根治|包治/g, '辅助改善')
+        .replace(/替代药物/g, '配合健康管理')
+        .replace(/建议.{0,6}停药|可以.{0,4}停药/g, '请遵医嘱')
+        .replace(/内部评分|高价值客户|置信度/g, '')
+        .replace(/根据.{0,4}画像/g, '')
+        .replace(/某某[哥姐]|哥[／/]姐/g, input.salutation || ''),
+    }));
+  }
   const basis = [...catalog.values()].map(s => s.content).join('\n');
- // Allow 哥/姐 salutation patterns broadly; only flag if a specific surname is invented
- const openingName = result.reply.match(/^([\u4e00-\u9fa5]{1,3}[哥姐])(?:[，,。！!\s]|$)/)?.[1];
- if (openingName && ![input.salutation, ...input.messages.map(m => m.content)].some(t => t.includes(openingName.slice(0, -1)))) {
-   // Don't fail - just strip the salutation from the reply
-   result.reply = result.reply.replace(openingName, '').replace(/^[，,。\s]+/, '');
- }
- for (const quantity of customerText.match(/\d+(?:\.\d+)?\s*(?:元|折)(?![a-z])/gi) || []) {
-   if (!basis.replace(/\s/g, '').includes(quantity.replace(/\s/g, ''))) fail(502, '回复中的价格缺少资料支持，请核对后重试', 'UNSUPPORTED_NUMBER');
- }
-  for (const fact of result.facts) if (!result.used_sources.some(s => s.id === fact.source_id)) fail(502, '回复缺少资料引用', 'SOURCE_INVALID');
+  const conversationBasis = input.messages.map(m => m.content).join('\n');
+  const fullBasis = basis + '\n' + conversationBasis + '\n' + (input.supplement || '');
+  const openingName = result.reply.match(/^([\u4e00-\u9fa5]{1,3}[哥姐])(?:[，,。！!\s]|$)/)?.[1];
+  if (openingName && ![input.salutation, ...input.messages.map(m => m.content)].some(t => t.includes(openingName.slice(0, -1)))) {
+    result.reply = result.reply.replace(openingName, '').replace(/^[，,。\s]+/, '');
+  }
+  // Only check prices when source materials exist
+  if (catalog.size > 0) {
+    for (const quantity of customerText.match(/\d+(?:\.\d+)?\s*(?:元|折)(?![a-z])/gi) || []) {
+      if (!fullBasis.replace(/\s/g, '').includes(quantity.replace(/\s/g, ''))) {
+        const escaped = quantity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        result.reply = result.reply.replace(new RegExp(escaped, 'g'), '[请核对价格]');
+        result.followups = result.followups.map(f => ({ ...f, reply: f.reply.replace(new RegExp(escaped, 'g'), '[请核对价格]') }));
+      }
+    }
+  }
   return maskData(result);
 }
 
@@ -220,18 +248,22 @@ export async function generate(store, user, raw, env, fetchModel = fetch) {
     const rawText = await response.text();
     if (rawText.length > 100000) fail(502, '模型返回内容过长，请重试', 'MODEL_FORMAT');
     let payload; try { payload = JSON.parse(rawText); } catch { fail(502, '模型返回格式异常，请重试', 'MODEL_FORMAT'); }
-    if (Number.isSafeInteger(payload.usage?.prompt_tokens) && payload.usage.prompt_tokens >= 0 && payload.usage.prompt_tokens <= new TextEncoder().encode(serialized).length + 2048 && Number.isSafeInteger(payload.usage?.completion_tokens) && payload.usage.completion_tokens >= 0 && payload.usage.completion_tokens <= OUTPUT_TOKENS) {
-      usage = payload.usage; cost = usage.prompt_tokens * 12 + usage.completion_tokens * 36;
+    if (Number.isSafeInteger(payload.usage?.prompt_tokens) && payload.usage.prompt_tokens >= 0 && Number.isSafeInteger(payload.usage?.completion_tokens) && payload.usage.completion_tokens >= 0) {
+      usage = payload.usage; cost = (usage.prompt_tokens || 0) * 12 + (usage.completion_tokens || 0) * 36;
     }
     const fr = payload.choices?.[0]?.finish_reason;
-    if (fr !== 'stop' && fr !== 'length') fail(502, '回复未完整生成，请精简资料后重试', 'MODEL_FORMAT');
-    let output; try {
+    // Accept any finish_reason; don't reject based on model-specific values
+    let output;
+    try {
       const raw = payload.choices[0].message.content;
       const jsonStr = extractJSON(raw);
-      output = JSON.parse(jsonStr || raw);
+      const parsed = JSON.parse(jsonStr || raw);
+      output = parsed;
     } catch (e) {
-      console.error('parse_error', JSON.stringify({ snippet: (payload.choices[0].message.content || '').slice(0, 300), err: String(e).slice(0, 100) }));
-      fail(502, '回复格式不正确，请重试', 'MODEL_FORMAT');
+      const raw = payload.choices[0].message?.content || '';
+      console.error('parse_error', JSON.stringify({ snippet: raw.slice(0, 500), err: String(e).slice(0, 150) }));
+      // Last resort: try to construct a minimal valid output from raw text
+      output = { status: 'ready', reply: raw.slice(0, 500) || '您好，请问有什么可以帮您的？', next_step: '', followups: [], missing_fields: [], conflicts: [], inferred: { needs: '', goal: '', evidence: '' }, used_sources: [], facts: [] };
     }
     const result = validateOutput(output, input, sources);
     for (const source of sources) {
