@@ -11,7 +11,7 @@ export const SCENES = [
 ];
 export const MODEL = 'deepseek-v4-pro-0813';
 export const MONTHLY_LIMIT = 300_000_000; // Integer micro-yuan, never floating-point accounting.
-export const OUTPUT_TOKENS = 3000;
+export const OUTPUT_TOKENS = 4096;
 export function maskText(value = '') {
   return String(value)
     .replace(/(?:https?:\/\/)?[^\s]*\/hook\/[^\s]+/gi, '[已隐藏访问地址]')

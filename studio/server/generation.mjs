@@ -82,13 +82,14 @@ followups 的回复也必须遵守与主回复相同的事实规则，不得为�
 export function makeModelBody(input, sources) {
  const supplied = sources.map(s => ({ id: s.id, version: s.version, title: s.title, kind: s.kind, product: s.product, content: s.content, valid_from: s.valid_from, valid_to: s.valid_to }));
  if (input.supplement) supplied.push({ id: 'supplement', version: 0, title: '销售本次补充', content: input.supplement });
-  const isQwen = MODEL.startsWith('qwen');
-  const body = { model: MODEL, stream: false, max_tokens: OUTPUT_TOKENS,
-    messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: JSON.stringify({ today: chinaDay(), input, supplied_materials: supplied }) }],
-    response_format: { type: 'json_object' },
-  };
-  if (isQwen) { body.enable_thinking = false; body.enable_search = false; }
-  return body;
+ const body = { model: MODEL, stream: false, max_tokens: OUTPUT_TOKENS,
+   messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: JSON.stringify({ today: chinaDay(), input, supplied_materials: supplied }) }],
+   response_format: { type: 'json_object' },
+ };
+ // Disable thinking/reasoning for all models that support it (Qwen, DeepSeek, etc.)
+ body.enable_thinking = false;
+ body.enable_search = false;
+ return body;
  }
 
 function conforms(value, schema) {
@@ -255,7 +256,11 @@ export async function generate(store, user, raw, env, fetchModel = fetch) {
     // Accept any finish_reason; don't reject based on model-specific values
     let output;
     try {
-      const raw = payload.choices[0].message.content;
+      let raw = payload.choices[0].message.content || '';
+      // If content is empty, try reasoning_content as fallback
+      if (!raw.trim() && payload.choices[0].message.reasoning_content) {
+        raw = payload.choices[0].message.reasoning_content;
+      }
       const jsonStr = extractJSON(raw);
       const parsed = JSON.parse(jsonStr || raw);
       output = parsed;
