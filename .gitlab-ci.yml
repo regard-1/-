@@ -1,0 +1,57 @@
+# =============================================================================
+# 多特倍斯私域运营中台 - GitLab CI/CD 配置
+# =============================================================================
+# 部署目标: 产线 10.0.0.11 (内网,同 VPC)
+# 服务:    dotbest-ops-app (Docker Compose,端口 8300->3000)
+# 域名:    https://numen-ops.7moor.com/dotbest-ops/
+# =============================================================================
+# 说明: Node.js 后端,Docker 部署,无前端构建(dist/ 在产线,仓库不含)
+# 流程: push 到 main → deploy(备份→rsync→docker build→重启→健康检查)
+# =============================================================================
+
+stages:
+  - deploy
+
+variables:
+  # 产线部署目标(内网)
+  DEPLOY_HOST: "10.0.0.11"
+  DEPLOY_USER: "ubuntu"
+  REMOTE_DIR: "/opt/dotbest-ops"
+  # 产线 SSH 密码(写死,VPN 内网访问)
+  SSHPASS: "wHqD}*D7^6VR"
+  # 健康检查
+  HEALTH_URL: "http://127.0.0.1:8300/"
+  # Git 浅克隆加速
+  GIT_DEPTH: "20"
+  GIT_STRATEGY: "fetch"
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - when: never
+
+# -----------------------------------------------------------------------------
+# Stage: deploy - 部署到产线(仅 main 分支)
+# -----------------------------------------------------------------------------
+deploy:prod:
+  stage: deploy
+  image: alpine:3.20
+  before_script:
+    # 换腾讯云 Alpine 镜像(CI 服务器在腾讯云,内网最快)
+    - sed -i 's|dl-cdn.alpinelinux.org|mirrors.cloud.tencent.com|g' /etc/apk/repositories
+    - apk add --no-cache openssh-client rsync sshpass curl bash
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - |
+      cat > ~/.ssh/config <<EOF
+      Host *
+          StrictHostKeyChecking no
+          UserKnownHostsFile /dev/null
+          ServerAliveInterval 60
+      EOF
+    - chmod 600 ~/.ssh/config
+    - export SSHPASS="${SSHPASS}"
+  script:
+    - bash scripts/ci-deploy.sh
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
