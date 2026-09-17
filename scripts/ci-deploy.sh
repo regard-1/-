@@ -156,8 +156,10 @@ if ! remote_cmd "cd ${REMOTE_DIR} && sudo docker compose -f docker-compose.prod.
 fi
 ok "Docker 镜像构建完成"
 
-# 4.2 重启容器
+# 4.2 重启容器(先移除旧容器,避免名称冲突)
 log "重启容器 ${SERVICE_NAME} ..."
+# 先移除旧容器(可能是手动创建的,compose 不认识)
+remote_cmd "sudo docker rm -f ${SERVICE_NAME} 2>/dev/null" || true
 if ! remote_cmd "cd ${REMOTE_DIR} && sudo docker compose -f docker-compose.prod.yml up -d ${SERVICE_NAME}" 2>&1; then
     err "容器重启失败"
     err "如需回滚: bash scripts/ci-rollback.sh"
