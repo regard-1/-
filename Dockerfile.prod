@@ -3,6 +3,7 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install --no-audit --no-fund
 COPY studio/ ./studio/
+COPY .openai/ ./.openai/
 COPY index.html ./
 COPY assets/ ./assets/
 RUN node studio/build.mjs
