@@ -13,9 +13,10 @@ const db = new LocalDB();
 const hash = await passwordHash('BrowserTest123!');
 db.sqlite.prepare('INSERT INTO studio_users VALUES(?,?,?,?,?,1,0,?)').run('qa-admin', 'qaadmin', '验收管理员', hash, 'admin', Date.now());
 const requests = [];
+let visionRequests = 0;
 let simulateError = false;
 // Model doubles only exist inside tests, passed as a dependency, never in the dev or production Worker.
-const runtime = await startServer({ db, env: { STUDIO_LLM_API_KEY: 'test-only', STUDIO_LLM_BASE_URL: 'https://dashscope.aliyuncs.com/compatible-mode/v1' }, dependencies: {
+const runtime = await startServer({ db, env: { STUDIO_LLM_API_KEY: 'test-only', STUDIO_LLM_BASE_URL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', STUDIO_VISION_MODEL: 'synthetic-vision-model' }, dependencies: {
   fetchModel: async (_url, options) => {
     const body = JSON.parse(options.body), { input } = JSON.parse(body.messages[1].content); requests.push(input);
     if (simulateError) return new Response('synthetic upstream failure', { status: 503 });
@@ -27,6 +28,12 @@ const runtime = await startServer({ db, env: { STUDIO_LLM_API_KEY: 'test-only', 
       inferred: { needs: '待明确当前关注点', goal: '澄清需求', evidence: '客户表示先了解' }, used_sources: [], facts: [],
     };
     return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(result) } }], usage: { prompt_tokens: 100, completion_tokens: 80 } }));
+  },
+  fetchVision: async () => {
+    visionRequests++;
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: '{"messages":[{"role":"assistant","content":"王哥，您最近整体状态还好吗？"},{"role":"user","content":"我想先了解一下。"}]}' } }],
+    }));
   },
 } });
 const browser = await chromium.launch({ headless: true, ...(process.env.STUDIO_BROWSER_CHANNEL ? { channel: process.env.STUDIO_BROWSER_CHANNEL } : {}) });
@@ -52,6 +59,17 @@ try {
   await page.locator('#composer-text').waitFor();
   assert.equal(await page.locator('[data-action="scene"]').count(), 8);
   assert.ok(!fetched.some(u => /demo-api|seed/.test(u)));
+  assert.equal(await page.locator('#composer-text').getAttribute('placeholder'), '输入文字，或直接粘贴聊天截图');
+  const ocrResponse = page.waitForResponse(r => r.url().endsWith('/api/studio/ocr'));
+  await page.evaluate(() => {
+    const data = new DataTransfer();
+    data.items.add(new File(['synthetic-image'], 'clipboard-chat.png', { type: 'image/png' }));
+    document.querySelector('#composer-text').dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  await ocrResponse;
+  await page.waitForFunction(() => document.querySelectorAll('.bubble-wrap').length === 2);
+  assert.equal(visionRequests, 1);
+  await page.locator('[data-action="new"]').click();
   await page.locator('#composer-text').fill('王哥，您最近整体状态还好吗？');
   await page.locator('[data-action="add-message"][data-role="assistant"]').click();
   await page.locator('#composer-text').fill('我想先了解一下，本次客户上下文A。');
