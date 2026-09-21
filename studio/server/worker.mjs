@@ -2,12 +2,61 @@ import { Store } from './store.mjs';
 import { checkOrigin, readBody, fail, HttpError, json, checkPassword, passwordHash, verifyPassword, randomToken, digest, cookie } from './security.mjs';
 import { generate, validateMaterial } from './generation.mjs';
 import { knowledgeConfigured } from './knowledge.mjs';
-import { maskText, MODEL, monthKey } from '../shared.mjs';
+import { recognizeScreenshot } from './ocr.mjs';
+import { AUDIENCES, maskText, MODEL, monthKey } from '../shared.mjs';
 
 const cleanName = value => typeof value === 'string' && /^[a-zA-Z][a-zA-Z0-9_.-]{2,39}$/.test(value);
 const publicUser = u => ({ id: u.id, username: u.username, display_name: u.display_name, role: u.role, must_change: !!u.must_change });
 const admin = user => { if (user.role !== 'admin') fail(403, '仅管理员可执行此操作', 'FORBIDDEN'); };
 const localSetup = (request, env) => env.STUDIO_LOCAL_SETUP === '1' && ['127.0.0.1', 'localhost', '[::1]'].includes(new URL(request.url).hostname);
+
+const ISSUE_REASONS = ['wrong_info', 'too_simple', 'robotic', 'repetitive', 'other'];
+const textValue = (value, maximum, label, required = false) => {
+  if (value == null) value = '';
+  if (typeof value !== 'string' || value.length > maximum) fail(400, `${label}格式不正确或过长`);
+  const text = maskText(value.trim());
+  if (required && !text) fail(400, `请填写${label}`);
+  return text;
+};
+function validateCustomer(body, user) {
+  const data = {
+    display_name: textValue(body.display_name, 40, '客户名称', true),
+    salutation: textValue(body.salutation, 30, '称呼'),
+    phone_suffix: String(body.phone_suffix || '').trim(),
+    purchased_products: textValue(body.purchased_products, 600, '已购产品'),
+    interests: textValue(body.interests, 600, '关注点'),
+    concerns: textValue(body.concerns, 600, '关心点'),
+    contraindications: textValue(body.contraindications, 600, '禁忌与特殊情况'),
+    notes: textValue(body.notes, 1200, '备注'),
+  };
+  if (!AUDIENCES[body.audience]) fail(400, '请选择客户人群');
+  data.audience = body.audience;
+  if (!/^\d{0,4}$/.test(data.phone_suffix)) fail(400, '手机号只能保存后四位');
+  data.active = body.active === false ? 0 : 1;
+  return data;
+}
+async function imageToDataUrl(file, maximumBytes) {
+  if (!(file instanceof File) || !file.size) return null;
+  if (file.size > maximumBytes) fail(413, '截图文件过大');
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) fail(400, '截图仅支持 PNG、JPG 或 WebP');
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return `data:${file.type};base64,${btoa(binary)}`;
+}
+async function feedbackBody(request) {
+  if (request.headers.get('Content-Type')?.startsWith('application/json')) {
+    return { ...(await readBody(request)), screenshot: null };
+  }
+  const form = await request.formData();
+  return {
+    generation_id: String(form.get('generation_id') || ''),
+    rating: String(form.get('rating') || ''),
+    reason: String(form.get('reason') || ''),
+    note: String(form.get('note') || ''),
+    screenshot: await imageToDataUrl(form.get('screenshot'), 2 * 1024 * 1024),
+  };
+}
 
 async function bootstrap(store, env) {
   if (!env.STUDIO_BOOTSTRAP_USERNAME || !env.STUDIO_BOOTSTRAP_PASSWORD_HASH) return;
@@ -82,8 +131,10 @@ export async function api(request, env, dependencies = {}) {
     admin(user); const data = validateMaterial(await readBody(request)), id = crypto.randomUUID(), at = Date.now();
     const row = { ...data, id, version: 1, updated_by: user.id, updated_at: at };
     await store.db.batch([
-      store.query(`INSERT INTO studio_materials(id,version,title,kind,audience,product,content,valid_from,valid_to,active,updated_by,updated_at)
-        VALUES(?,1,?,?,?,?,?,?,?,?,?,?)`, id, data.title, data.kind, data.audience, data.product, data.content, data.valid_from, data.valid_to, data.active, user.id, at),
+      store.query(`INSERT INTO studio_materials(id,version,title,kind,audience,product,price,specification,applicable,effect,usage_notes,precautions,content,valid_from,valid_to,active,updated_by,updated_at)
+        VALUES(?,1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, data.title, data.kind, data.audience, data.product,
+        data.price, data.specification, data.applicable, data.effect, data.usage_notes, data.precautions,
+        data.content, data.valid_from, data.valid_to, data.active, user.id, at),
       store.query('INSERT INTO studio_material_versions(material_id,version,snapshot,updated_by,updated_at) VALUES(?,1,?,?,?)', id, JSON.stringify(row), user.id, at),
     ]);
     return json(row, 201);
@@ -97,13 +148,15 @@ export async function api(request, env, dependencies = {}) {
       if (!Number.isInteger(body.version)) fail(400, '缺少资料版本');
       const row = { ...data, id, version: body.version + 1, updated_by: user.id, updated_at: Date.now() };
       const result = await store.db.batch([
-        store.query(`WITH material_update AS (
-          UPDATE studio_materials SET title=?,kind=?,audience=?,product=?,content=?,valid_from=?,valid_to=?,active=?,version=version+1,updated_by=?,updated_at=?
-            WHERE id=? AND version=? RETURNING id)
-        INSERT INTO studio_material_versions(material_id,version,snapshot,updated_by,updated_at)
-          SELECT ?,?,?,?,? FROM material_update`,
-          data.title, data.kind, data.audience, data.product, data.content, data.valid_from, data.valid_to, data.active, user.id, row.updated_at, id, body.version,
-          id, row.version, JSON.stringify(row), user.id, row.updated_at),
+        store.query(`UPDATE studio_materials
+          SET title=?,kind=?,audience=?,product=?,price=?,specification=?,applicable=?,effect=?,usage_notes=?,precautions=?,content=?,valid_from=?,valid_to=?,active=?,version=version+1,updated_by=?,updated_at=?
+          WHERE id=? AND version=? RETURNING id`,
+          data.title, data.kind, data.audience, data.product, data.price, data.specification, data.applicable, data.effect, data.usage_notes, data.precautions,
+          data.content, data.valid_from, data.valid_to, data.active, user.id, row.updated_at, id, body.version),
+        store.query(`INSERT INTO studio_material_versions(material_id,version,snapshot,updated_by,updated_at)
+          SELECT ?,?,?,?,? WHERE EXISTS(SELECT 1 FROM studio_materials WHERE id=? AND version=? AND updated_at=?)
+            AND NOT EXISTS(SELECT 1 FROM studio_material_versions WHERE material_id=? AND version=?)`,
+          id, row.version, JSON.stringify(row), user.id, row.updated_at, id, row.version, row.updated_at, id, row.version),
       ]);
      if (!result[0].results.length) fail(409, '资料已被更新，请刷新后再编辑', 'MATERIAL_CHANGED');
      return json(row);
@@ -121,13 +174,78 @@ export async function api(request, env, dependencies = {}) {
     await store.rateLimit(`generate:${user.id}`, 12, 60);
     return json(await generate(store, user, await readBody(request), env, dependencies.fetchModel, dependencies.fetchKnowledge));
   }
-  if (route === '/api/studio/feedback' && method === 'POST') {
+  if (route === '/api/studio/ocr' && method === 'POST') {
+    const form = await request.formData();
+    const file = form.get('screenshot');
+    return json(await recognizeScreenshot(file, env, dependencies.fetchVision));
+  }
+  if (route === '/api/studio/customers' && method === 'GET') {
+    const where = user.role === 'admin' ? '1=1' : 'c.owner_user_id=?';
+    const args = user.role === 'admin' ? [] : [user.id];
+    const rows = await store.all(`SELECT c.*,u.display_name AS owner_name FROM studio_customers c
+      LEFT JOIN studio_users u ON u.id=c.owner_user_id WHERE ${where} ORDER BY c.updated_at DESC`, ...args);
+    return json({ items: rows });
+  }
+  if (route === '/api/studio/customers' && method === 'POST') {
+    const body = await readBody(request), data = validateCustomer(body, user), id = crypto.randomUUID();
+    const owner = user.role === 'admin' && typeof body.owner_user_id === 'string' && body.owner_user_id ? body.owner_user_id : user.id;
+    if (!(await store.query('SELECT id FROM studio_users WHERE id=? AND active=1', owner).first())) fail(400, '归属顾问不存在');
+    await store.query(`INSERT INTO studio_customers(id,display_name,audience,owner_user_id,salutation,phone_suffix,purchased_products,interests,concerns,contraindications,notes,active,updated_by,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?)`, id, data.display_name, data.audience, owner, data.salutation, data.phone_suffix,
+      data.purchased_products, data.interests, data.concerns, data.contraindications, data.notes, user.id, Date.now()).run();
+    return json({ id }, 201);
+  }
+  const customerMatch = route.match(/^\/api\/studio\/customers\/([\w-]+)$/);
+  if (customerMatch && method === 'PUT') {
+    const id = customerMatch[1], row = await store.query('SELECT * FROM studio_customers WHERE id=?', id).first();
+    if (!row) fail(404, '客户档案不存在');
+    if (row.owner_user_id !== user.id) fail(403, '只能编辑自己维护的客户档案', 'FORBIDDEN');
     const body = await readBody(request);
+    if (typeof body.active === 'boolean' && Object.keys(body).length === 1) {
+      await store.query('UPDATE studio_customers SET active=? WHERE id=?', body.active ? 1 : 0, id).run();
+      return json({ updated: true });
+    }
+    const data = validateCustomer(body, user);
+    await store.query(`UPDATE studio_customers SET display_name=?,audience=?,salutation=?,phone_suffix=?,purchased_products=?,interests=?,concerns=?,contraindications=?,notes=?,active=?,updated_by=?,updated_at=?
+      WHERE id=?`, data.display_name, data.audience, data.salutation, data.phone_suffix, data.purchased_products,
+      data.interests, data.concerns, data.contraindications, data.notes, data.active, user.id, Date.now(), id).run();
+    return json({ updated: true });
+  }
+  if (route === '/api/studio/feedback' && method === 'POST') {
+    const body = await feedbackBody(request);
     if (!['direct', 'edited', 'unusable'].includes(body.rating) || typeof body.generation_id !== 'string') fail(400, '反馈格式不正确');
+    if (body.rating === 'unusable' && !ISSUE_REASONS.includes(body.reason)) fail(400, '请选择不可用原因');
     const result = await store.query("UPDATE studio_usage SET feedback=? WHERE id=? AND user_id=? AND status='ready' RETURNING id", body.rating, body.generation_id, user.id).first();
     if (!result) fail(404, '未找到可反馈的本次生成');
     await store.query("UPDATE studio_conversations SET feedback=? WHERE usage_id=? AND user_id=?", body.rating, body.generation_id, user.id).run();
+    if (body.rating === 'unusable') {
+      const note = textValue(body.note, 500, '补充说明');
+      await store.query(`INSERT INTO studio_issues(id,generation_id,user_id,reason,note,screenshot,status,created_at)
+        VALUES(?,?,?,?,?,?,'open',?)`, crypto.randomUUID(), body.generation_id, user.id, body.reason, note, body.screenshot ?? null, Date.now()).run();
+    }
     return json({ recorded: true });
+  }
+  if (route === '/api/studio/issues' && method === 'GET') {
+    admin(user);
+    const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
+    const limit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit')) || 20));
+    const status = url.searchParams.get('status');
+    const where = status ? 'i.status=?' : '1=1', args = status ? [status] : [];
+    const total = await store.query(`SELECT COUNT(*) AS n FROM studio_issues i WHERE ${where}`, ...args).first();
+    const rows = await store.all(`SELECT i.*,u.display_name,c.audience,c.scene,c.reply,c.messages
+      FROM studio_issues i LEFT JOIN studio_users u ON u.id=i.user_id
+      LEFT JOIN studio_conversations c ON c.usage_id=i.generation_id
+      WHERE ${where} ORDER BY i.created_at DESC LIMIT ? OFFSET ?`, ...args, limit, (page - 1) * limit);
+    return json({ items: rows.map(row => ({ ...row, messages: row.messages ? JSON.parse(row.messages) : [] })), total, page, limit });
+  }
+  const issueMatch = route.match(/^\/api\/studio\/issues\/([\w-]+)$/);
+  if (issueMatch && method === 'PUT') {
+    admin(user);
+    const body = await readBody(request);
+    if (!['open', 'processing', 'resolved'].includes(body.status)) fail(400, '问题状态不正确');
+    const result = await store.query('UPDATE studio_issues SET status=? WHERE id=? RETURNING id', body.status, issueMatch[1]).first();
+    if (!result) fail(404, '问题不存在');
+    return json({ updated: true });
   }
   if (route === '/api/studio/usage' && method === 'GET') {
     const month = monthKey();

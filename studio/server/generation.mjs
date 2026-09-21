@@ -8,7 +8,7 @@ function textField(value, maximum, label) {
   return maskText(value.trim());
 }
 export function normalizeInput(body) {
-  if ('customer_id' in body || 'user_id' in body || 'profile' in body) fail(400, '独立话术工具不接收客户档案或身份字段');
+  if ('user_id' in body || 'profile' in body) fail(400, '不接收外部传入的用户身份或完整档案');
   if (!AUDIENCES[body.audience] || !SCENES.some(s => s.id === body.scene)) fail(400, '请选择人群和咨询场景');
   if (!Array.isArray(body.messages) || !body.messages.length || body.messages.length > 20) fail(400, '请提供 1 至 20 条本次对话');
   const messages = body.messages.map(m => {
@@ -25,6 +25,8 @@ export function normalizeInput(body) {
   if (!Array.isArray(confirmed) || confirmed.length > 12 || confirmed.some(v => typeof v !== 'string' || v.length > 500)) fail(400, '冲突确认内容不正确');
   return {
     audience: body.audience, scene: body.scene, messages, resources: refs,
+    customer_id: body.customer_id === undefined || body.customer_id === null ? '' :
+      (typeof body.customer_id !== 'string' || body.customer_id.length > 64 ? fail(400, '客户档案参数不正确') : body.customer_id),
     salutation: textField(body.salutation, 30, '称呼'), needs: textField(body.needs, 600, '需求'),
     goal: textField(body.goal, 400, '销售目标'), supplement: textField(body.supplement, 6000, '补充资料'),
     instruction: textField(body.instruction, 500, '改写要求'),
@@ -35,12 +37,16 @@ export function normalizeInput(body) {
 }
 export function validateMaterial(body) {
   const data = {};
-  for (const [key, limit] of Object.entries({ title: 100, product: 120, content: 10000, valid_from: 10, valid_to: 10 })) data[key] = textField(body[key], limit, key);
+  for (const [key, limit] of Object.entries({
+    title: 100, product: 120, content: 10000, valid_from: 10, valid_to: 10,
+    price: 200, specification: 500, applicable: 600, effect: 600, usage_notes: 800, precautions: 800,
+  })) data[key] = textField(body[key], limit, key);
   if (!data.title || !data.content) fail(400, '请填写资料标题和正文');
   if (!['activity', 'plan', 'knowledge'].includes(body.kind) || ![...Object.keys(AUDIENCES), 'all'].includes(body.audience)) fail(400, '资料类型或人群不正确');
   const dateOK = value => !value || (/^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value);
   if (!dateOK(data.valid_from) || !dateOK(data.valid_to) || (data.valid_from && data.valid_to && data.valid_from > data.valid_to)) fail(400, '请填写正确的有效日期');
   if (body.kind === 'activity' && (!data.valid_from || !data.valid_to)) fail(400, '活动必须注明开始与结束日期');
+  if (body.kind === 'plan' && (!data.specification || !data.applicable)) fail(400, '产品搭配需填写规格和适用人群');
   if (body.confirmed !== true) fail(400, '请确认资料已核对后再保存');
   return { ...data, kind: body.kind, audience: body.audience, active: body.active === false ? 0 : 1 };
 }
@@ -74,6 +80,9 @@ needs 澄清具体需求；product 解答选定产品；activity 核实活动价
 严格区分客户需求待明确与商家事实缺失：客户只是“想了解、还没选好、只想单品、不考虑搭配”，没有问具体产品事实时，必须 status=ready，直接回应已表达的偏好，再向客户提出一个容易回答的需求问题。即使没有任何产品资料、needs 或 goal 为空，也不能因此要求销售补资料；不要提前介绍产品功效、价格或组合。此时 missing_fields、conflicts、facts、used_sources 均为空数组，需求不确定性写入 inferred，不能写入 missing_fields。只有准确处理当前具体问题确实需要缺失的商家事实时才 needs_input，不为潜在的后续推荐提前索取资料。
 安全与售后分流不等于解答具体用法：问能否和药物同服时，不回答可以或不可以，也不向销售索取资料让销售作个体用药判断；可以 status=ready，说明需要医生或药师结合具体药物核实，先不推荐或促单。已确认破损件可联系售后核实换货时，可以 ready 承接换货诉求并请客户提供破损情况供售后核实；客户没有询问时效或运费，不因这些未确定而阻止服务回复，也不承诺免费或具体到货时间。
 本地资料和多特倍斯知识库检索片段都属于本轮给定资料。知识库检索片段只代表检索命中内容，仍须按资料原文核对，不得把检索摘要改写成新的价格、规格或用法。资料互相矛盾必须列入 conflicts 并 needs_input。只有 confirmed_conflicts 明确列出该矛盾及选用依据时可继续。过期活动不可用。销售目标可建议、需求可提取，但不能编造为客户已确认事实；证据写在 inferred.evidence。
+结构化字段优先于自由正文：price 是价格/权益，specification 是规格/数量，applicable 是适用或不适用人群，effect 是可表达的养护方向，usage_notes 是用法，precautions 是边界与注意事项。字段与正文冲突时列入 conflicts；不要把空白字段补成事实。
+customer_profile 是销售维护的内部档案，只能作为背景线索，不是客户在本轮已确认的事实。档案中的称呼可直接沿用；已购、关注、禁忌只有在客户本轮表达一致或销售明确要求参考时可使用。档案里的禁忌要先安全处理，不得变成个体化医疗建议。档案不包含完整手机号，禁止猜测完整号码。
+语气按微信私聊写：句子短、口语自然、少书面词；客户表达情绪时先接住情绪，再处理问题；不连续使用“非常抱歉”“亲”“哦”；称呼后用逗号，不用感叹号。示例风格（不得复制示例事实）：“王哥，您说得对，这个点确实要先弄清楚。我先问一句，您平时主要是想解决睡眠还是精力？”“李姐，这个情况咱们先别急着加量，我帮您把搭配核一下再回您。”
 ready 时 missing_fields 和 conflicts 必须为空。next_step 给销售一句下一步建议，followups 最多两个用户回应的接法，都是内部参考。
 followups 的回复也必须遵守与主回复相同的事实规则，不得为假设的下一轮编造价格、折扣、数量规格、用法或优惠条件；未知事实只引导核实。价格、规格、剂量的数字与单位沿用资料原文，不进行未经确认的换算，不创造补充购买数量或组合报价。
 产品成分、规格、价格、活动和用法等事实必须有给定资料的原文支持：在 facts 中逐项给出 claim、source_id、quote；quote 必须逐字取自该资料，claim 必须是 quote 中的连续原文片段，不得在事实字段改写或发挥。used_sources 给出 id/version/quote。补充资料用 id=supplement、version=0。禁止把客户疑问作为产品事实来源。
@@ -81,7 +90,10 @@ followups 的回复也必须遵守与主回复相同的事实规则，不得为�
 没有关键资料时可以自然澄清需求，但不能把空泛万能话术当作具体问题的解答。不输出推理过程。`;
 
 export function makeModelBody(input, sources) {
- const supplied = sources.map(s => ({ id: s.id, version: s.version, title: s.title, kind: s.kind, product: s.product, content: s.content, valid_from: s.valid_from, valid_to: s.valid_to, ...(s.external ? { external: true, source_type: s.source_type } : {}) }));
+ const supplied = sources.map(s => ({ id: s.id, version: s.version, title: s.title, kind: s.kind, product: s.product,
+   price: s.price || '', specification: s.specification || '', applicable: s.applicable || '', effect: s.effect || '',
+   usage_notes: s.usage_notes || '', precautions: s.precautions || '',
+   content: s.content, valid_from: s.valid_from, valid_to: s.valid_to, ...(s.external ? { external: true, source_type: s.source_type } : {}) }));
  if (input.supplement) supplied.push({ id: 'supplement', version: 0, title: '销售本次补充', content: input.supplement });
  const body = { model: MODEL, stream: false, max_tokens: OUTPUT_TOKENS,
    messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: JSON.stringify({ today: chinaDay(), input, supplied_materials: supplied }) }],
@@ -157,67 +169,60 @@ function normalizeOutput(raw) {
    return s.slice(start, end + 1);
  }
 export function validateOutput(rawResult, input, sources) {
-  const result = normalizeOutput(rawResult);
-  if (!result.status || !['ready', 'needs_input'].includes(result.status)) {
-    console.error('schema_error', JSON.stringify({ status: rawResult?.status }));
-    result.status = 'ready';
+  if (!rawResult || typeof rawResult !== 'object' || Array.isArray(rawResult)) {
+    fail(502, '模型返回格式异常，请重试', 'MODEL_FORMAT');
   }
+  if (!['ready', 'needs_input'].includes(rawResult.status)) {
+    fail(502, '模型返回格式异常，请重试', 'MODEL_FORMAT');
+  }
+  if (rawResult.status === 'ready' && (typeof rawResult.reply !== 'string' || !rawResult.reply.trim())) {
+    fail(502, '模型没有返回可发送回复，请重试', 'MODEL_FORMAT');
+  }
+  const result = normalizeOutput(rawResult);
   const catalog = new Map(sources.map(s => [s.id, s]));
   if (input.supplement) catalog.set('supplement', { id: 'supplement', version: 0, content: input.supplement });
-  // Filter out invalid references instead of failing
-  result.used_sources = result.used_sources.filter(ref => catalog.has(ref.id));
-  result.facts = result.facts.filter(fact => catalog.has(fact.source_id));
+  const sourceText = source => [source.content, source.price, source.specification, source.applicable,
+    source.effect, source.usage_notes, source.precautions].filter(Boolean).join('\n');
+  for (const ref of result.used_sources) {
+    const source = catalog.get(ref.id);
+    if (!source || ref.version !== source.version || !ref.quote) fail(502, '回复引用了不存在的资料，请重试', 'BAD_CITATION');
+    if (!sourceText(source).replace(/\s/g, '').includes(ref.quote.replace(/\s/g, ''))) fail(502, '回复引用内容未通过核对，请重试', 'BAD_CITATION');
+  }
+  for (const fact of result.facts) {
+    const source = catalog.get(fact.source_id);
+    if (!source || !fact.quote || !fact.claim) fail(502, '回复事实缺少可靠依据，请重试', 'BAD_CITATION');
+    if (!sourceText(source).replace(/\s/g, '').includes(fact.quote.replace(/\s/g, ''))) fail(502, '回复事实引用未通过核对，请重试', 'BAD_CITATION');
+    if (!fact.quote.replace(/\s/g, '').includes(fact.claim.replace(/\s/g, ''))) fail(502, '回复事实与引用不一致，请重试', 'BAD_CITATION');
+  }
   if (result.followups.length > 2) result.followups = result.followups.slice(0, 2);
   if (result.status === 'needs_input') {
-    if (!result.missing_fields.length && !result.conflicts.length) {
-      result.status = 'ready';
-      result.missing_fields = [];
-      result.conflicts = [];
-    } else {
-      return maskData({ ...result, reply: null, followups: [], next_step: '', facts: [] });
-    }
+    if (!result.missing_fields.length && !result.conflicts.length) fail(502, '模型缺少待补充信息，请重试', 'MODEL_FORMAT');
+    return maskData({ ...result, reply: null, followups: [], next_step: '', facts: [] });
   }
-  if (!result.reply?.trim()) result.reply = '您好，请问有什么可以帮您的？';
-  result.missing_fields = [];
-  result.conflicts = [];
+  if (result.missing_fields.length || result.conflicts.length) {
+    const confirmed = result.conflicts.every(conflict => input.confirmed_conflicts
+      .some(value => value.replace(/\s/g, '').includes(conflict.replace(/\s/g, ''))));
+    if (!confirmed) return maskData({ ...result, status: 'needs_input', reply: null, followups: [], next_step: '', facts: [] });
+    result.conflicts = [];
+    result.missing_fields = [];
+  }
   const customerText = [result.reply, ...result.followups.map(f => f.reply)].join('\n');
   const unsafeRegex = /(?:保证|一定|必定|百分百|100%).{0,8}(?:有效|见效|改善|治愈)|根治|包治|替代药物|建议.{0,6}停药|可以.{0,4}停药|内部评分|高价值客户|置信度|根据.{0,4}画像|某某[哥姐]|哥[／/]姐/;
   if (unsafeRegex.test(customerText)) {
-    result.reply = result.reply
-      .replace(/(?:保证|一定|必定|百分百|100%).{0,8}(?:有效|见效|改善|治愈)/g, '可能有助于改善')
-      .replace(/根治|包治/g, '辅助改善')
-      .replace(/替代药物/g, '配合健康管理')
-      .replace(/建议.{0,6}停药|可以.{0,4}停药/g, '请遵医嘱')
-      .replace(/内部评分|高价值客户|置信度/g, '')
-      .replace(/根据.{0,4}画像/g, '')
-      .replace(/某某[哥姐]|哥[／/]姐/g, input.salutation || '');
-    result.followups = result.followups.map(f => ({
-      ...f,
-      reply: f.reply
-        .replace(/(?:保证|一定|必定|百分百|100%).{0,8}(?:有效|见效|改善|治愈)/g, '可能有助于改善')
-        .replace(/根治|包治/g, '辅助改善')
-        .replace(/替代药物/g, '配合健康管理')
-        .replace(/建议.{0,6}停药|可以.{0,4}停药/g, '请遵医嘱')
-        .replace(/内部评分|高价值客户|置信度/g, '')
-        .replace(/根据.{0,4}画像/g, '')
-        .replace(/某某[哥姐]|哥[／/]姐/g, input.salutation || ''),
-    }));
+    fail(502, '回复包含不安全或内部化表述，请重试', 'UNSAFE_REPLY');
   }
-  const basis = [...catalog.values()].map(s => s.content).join('\n');
+  const basis = [...catalog.values()].map(sourceText).join('\n');
   const conversationBasis = input.messages.map(m => m.content).join('\n');
   const fullBasis = basis + '\n' + conversationBasis + '\n' + (input.supplement || '');
   const openingName = result.reply.match(/^([\u4e00-\u9fa5]{1,3}[哥姐])(?:[，,。！!\s]|$)/)?.[1];
-  if (openingName && ![input.salutation, ...input.messages.map(m => m.content)].some(t => t.includes(openingName.slice(0, -1)))) {
-    result.reply = result.reply.replace(openingName, '').replace(/^[，,。\s]+/, '');
+  if (openingName && ![input.salutation, ...input.messages.map(m => m.content)].some(t => t.includes(openingName))) {
+    fail(502, '回复使用了未经确认的称呼，请重试', 'BAD_SALUTATION');
   }
-  // Only check prices when source materials exist
-  if (catalog.size > 0) {
-    for (const quantity of customerText.match(/\d+(?:\.\d+)?\s*(?:元|折)(?![a-z])/gi) || []) {
-      if (!fullBasis.replace(/\s/g, '').includes(quantity.replace(/\s/g, ''))) {
-        const escaped = quantity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        result.reply = result.reply.replace(new RegExp(escaped, 'g'), '[请核对价格]');
-        result.followups = result.followups.map(f => ({ ...f, reply: f.reply.replace(new RegExp(escaped, 'g'), '[请核对价格]') }));
-      }
+  for (const quantity of customerText.match(/\d+(?:\.\d+)?\s*(?:元|折)(?![a-z])/gi) || []) {
+    const normalized = quantity.replace(/\s/g, '');
+    if (!fullBasis.replace(/\s/g, '').includes(normalized)) fail(502, `回复中的${quantity}缺少引用记录，请核对资料后重试`, 'UNSUPPORTED_NUMBER');
+    if (!result.facts.some(fact => fact.claim.replace(/\s/g, '').includes(normalized))) {
+      fail(502, `回复中的${quantity}缺少事实引用，请重试`, 'UNSUPPORTED_NUMBER');
     }
   }
   return maskData(result);
@@ -225,6 +230,17 @@ export function validateOutput(rawResult, input, sources) {
 
 export async function generate(store, user, raw, env, fetchModel = fetch, fetchKnowledge = fetch) {
   const input = normalizeInput(raw);
+  let customer = null;
+  if (input.customer_id) {
+    customer = await store.query('SELECT * FROM studio_customers WHERE id=? AND active=1', input.customer_id).first();
+    if (!customer) fail(404, '客户档案不存在或已停用', 'CUSTOMER_NOT_FOUND');
+    if (user.role !== 'admin' && customer.owner_user_id !== user.id) fail(403, '只能引用自己维护的客户档案', 'FORBIDDEN');
+    input.customer_profile = {
+      display_name: customer.display_name, salutation: customer.salutation, audience: customer.audience,
+      phone_suffix: customer.phone_suffix, purchased_products: customer.purchased_products,
+      interests: customer.interests, concerns: customer.concerns, contraindications: customer.contraindications, notes: customer.notes,
+    };
+  }
   const sources = [];
   for (const ref of input.resources) {
     const row = await store.query('SELECT * FROM studio_materials WHERE id=?', ref.id).first();
@@ -253,7 +269,8 @@ export async function generate(store, user, raw, env, fetchModel = fetch, fetchK
     if (rawText.length > 100000) fail(502, '模型返回内容过长，请重试', 'MODEL_FORMAT');
     let payload; try { payload = JSON.parse(rawText); } catch { fail(502, '模型返回格式异常，请重试', 'MODEL_FORMAT'); }
     if (Number.isSafeInteger(payload.usage?.prompt_tokens) && payload.usage.prompt_tokens >= 0 && Number.isSafeInteger(payload.usage?.completion_tokens) && payload.usage.completion_tokens >= 0) {
-      usage = payload.usage; cost = (usage.prompt_tokens || 0) * 12 + (usage.completion_tokens || 0) * 36;
+      usage = payload.usage;
+      cost = Math.min(999_999_999_999, (usage.prompt_tokens || 0) * 12 + (usage.completion_tokens || 0) * 36);
     }
     const fr = payload.choices?.[0]?.finish_reason;
     // Accept any finish_reason; don't reject based on model-specific values
@@ -268,10 +285,8 @@ export async function generate(store, user, raw, env, fetchModel = fetch, fetchK
       const parsed = JSON.parse(jsonStr || raw);
       output = parsed;
     } catch (e) {
-      const raw = payload.choices[0].message?.content || '';
-      console.error('parse_error', JSON.stringify({ snippet: raw.slice(0, 500), err: String(e).slice(0, 150) }));
-      // Last resort: try to construct a minimal valid output from raw text
-      output = { status: 'ready', reply: raw.slice(0, 500) || '您好，请问有什么可以帮您的？', next_step: '', followups: [], missing_fields: [], conflicts: [], inferred: { needs: '', goal: '', evidence: '' }, used_sources: [], facts: [] };
+      console.error('parse_error', JSON.stringify({ err: String(e).slice(0, 150) }));
+      fail(502, '模型返回格式异常，请重试', 'MODEL_FORMAT');
     }
     const result = validateOutput(output, input, allSources);
     for (const source of sources) {
@@ -281,7 +296,7 @@ export async function generate(store, user, raw, env, fetchModel = fetch, fetchK
     await store.settle(entry, result.status, cost, usage); settled = true;
     await store.saveConversation({
       id: entry.id, usage_id: entry.id, user_id: user.id,
-      audience: input.audience, scene: input.scene,
+      customer_id: input.customer_id || null, audience: input.audience, scene: input.scene,
       messages: input.messages, reply: result.reply,
       next_step: result.next_step, followups: result.followups,
       resources: input.resources, supplement: input.supplement,
@@ -301,7 +316,7 @@ export async function generate(store, user, raw, env, fetchModel = fetch, fetchK
       await store.settle(entry, 'failed', cost, usage);
       await store.saveConversation({
         id: entry.id, usage_id: entry.id, user_id: user.id,
-        audience: input.audience, scene: input.scene,
+        customer_id: input.customer_id || null, audience: input.audience, scene: input.scene,
         messages: input.messages, reply: null,
         next_step: null, followups: [],
         resources: input.resources, supplement: input.supplement,

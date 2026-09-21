@@ -20,14 +20,19 @@ export class PgDB {
     const client = await this.pool.connect();
     try {
       await client.query('CREATE TABLE IF NOT EXISTS pg_migrations(tag TEXT PRIMARY KEY)');
-      const tag = '0002_pg_init';
-      const exists = await client.query('SELECT tag FROM pg_migrations WHERE tag=$1', [tag]);
-      if (exists.rows.length) return;
-      const sql = readFileSync(new URL('../drizzle/0002_pg_init.sql', import.meta.url), 'utf8');
-      await client.query('BEGIN');
-      await client.query(sql);
-      await client.query('INSERT INTO pg_migrations(tag) VALUES($1)', [tag]);
-      await client.query('COMMIT');
+      const migrations = [
+        { tag: '0002_pg_init', file: '../drizzle/0002_pg_init.sql' },
+        { tag: '0003_pg_operational_loop', file: '../drizzle/0003_pg_operational_loop.sql' },
+      ];
+      for (const migration of migrations) {
+        const exists = await client.query('SELECT tag FROM pg_migrations WHERE tag=$1', [migration.tag]);
+        if (exists.rows.length) continue;
+        const sql = readFileSync(new URL(migration.file, import.meta.url), 'utf8');
+        await client.query('BEGIN');
+        await client.query(sql);
+        await client.query('INSERT INTO pg_migrations(tag) VALUES($1)', [migration.tag]);
+        await client.query('COMMIT');
+      }
     } catch (error) {
       try { await client.query('ROLLBACK'); } catch {}
       throw error;

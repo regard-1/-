@@ -52,7 +52,10 @@ try {
   await page.locator('#composer-text').waitFor();
   assert.equal(await page.locator('[data-action="scene"]').count(), 8);
   assert.ok(!fetched.some(u => /demo-api|seed/.test(u)));
+  await page.locator('#composer-text').fill('王哥，您最近整体状态还好吗？');
+  await page.locator('[data-action="add-message"][data-role="assistant"]').click();
   await page.locator('#composer-text').fill('我想先了解一下，本次客户上下文A。');
+  await page.locator('[data-action="add-message"][data-role="user"]').click();
   await generation(); await page.locator('#reply').waitFor();
   const beforeCopy = requests.length;
   await page.locator('[data-action="copy"]').click();
@@ -61,6 +64,7 @@ try {
   await page.locator('#reply').fill('编辑采用版本：先说说您想了解的方向吧。');
   await page.locator('[data-action="adopt"]').click();
   await page.locator('#composer-text').fill('我这次更关心预算。');
+  await page.locator('[data-action="add-message"][data-role="user"]').click();
   await generation(); await page.locator('#reply').waitFor();
   assert.ok(requests.at(-1).messages.some(m => m.role === 'assistant' && m.content.includes('编辑采用版本')));
   assert.ok(!requests.at(-1).messages.some(m => m.role === 'assistant' && m.content.includes('可以先了解')));
@@ -76,11 +80,15 @@ try {
   assert.equal(await page.locator('#composer-text').inputValue(), '');
   assert.equal(await page.locator('#reply').count(), 0); assert.equal(await page.locator('.bubble-wrap').count(), 0);
   await page.locator('[data-action="scene"][data-id="activity"]').click();
-  await page.locator('#composer-text').fill('测试产品A这次多少钱？'); await generation();
+  await page.locator('#composer-text').fill('测试产品A这次多少钱？');
+  await page.locator('[data-action="add-message"][data-role="user"]').click(); await generation();
   await page.locator('.missing-box').waitFor(); assert.equal(await page.locator('[data-action="copy"]').count(), 0);
+  await page.locator('summary', { hasText: '补充信息' }).click();
   await page.locator('#supplement').fill('测试产品A每盒199元，无额外优惠。'); await generation(); await page.locator('#reply').waitFor();
   assert.equal(requests.at(-1).supplement, '测试产品A每盒199元，无额外优惠。');
-  await page.locator('#composer-text').fill('客户内容已变更'); assert.equal(await page.locator('[data-action="copy"]').count(), 0);
+  await page.locator('#composer-text').fill('客户内容已变更');
+  await page.locator('[data-action="add-message"][data-role="user"]').click();
+  assert.equal(await page.locator('[data-action="copy"]').count(), 0);
   simulateError = true; await generation(); await page.locator('.error').waitFor();
   assert.ok((await page.locator('.thread').textContent()).includes('客户内容已变更'));
   assert.equal(await page.locator('#reply').count(), 0); simulateError = false;
@@ -105,7 +113,8 @@ try {
   const phone = ['138','0013','8000'].join('');
   let transmitted = '';
   page.on('request', r => { if (r.url().endsWith('/generations')) transmitted = r.postData(); });
-  await page.locator('#composer-text').fill(`测试新咨询，手机号${phone}`); await generation(); await page.locator('#reply').waitFor();
+  await page.locator('#composer-text').fill(`测试新咨询，手机号${phone}`);
+  await page.locator('[data-action="add-message"][data-role="user"]').click(); await generation(); await page.locator('#reply').waitFor();
   assert.ok(!transmitted.includes(phone)); assert.ok(transmitted.includes('尾号8000'));
   assert.equal(requests.at(-1).audience, 'daily_nutrition');
   for (const width of [390, 320, 768]) { await page.setViewportSize({ width, height: 844 }); await screenshot(`mobile-${width}`); }
@@ -128,15 +137,21 @@ try {
   assert.equal(await page.locator('[data-action="edit-material"]').count(), 0); assert.equal(await page.locator('[data-action="new-material"]').count(), 0);
   // Exercise the real host navigation and isolated iframe together, not a second application shell.
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(runtime.url + '/script-studio');
-  await page.locator('#login-view #login-form [type=submit]').click();
+  await page.goto(runtime.url + '/?page=scripts');
+  if (await page.locator('#login-view:not(.hidden) #login-form [type=submit]').count()) {
+    await page.locator('#login-view [name=username]').fill('demo_operator');
+    await page.locator('#login-view [name=password]').fill('demo');
+    await page.locator('#login-view #login-form [type=submit]').click();
+  }
   const studio = page.frameLocator('#studio-frame');
+  await screenshot('host-scripts');
   await studio.locator('#composer-text').waitFor();
   assert.equal(await page.locator('.sidebar').count(), 1);
   assert.equal(await studio.locator('.sidebar').count(), 0);
   assert.equal(await page.locator('.nav-item.active').getAttribute('data-page'), 'scripts');
   assert.equal(new URL(page.url()).origin, runtime.url);
   await studio.locator('#composer-text').fill('仅本次嵌入咨询，不应被用户资产读取。');
+  await studio.locator('[data-action="add-message"][data-role="user"]').click();
   const generated = page.waitForResponse(r => r.url().endsWith('/api/studio/generations'));
   await studio.locator('[data-action="run"]').click(); await generated;
   await studio.locator('#reply').waitFor();

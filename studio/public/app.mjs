@@ -4,17 +4,18 @@ import { AUDIENCES, SCENES, maskText, escapeHtml as esc, chinaDay } from '../sha
 const $ = selector => document.querySelector(selector);
 const root = $('#root'), modal = $('#modal');
 const draft = () => ({ salutation: '', needs: '', goal: '', supplement: '', instruction: '' });
-const state = { user: null, csrf: '', page: 'generate', audience: 'anti_aging', scene: 'needs', draft: draft(), composer: { text: '', role: null }, editing: null, messages: [], result: null, selected: new Set(), materials: [], filter: 'all', pending: false, error: '', feedback: '', configured: false, knowledgeConfigured: false, sequence: 0, controller: null, conflicts: [] };
+const state = { user: null, csrf: '', page: 'generate', audience: 'anti_aging', scene: 'needs', draft: draft(), composer: { text: '', role: null }, editing: null, messages: [], result: null, selected: new Set(), materials: [], customers: [], customerId: '', issues: [], issueFilter: 'open', filter: 'all', pending: false, ocrPending: false, error: '', feedback: '', configured: false, knowledgeConfigured: false, sequence: 0, controller: null, conflicts: [] };
 let noticeTimer;
 const icon = (name, cls = '') => `<i data-lucide="${name}" class="${cls}" aria-hidden="true"></i>`;
 const action = (name, text, ico, cls = '', extra = '') => `<button type="button" data-action="${name}" class="${cls}" ${extra}>${ico ? icon(ico) : ''}${esc(text)}</button>`;
 const field = (name, label, value = '', options = {}) => `<div class="field ${options.optional ? 'optional' : ''}"><label for="${name}">${label}</label>${options.textarea ? `<textarea id="${name}" name="${name}" rows="${options.rows || 3}" maxlength="${options.max || 6000}" ${options.required ? 'required' : ''}>${esc(value)}</textarea>` : `<input id="${name}" name="${name}" value="${esc(value)}" type="${options.type || 'text'}" maxlength="${options.max || 600}" ${options.required ? 'required' : ''} ${options.autocomplete ? `autocomplete="${options.autocomplete}"` : ''}>`}</div>`;
 function iconsNow() { createIcons({ icons }); }
 function notify(message) { const box = $('#notice'); box.textContent = message; box.hidden = false; clearTimeout(noticeTimer); noticeTimer = setTimeout(() => { box.hidden = true; }, 4500); }
-function clearConsultation() { state.controller?.abort(); state.sequence++; state.pending = false; state.messages = []; state.result = null; state.conflicts = []; state.draft = draft(); state.composer = { text: '', role: null }; state.editing = null; state.error = ''; state.feedback = ''; }
+function clearConsultation() { state.controller?.abort(); state.sequence++; state.pending = false; state.messages = []; state.result = null; state.conflicts = []; state.draft = draft(); state.composer = { text: '', role: null }; state.editing = null; state.customerId = ''; state.error = ''; state.feedback = ''; }
 function capture() { for (const key of Object.keys(state.draft)) { const node = document.getElementById(key); if (node) state.draft[key] = maskText(node.value); } const ci = document.getElementById('composer-text'); if (ci) state.composer.text = maskText(ci.value); if ($('#reply') && state.result) state.result.edited = maskText($('#reply').value); }
 async function request(path, options = {}) {
-  const response = await fetch(`/api/studio${path}`, { credentials: 'same-origin', ...options, headers: { 'Content-Type': 'application/json', ...(state.csrf ? { 'X-Studio-CSRF': state.csrf } : {}), ...options.headers } });
+  const isForm = options.body instanceof FormData;
+  const response = await fetch(`/api/studio${path}`, { credentials: 'same-origin', ...options, headers: { ...(isForm ? {} : { 'Content-Type': 'application/json' }), ...(state.csrf ? { 'X-Studio-CSRF': state.csrf } : {}), ...options.headers } });
   let body; try { body = await response.json(); } catch { throw new Error('服务响应异常，请稍后重试'); }
   if (!response.ok || !body.success) {
     const error = new Error(body.error?.message || '操作未完成'); error.status = response.status; error.code = body.error?.code;
@@ -24,13 +25,14 @@ async function request(path, options = {}) {
   return body.data;
 }
 const post = (path, body, extra = {}) => request(path, { method: 'POST', body: JSON.stringify(body), ...extra });
+const postForm = (path, body) => request(path, { method: 'POST', body });
 function renderLogin(localSetup = false) {
   root.innerHTML = `<main class="login-page"><form id="login-form" class="login-form" data-setup="${localSetup}"><div><h2>${localSetup ? '创建本机管理员' : '登录话术服务'}</h2><p class="small">${localSetup ? '本地试用环境' : '精准咨询回复'}</p></div>${field('username', '账号', '', { required: true, autocomplete: 'username', max: 40 })}${field('password', localSetup ? '密码（至少12位，含字母和数字）' : '密码', '', { type: 'password', required: true, autocomplete: localSetup ? 'new-password' : 'current-password', max: 128 })}<div id="login-error" role="alert"></div><button class="primary" type="submit">${localSetup ? '创建管理员' : '登录'}${icon('arrow-right')}</button></form></main>`;
   iconsNow();
 }
 function shell(title) {
   const admin = state.user.role === 'admin';
-  root.innerHTML = `<section class="studio-module"><header class="module-toolbar"><nav class="module-tabs" aria-label="话术中心功能">${action('generate-page', '生成回复', 'message-circle', state.page === 'generate' ? 'active' : '')}${action('materials', '团队资料', 'folder-open', state.page === 'materials' ? 'active' : '')}${action('usage', '用量与反馈', 'chart-no-axes-combined', state.page === 'usage' ? 'active' : '')}${admin ? action('conversations', '对话留档', 'archive', state.page === 'conversations' ? 'active' : '') : ''}${admin ? action('users', '试用账号', 'user-round-cog', state.page === 'users' ? 'active' : '') : ''}</nav><div class="module-account"><span class="badge ${state.configured ? '' : 'warn'}">${state.configured ? (state.knowledgeConfigured ? '真实 AI · 知识库已接入' : '真实 AI · 小组试用') : '模型尚未配置'}</span><span class="small">${esc(state.user.display_name)}</span>${action('password', '', 'key-round', 'icon-button quiet', 'title="修改密码" aria-label="修改密码"')}${action('logout', '', 'log-out', 'icon-button quiet', 'title="退出话术服务" aria-label="退出话术服务"')}</div></header><main class="main" id="main" aria-label="${esc(title)}"></main></section>`;
+  root.innerHTML = `<section class="studio-module"><header class="module-toolbar"><nav class="module-tabs" aria-label="话术中心功能">${action('generate-page', '生成回复', 'message-circle', state.page === 'generate' ? 'active' : '')}${action('customers', '客户档案', 'users-round', state.page === 'customers' ? 'active' : '')}${action('materials', '团队资料', 'folder-open', state.page === 'materials' ? 'active' : '')}${action('usage', '用量与反馈', 'chart-no-axes-combined', state.page === 'usage' ? 'active' : '')}${admin ? action('issues', '问题台账', 'clipboard-list', state.page === 'issues' ? 'active' : '') : ''}${admin ? action('conversations', '对话留档', 'archive', state.page === 'conversations' ? 'active' : '') : ''}${admin ? action('users', '试用账号', 'user-round-cog', state.page === 'users' ? 'active' : '') : ''}</nav><div class="module-account"><span class="badge ${state.configured ? '' : 'warn'}">${state.configured ? (state.knowledgeConfigured ? '真实 AI · 知识库已接入' : '真实 AI · 小组试用') : '模型尚未配置'}</span><span class="small">${esc(state.user.display_name)}</span>${action('password', '', 'key-round', 'icon-button quiet', 'title="修改密码" aria-label="修改密码"')}${action('logout', '', 'log-out', 'icon-button quiet', 'title="退出话术服务" aria-label="退出话术服务"')}</div></header><main class="main" id="main" aria-label="${esc(title)}"></main></section>`;
 }
 function available(material) { const day = chinaDay(); return !!material?.active && ['all', state.audience].includes(material.audience) && (!material.valid_from || material.valid_from <= day) && (!material.valid_to || material.valid_to >= day); }
 function autoSelectMaterials() {
@@ -50,12 +52,25 @@ function bubbleHtml(m, i) {
   return `<div class="bubble-wrap ${isCustomer ? 'left' : 'right'}"><div class="bubble ${isCustomer ? 'customer' : 'staff'}">${aiBadge}<small class="bubble-role">${isCustomer ? '客户' : '营养师'}</small><div class="bubble-content">${esc(m.content)}</div></div><div class="bubble-actions">${action('edit-message', '', 'pencil', 'icon-button quiet', `data-index="${i}" title="编辑" aria-label="编辑"`)}${action('delete-message', '', 'trash-2', 'icon-button quiet', `data-index="${i}" title="删除" aria-label="删除"`)}</div></div>`;
 }
 function threadHtml() { return state.messages.length ? state.messages.map((m, i) => bubbleHtml(m, i)).join('') : '<div class="thread-empty">点击下方按钮，添加客户或营养师消息开始对话</div>'; }
-function canGenerate() { return state.configured && !state.pending && state.messages.length > 0 && state.messages[state.messages.length - 1].role === 'user'; }
+function canGenerate() { return state.configured && !state.pending && state.messages.some(m => m.role === 'user'); }
 const sourceTitle = ref => ref.id === 'supplement' ? '销售本次补充' : ref.id.startsWith('bailian_kb_') ? '多特倍斯知识库 · 检索片段' : state.materials.find(m => m.id === ref.id)?.title || '团队资料';
+function customerSelector() {
+  const rows = state.customers.filter(c => c.active && (state.user.role === 'admin' || c.owner_user_id === state.user.id));
+  return `<section class="customer-section"><div class="field-label">客户档案</div><div class="customer-select"><select id="customer-select" aria-label="选择客户档案"><option value="">不引用客户档案</option>${rows.map(c => `<option value="${esc(c.id)}" ${state.customerId === c.id ? 'selected' : ''}>${esc(c.display_name)}${c.salutation ? ` · ${esc(c.salutation)}` : ''}</option>`).join('')}</select>${action('new-customer', '', 'user-plus', 'icon-button quiet', 'title="新建客户档案" aria-label="新建客户档案"')}</div>${state.customerId ? customerSummary(rows.find(c => c.id === state.customerId)) : '<p class="small">可先在客户档案中维护称呼、已购产品和注意事项。</p>'}</section>`;
+}
+function customerSummary(c) {
+  if (!c) return '';
+  const items = [
+    ['人群', AUDIENCES[c.audience]], ['称呼', c.salutation], ['手机尾号', c.phone_suffix],
+    ['已购产品', c.purchased_products], ['关注点', c.interests], ['关心点', c.concerns],
+    ['禁忌与特殊情况', c.contraindications], ['备注', c.notes],
+  ].filter(([, value]) => value);
+  return `<div class="customer-summary">${items.map(([label, value]) => `<span><b>${esc(label)}</b>${esc(value)}</span>`).join('')}</div>`;
+}
 function generator() {
   state.page = 'generate'; shell('话术中心');
   const goal = SCENES.find(s => s.id === state.scene).goal;
-  $('#main').innerHTML = `<div class="row between page-intro"><div class="audiences" role="group" aria-label="用户类型">${Object.entries(AUDIENCES).map(([id, name]) => action('audience', name, id === 'anti_aging' ? 'sparkles' : 'sun', state.audience === id ? 'active' : '', `data-id="${id}" aria-pressed="${state.audience === id}"`)).join('')}</div>${action('new', '新咨询', 'plus', '')}</div><div class="field-label">咨询场景</div><div class="scenes" role="group" aria-label="咨询场景">${SCENES.map(s => action('scene', s.label, s.icon, `scene ${state.scene === s.id ? 'active' : ''}`, `data-id="${s.id}" aria-pressed="${state.scene === s.id}"`)).join('')}</div>${!state.configured ? '<div class="warning">真实生成服务尚未配置。可先维护项目资料和试用账号。</div>' : ''}<div class="generator-grid"><section class="input-column"><div class="input-heading row between"><h2>本次咨询</h2><span class="small">${state.messages.filter(m => m.role === 'assistant').length ? '连续接话中' : '独立咨询'}</span></div><div class="thread" id="thread">${threadHtml()}</div>${state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : ''}<div class="composer"><textarea id="composer-text" rows="2" maxlength="8000" placeholder="输入对话内容，选择下方按钮添加">${esc(state.composer.text)}</textarea><div class="composer-actions"><button type="button" data-action="add-message" data-role="user" class="role-btn ${state.composer.role==='assistant'?'suggested':''}">${icon('message-square')}添加客户</button><button type="button" data-action="add-message" data-role="assistant" class="role-btn ${state.composer.role==='user'?'suggested':''}">${icon('message-square')}添加营养师</button></div><button type="button" data-action="run" class="primary" ${!canGenerate() ? 'disabled' : ''}>${icon(state.pending ? 'loader-circle' : 'wand-sparkles', state.pending ? 'spinner' : '')}${state.pending ? '正在核对资料并生成…' : '生成回复'}</button></div><div class="resource-section"><div class="field-label row between"><span>引用公共资料 · 已选 ${state.selected.size} 条</span><span class="small">已自动勾选可用资料</span></div>${resourceChoices()}</div><details class="details"><summary>补充信息 · 称呼、补充资料</summary><div class="two-fields">${field('salutation', '客户称呼（可选）', state.draft.salutation, { max: 30, optional: true })}${field('needs', '用户需求（可自动提取）', state.draft.needs, { optional: true })}</div>${field('goal', '销售目标（可自动建议）', state.draft.goal, { optional: true, max: 400 })}<p class="small">场景目标：${esc(goal)}</p>${field('supplement', '本次补充 · 活动、产品资料或待补信息', state.draft.supplement, { textarea: true, rows: 4 })}${field('instruction', '回复侧重点（可选）', state.draft.instruction, { optional: true, max: 500 })}</details></section><section class="result-column" aria-label="回复建议" aria-busy="${state.pending}"><div class="row between result-header"><h2>回复建议</h2>${state.result?.status === 'ready' ? '<span class="badge">待顾问确认</span>' : ''}</div>${resultHtml()}</section></div>`;
+  $('#main').innerHTML = `<div class="row between page-intro"><div class="audiences" role="group" aria-label="用户类型">${Object.entries(AUDIENCES).map(([id, name]) => action('audience', name, id === 'anti_aging' ? 'sparkles' : 'sun', state.audience === id ? 'active' : '', `data-id="${id}" aria-pressed="${state.audience === id}"`)).join('')}</div>${action('new', '新咨询', 'plus', '')}</div><div class="field-label">咨询场景</div><div class="scenes" role="group" aria-label="咨询场景">${SCENES.map(s => action('scene', s.label, s.icon, `scene ${state.scene === s.id ? 'active' : ''}`, `data-id="${s.id}" aria-pressed="${state.scene === s.id}"`)).join('')}</div>${!state.configured ? '<div class="warning">真实生成服务尚未配置。可先维护项目资料和试用账号。</div>' : ''}<div class="generator-grid"><section class="input-column">${customerSelector()}<div class="input-heading row between"><h2>本次咨询</h2><span class="small">${state.messages.filter(m => m.role === 'assistant').length ? '连续接话中' : '独立咨询'}</span></div><div class="thread" id="thread">${threadHtml()}</div>${state.error ? `<div class="error" role="alert">${esc(state.error)}</div>` : ''}<div class="composer"><textarea id="composer-text" rows="2" maxlength="8000" placeholder="输入对话内容，选择下方按钮添加">${esc(state.composer.text)}</textarea><div class="composer-actions"><button type="button" data-action="add-message" data-role="user" class="role-btn ${state.composer.role==='assistant'?'suggested':''}">${icon('message-square')}添加客户</button><button type="button" data-action="add-message" data-role="assistant" class="role-btn ${state.composer.role==='user'?'suggested':''}">${icon('message-square')}添加营养师</button><label class="role-btn screenshot-button">${icon('image-up')}${state.ocrPending ? '识别中…' : '截图识别'}<input id="screenshot-file" type="file" accept="image/png,image/jpeg,image/webp" ${state.ocrPending ? 'disabled' : ''}></label></div><button type="button" data-action="run" class="primary" ${!canGenerate() ? 'disabled' : ''}>${icon(state.pending ? 'loader-circle' : 'wand-sparkles', state.pending ? 'spinner' : '')}${state.pending ? '正在核对资料并生成…' : '生成回复'}</button></div><div class="resource-section"><div class="field-label row between"><span>引用公共资料 · 已选 ${state.selected.size} 条</span><span class="small">已自动勾选可用资料</span></div>${resourceChoices()}</div><details class="details"><summary>补充信息 · 称呼、补充资料</summary><div class="two-fields">${field('salutation', '客户称呼（可选）', state.draft.salutation, { max: 30, optional: true })}${field('needs', '用户需求（可自动提取）', state.draft.needs, { optional: true })}</div>${field('goal', '销售目标（可自动建议）', state.draft.goal, { optional: true, max: 400 })}<p class="small">场景目标：${esc(goal)}</p>${field('supplement', '本次补充 · 活动、产品资料或待补信息', state.draft.supplement, { textarea: true, rows: 4 })}${field('instruction', '回复侧重点（可选）', state.draft.instruction, { optional: true, max: 500 })}</details></section><section class="result-column" aria-label="回复建议" aria-busy="${state.pending}"><div class="row between result-header"><h2>回复建议</h2>${state.result?.status === 'ready' ? '<span class="badge">待顾问确认</span>' : ''}</div>${resultHtml()}</section></div>`;
   iconsNow();
 }
 function resultHtml() {
@@ -70,9 +85,9 @@ async function run(style = 'normal') {
   capture();
   if (state.pending) return;
 
-  if (!state.messages.length || state.messages[state.messages.length - 1].role !== 'user') { notify('请先添加客户消息后再生成回复'); $('#composer-text')?.focus(); return; }
+  if (!state.messages.some(m => m.role === 'user')) { notify('请先添加至少一条客户消息'); $('#composer-text')?.focus(); return; }
   const rewrite = state.result?.edited ?? state.result?.reply ?? ''; const current = ++state.sequence; state.controller = new AbortController(); state.pending = true; state.error = ''; state.result = null; state.feedback = '';
-  const body = { audience: state.audience, scene: state.scene, messages: state.messages, ...state.draft, rewrite: style === 'normal' ? '' : rewrite, style, confirmed_conflicts: state.conflicts,
+  const body = { audience: state.audience, scene: state.scene, customer_id: state.customerId, messages: state.messages, ...state.draft, rewrite: style === 'normal' ? '' : rewrite, style, confirmed_conflicts: state.conflicts,
     resources: [...state.selected].map(id => ({ id, version: state.materials.find(m => m.id === id)?.version })) };
   generator();
   try {
@@ -83,17 +98,28 @@ async function run(style = 'normal') {
   finally { if (current === state.sequence) { state.pending = false; if (state.user && state.page === 'generate') generator(); } }
 }
 async function loadMaterials() { const items = (await request('/materials')).items; if(state.result?.used_sources.some(ref => ref.id !== 'supplement' && !ref.id.startsWith('bailian_kb_') && !items.some(m => m.id === ref.id && m.version === ref.version && available(m)))) state.result=null; state.materials = items; autoSelectMaterials(); }
+async function loadCustomers() { state.customers = (await request('/customers')).items; }
+function customersPage() {
+  state.page = 'customers'; shell('客户档案');
+  const rows = state.customers.filter(c => c.active);
+  $('#main').innerHTML = `<div class="row between page-intro"><span class="muted">${rows.length} 个有效档案 · ${state.user.role === 'admin' ? '管理员可见全部' : '仅可见本人维护'}</span>${action('new-customer', '添加客户', 'user-plus', 'primary')}</div><div class="customer-list">${rows.map(c => `<article class="customer-item"><div class="row between"><h3>${esc(c.display_name)}</h3><span class="badge blue">${esc(AUDIENCES[c.audience] || c.audience)}</span></div><div class="customer-summary">${[['称呼', c.salutation], ['手机尾号', c.phone_suffix], ['归属顾问', c.owner_name], ['已购产品', c.purchased_products], ['关注点', c.interests], ['关心点', c.concerns], ['禁忌与特殊情况', c.contraindications], ['备注', c.notes]].filter(([, value]) => value).map(([label, value]) => `<span><b>${esc(label)}</b>${esc(value)}</span>`).join('')}</div><div class="material-controls">${action('edit-customer', '编辑', 'pencil', '', `data-id="${esc(c.id)}"`)}${action('toggle-customer', c.active ? '停用' : '启用', c.active ? 'trash-2' : 'rotate-ccw', c.active ? 'quiet danger' : '', `data-id="${esc(c.id)}" data-active="${c.active}"`)}</div></article>`).join('') || '<div class="empty">暂无客户档案。</div>'}</div>`;
+  iconsNow();
+}
+function customerEditor(id = '') {
+  const c = state.customers.find(x => x.id === id) || { display_name: '', audience: state.audience, salutation: '', phone_suffix: '', purchased_products: '', interests: '', concerns: '', contraindications: '', notes: '', active: 1 };
+  showModal(`${modalHead(id ? '编辑客户档案' : '添加客户档案')}<form id="customer-form" data-id="${esc(id)}">${field('customer-name', '客户名称', c.display_name, { required: true, max: 40 })}<div class="field"><label for="customer-audience">客户人群</label><select id="customer-audience" name="audience">${Object.entries(AUDIENCES).map(([id, label]) => `<option value="${id}" ${c.audience === id ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select></div><div class="two-fields">${field('customer-salutation', '称呼', c.salutation, { max: 30 })}${field('customer-phone', '手机后四位', c.phone_suffix, { max: 4 })}</div>${field('customer-purchased', '已购产品', c.purchased_products, { max: 600 })}${field('customer-interests', '关注点', c.interests, { max: 600 })}${field('customer-concerns', '关心点', c.concerns, { max: 600 })}${field('customer-contraindications', '禁忌与特殊情况', c.contraindications, { max: 600 })}${field('customer-notes', '备注', c.notes, { textarea: true, rows: 3, max: 1200 })}<label class="row"><input name="active" type="checkbox" ${c.active ? 'checked' : ''}>启用档案</label><div class="form-error" role="alert"></div><footer>${action('close-modal', '取消', '', 'quiet')}<button class="primary" type="submit">${icon('save')}保存档案</button></footer></form>`);
+}
 function materialsPage() {
   state.page = 'materials'; shell('项目资料');
   const rows = state.materials.filter(m => state.filter === 'all' || m.kind === state.filter);
-  $('#main').innerHTML = `<div class="row between materials-toolbar"><div class="filters">${[['all','全部资料'],['activity','当月活动机制'],['plan','产品搭配组合'],['knowledge','多特倍斯知识库']].map(([id,label]) => action('material-filter', label, '', state.filter === id ? 'active' : '', `data-id="${id}"`)).join('')}</div>${state.user.role === 'admin' ? action('new-material', '添加资料', 'plus', 'primary') : '<span class="badge blue">公共资料 · 只读</span>'}</div><div class="material-list">${rows.map(m => `<article class="material-item"><div class="row between"><h3>${esc(m.title)}</h3><span class="badge ${m.active ? '' : 'warn'}">${m.active ? '已确认' : '已停用'} · V${m.version}</span></div><div class="material-meta"><span>${esc(kindName(m.kind))}</span><span>${esc(AUDIENCES[m.audience] || '两类人群通用')}</span><span>${esc(m.product || '未指定产品')}</span>${m.valid_to ? `<span>${esc(m.valid_from)} 至 ${esc(m.valid_to)}</span>` : ''}</div><p>${esc(m.content)}</p>${state.user.role === 'admin' ? `<div class="material-controls">${action('edit-material','编辑','pencil','',`data-id="${esc(m.id)}"`)}${action('material-versions','版本记录','history','quiet',`data-id="${esc(m.id)}"`)}${action('delete-material','删除','trash-2','quiet danger',`data-id="${esc(m.id)}"`)}</div>` : ''}</article>`).join('') || '<div class="empty">暂无资料。已核对的活动机制和产品说明可在此维护。</div>'}</div>`;
+  $('#main').innerHTML = `<div class="row between materials-toolbar"><div class="filters">${[['all','全部资料'],['activity','当月活动机制'],['plan','产品搭配组合'],['knowledge','多特倍斯知识库']].map(([id,label]) => action('material-filter', label, '', state.filter === id ? 'active' : '', `data-id="${id}"`)).join('')}</div>${state.user.role === 'admin' ? action('new-material', '添加资料', 'plus', 'primary') : '<span class="badge blue">公共资料 · 只读</span>'}</div><div class="material-list">${rows.map(m => `<article class="material-item"><div class="row between"><h3>${esc(m.title)}</h3><span class="badge ${m.active ? '' : 'warn'}">${m.active ? '已确认' : '已停用'} · V${m.version}</span></div><div class="material-meta"><span>${esc(kindName(m.kind))}</span><span>${esc(AUDIENCES[m.audience] || '两类人群通用')}</span><span>${esc(m.product || '未指定产品')}</span>${m.valid_to ? `<span>${esc(m.valid_from)} 至 ${esc(m.valid_to)}</span>` : ''}</div><div class="material-fields">${[['价格/权益', m.price], ['规格/数量', m.specification], ['适用人群', m.applicable], ['养护方向', m.effect], ['用法', m.usage_notes], ['注意事项', m.precautions]].filter(([, value]) => value).map(([label, value]) => `<span><b>${esc(label)}</b>${esc(value)}</span>`).join('')}</div><p>${esc(m.content)}</p>${state.user.role === 'admin' ? `<div class="material-controls">${action('edit-material','编辑','pencil','',`data-id="${esc(m.id)}"`)}${action('material-versions','版本记录','history','quiet',`data-id="${esc(m.id)}"`)}${action('delete-material','删除','trash-2','quiet danger',`data-id="${esc(m.id)}"`)}</div>` : ''}</article>`).join('') || '<div class="empty">暂无资料。已核对的活动机制和产品说明可在此维护。</div>'}</div>`;
   iconsNow();
 }
 function showModal(html) { modal.innerHTML = html; modal.showModal(); iconsNow(); }
 const modalHead = title => `<header><h2>${esc(title)}</h2>${action('close-modal','','x','icon-button quiet','aria-label="关闭" title="关闭"')}</header>`;
 function materialEditor(id = '') {
-  const m = state.materials.find(x => x.id === id) || { title: '', product: '', content: '', kind: 'knowledge', audience: 'all', valid_from: '', valid_to: '', active: 1 };
-  showModal(`${modalHead(id ? '编辑公共资料' : '添加公共资料')}<form id="material-form" data-id="${esc(id)}" data-version="${m.version || 0}">${field('material-title','资料标题',m.title,{required:true,max:100})}<div class="two-fields"><div class="field"><label for="material-kind">资料类型</label><select name="kind" id="material-kind">${['activity','plan','knowledge'].map(k => `<option value="${k}" ${m.kind===k?'selected':''}>${kindName(k)}</option>`).join('')}</select></div><div class="field"><label for="material-audience">适用人群</label><select name="audience" id="material-audience">${Object.entries({all:'两类人群通用',...AUDIENCES}).map(([id,label])=>`<option value="${id}" ${m.audience===id?'selected':''}>${esc(label)}</option>`).join('')}</select></div></div>${field('material-product','产品名称',m.product,{max:120})}<div class="two-fields">${field('material-from','生效日期',m.valid_from,{type:'date'})}${field('material-to','结束日期',m.valid_to,{type:'date'})}</div>${field('material-content','资料正文',m.content,{textarea:true,rows:8,required:true,max:10000})}<label class="row"><input name="active" type="checkbox" ${m.active?'checked':''}>启用资料</label><label class="row"><input name="confirmed" type="checkbox" required>已核对资料内容及适用条件</label><div class="form-error" role="alert"></div><footer>${action('close-modal','取消','','quiet')}<button class="primary" type="submit">${icon('save')}保存资料</button></footer></form>`);
+  const m = state.materials.find(x => x.id === id) || { title: '', product: '', content: '', kind: 'knowledge', audience: 'all', valid_from: '', valid_to: '', active: 1, price: '', specification: '', applicable: '', effect: '', usage_notes: '', precautions: '' };
+  showModal(`${modalHead(id ? '编辑公共资料' : '添加公共资料')}<form id="material-form" data-id="${esc(id)}" data-version="${m.version || 0}">${field('material-title','资料标题',m.title,{required:true,max:100})}<div class="two-fields"><div class="field"><label for="material-kind">资料类型</label><select name="kind" id="material-kind">${['activity','plan','knowledge'].map(k => `<option value="${k}" ${m.kind===k?'selected':''}>${kindName(k)}</option>`).join('')}</select></div><div class="field"><label for="material-audience">适用人群</label><select name="audience" id="material-audience">${Object.entries({all:'两类人群通用',...AUDIENCES}).map(([id,label])=>`<option value="${id}" ${m.audience===id?'selected':''}>${esc(label)}</option>`).join('')}</select></div></div>${field('material-product','产品名称',m.product,{max:120})}<div class="two-fields">${field('material-from','生效日期',m.valid_from,{type:'date'})}${field('material-to','结束日期',m.valid_to,{type:'date'})}</div><div class="two-fields">${field('material-price','价格/权益',m.price,{max:200})}${field('material-specification','规格/数量',m.specification,{max:500})}</div>${field('material-applicable','适用人群',m.applicable,{max:600})}${field('material-effect','养护方向',m.effect,{max:600})}<div class="two-fields">${field('material-usage','用法',m.usage_notes,{max:800})}${field('material-precautions','注意事项',m.precautions,{max:800})}</div>${field('material-content','资料正文',m.content,{textarea:true,rows:8,required:true,max:10000})}<label class="row"><input name="active" type="checkbox" ${m.active?'checked':''}>启用资料</label><label class="row"><input name="confirmed" type="checkbox" required>已核对资料内容及适用条件</label><div class="form-error" role="alert"></div><footer>${action('close-modal','取消','','quiet')}<button class="primary" type="submit">${icon('save')}保存资料</button></footer></form>`);
 }
 async function usersPage() {
   state.page = 'users'; const version = state.sequence; const data = await request('/users'); if (version !== state.sequence || !state.user) return; shell('试用账号');
@@ -166,18 +192,53 @@ async function conversationDetail(id) {
   iconsNow();
 }
 
+const ISSUE_LABELS = { wrong_info: '信息错误', too_simple: '太简单', robotic: '人机感重', repetitive: '重复', other: '其他' };
+async function issuesPage() {
+  state.page = 'issues'; shell('问题台账');
+  const data = await request(`/issues?status=${state.issueFilter}`);
+  state.issues = data.items;
+  $('#main').innerHTML = `<div class="row between page-intro"><h2>问题台账</h2><div class="filters">${[['open','待处理'],['processing','处理中'],['resolved','已解决']].map(([id,label]) => action('issue-filter', label, '', state.issueFilter === id ? 'active' : '', `data-id="${id}"`)).join('')}</div></div><div class="issue-list">${state.issues.map(issue => `<article class="issue-item"><div class="row between"><div><span class="badge warn">${ISSUE_LABELS[issue.reason] || issue.reason}</span><span class="badge blue">${issue.status === 'open' ? '待处理' : issue.status === 'processing' ? '处理中' : '已解决'}</span></div><span class="small">${new Date(issue.created_at).toLocaleString('zh-CN')}</span></div><div class="issue-meta"><span>${esc(issue.display_name || '未知账号')}</span><span>${esc(AUDIENCES[issue.audience] || issue.audience || '未知人群')}</span><span>${esc(SCENES.find(s => s.id === issue.scene)?.label || issue.scene || '未知场景')}</span></div>${issue.note ? `<p>${esc(issue.note)}</p>` : ''}<div class="issue-conversation">${(issue.messages || []).map(m => `<div><b>${m.role === 'user' ? '客户' : '营养师'}</b><span>${esc(m.content)}</span></div>`).join('')}${issue.reply ? `<div class="issue-reply"><b>生成回复</b><span>${esc(issue.reply)}</span></div>` : ''}</div>${issue.screenshot ? `<details class="details"><summary>反馈截图</summary><img class="issue-screenshot" src="${esc(issue.screenshot)}" alt="反馈截图"></details>` : ''}<div class="material-controls">${action('issue-status', '处理中', 'loader-circle', '', `data-id="${esc(issue.id)}" data-status="processing"`)}${action('issue-status', '已解决', 'check', 'primary', `data-id="${esc(issue.id)}" data-status="resolved"`)}</div></article>`).join('') || '<div class="empty">暂无问题。</div>'}</div>`;
+  iconsNow();
+}
+
 function passwordDialog(forced = false) { showModal(`${modalHead(forced ? '首次登录 · 修改临时密码' : '修改密码')}<form id="password-form">${field('current-password','当前密码','',{type:'password',required:true,autocomplete:'current-password',max:128})}${field('new-password','新密码（至少12位，含字母和数字）','',{type:'password',required:true,autocomplete:'new-password',max:128})}<div class="form-error" role="alert"></div><footer><button type="submit" class="primary">保存并重新登录</button></footer></form>`); }
+function feedbackDialog(generationId) {
+  showModal(`${modalHead('反馈不可用原因')}<form id="feedback-form" data-id="${esc(generationId)}"><div class="feedback-reasons">${Object.entries(ISSUE_LABELS).map(([id,label]) => `<label class="row"><input type="radio" name="reason" value="${id}" required><span>${esc(label)}</span></label>`).join('')}</div>${field('feedback-note', '补充说明', '', { textarea: true, rows: 3, max: 500, optional: true })}<div class="field"><label for="feedback-screenshot">截图补充（可选）</label><input id="feedback-screenshot" name="screenshot" type="file" accept="image/png,image/jpeg,image/webp"></div><div class="form-error" role="alert"></div><footer>${action('close-modal', '取消', '', 'quiet')}<button class="primary" type="submit">${icon('send')}提交反馈</button></footer></form>`);
+}
 function userEditor(id = '') { showModal(`${modalHead(id?'重置临时密码':'添加试用账号')}<form id="user-form" data-id="${esc(id)}">${id?'':`${field('new-username','账号','',{required:true,max:40})}${field('display-name','显示名称','',{required:true,max:40})}<div class="field"><label for="user-role">角色</label><select name="role" id="user-role"><option value="sales">销售</option><option value="admin">管理员</option></select></div>`}${field('temporary-password','临时密码（至少12位，含字母和数字）','',{type:'password',required:true,autocomplete:'new-password',max:128})}<div class="form-error" role="alert"></div><footer><button type="submit" class="primary">${id?'重置密码':'创建账号'}</button></footer></form>`); }
 async function enter() {
   const me = await request('/me'); state.user = me.user; state.csrf = me.csrf; state.configured = me.model_configured; state.knowledgeConfigured = !!me.knowledge_configured;
   if (state.user.must_change) { shell('首次登录'); $('#main').innerHTML = '<div class="warning">请先修改临时密码。</div>'; iconsNow(); passwordDialog(true); return; }
-  await loadMaterials(); generator();
+  await Promise.all([loadMaterials(), loadCustomers()]); generator();
 }
 document.addEventListener('input', e => { if (e.target.id in state.draft) { state.draft[e.target.id] = maskText(e.target.value); if (state.pending) { state.controller?.abort(); state.sequence++; state.pending=false; } if (state.result) { state.result=null; $('.result-column').innerHTML='<h2>回复建议</h2><p class="muted">咨询内容已调整，请重新生成。</p>'; } const runButton=$('[data-action="run"]'); if(runButton) { runButton.disabled=!state.configured; runButton.textContent='生成回复'; } } if (e.target.id === 'composer-text') { state.composer.text = maskText(e.target.value); if (state.pending) { state.controller?.abort(); state.sequence++; state.pending=false; } if (state.result) { state.result=null; $('.result-column').innerHTML='<h2>回复建议</h2><p class="muted">咨询内容已调整，请重新生成。</p>'; } const rb=$('[data-action="run"]'); if(rb) { rb.disabled=!canGenerate(); } } });
 document.addEventListener('change', e => {
+  if (e.target.id === 'customer-select') {
+    capture(); state.customerId = e.target.value;
+    const customer = state.customers.find(c => c.id === state.customerId);
+    if (customer && !state.draft.salutation) state.draft.salutation = customer.salutation || '';
+    if (customer && state.audience !== customer.audience) { state.audience = customer.audience; state.selected.clear(); autoSelectMaterials(); }
+    state.controller?.abort(); state.sequence++; state.pending = false; state.result = null;
+    generator(); return;
+  }
+  if (e.target.id === 'screenshot-file') { void recognizeScreenshotFile(e.target.files?.[0]); e.target.value = ''; return; }
   if(e.target.dataset.resource){capture();if(e.target.checked){if(state.selected.size>=8){e.target.checked=false;notify('最多引用八条资料');return;}state.selected.add(e.target.dataset.resource);}else state.selected.delete(e.target.dataset.resource); state.controller?.abort();state.sequence++;state.pending=false;state.result=null; generator();}
   if(e.target.dataset.conflict!==undefined){const c=state.result?.conflicts[Number(e.target.dataset.conflict)];if(c){state.conflicts=state.conflicts.filter(x=>x!==c);if(e.target.checked)state.conflicts.push(c);}}
 });
+async function recognizeScreenshotFile(file) {
+  if (!file || state.ocrPending) return;
+  state.ocrPending = true; state.error = ''; generator();
+  try {
+    const form = new FormData(); form.append('screenshot', file);
+    const data = await postForm('/ocr', form);
+    if (!data.messages?.length) throw new Error('未识别到可用对话');
+    if (state.messages.length + data.messages.length > 20) throw new Error('识别结果超过本次对话上限');
+    state.messages.push(...data.messages.map(m => ({ role: m.role, content: m.content })));
+    state.composer.role = state.messages.at(-1)?.role === 'user' ? 'assistant' : 'user';
+    state.result = null; generator(); notify('截图已识别，请核对后再生成');
+  } catch (error) { state.error = error.message; generator(); }
+  finally { state.ocrPending = false; if (state.page === 'generate') generator(); }
+}
 document.addEventListener('click', async e => {
   const button=e.target.closest('[data-action]');if(!button)return;
   const a=button.dataset.action,id=button.dataset.id,idx=button.dataset.index;
@@ -196,13 +257,20 @@ document.addEventListener('click', async e => {
     if(a==='audience'||a==='scene'){capture();state.controller?.abort();state.sequence++;state.pending=false;state.result=null;state.conflicts=[];if(a==='audience'){state.audience=id;state.selected.clear();autoSelectMaterials();}else state.scene=id;generator();return;}
     if(a==='copy'){const value=maskText($('#reply').value);await navigator.clipboard.writeText(value);notify('已复制客户回复');return;}
     if(a==='adopt'){capture();const reply=state.result?.edited??state.result?.reply;if(!reply?.trim())return notify('回复不能为空');if(state.messages.length>=20)return notify('本次对话已达上限，请新建咨询');state.messages.push({role:'assistant',content:maskText(reply),ai:true});state.result=null;state.conflicts=[];state.draft.instruction='';state.composer.role='user';state.error='';generator();$('#composer-text')?.focus();return;}
-    if(a==='feedback'){await post('/feedback',{generation_id:state.result.generation_id,rating:id});state.feedback=id;capture();generator();return;}
+    if(a==='feedback'){
+      if(id==='unusable'){feedbackDialog(state.result.generation_id);return;}
+      await post('/feedback',{generation_id:state.result.generation_id,rating:id});state.feedback=id;capture();generator();return;
+    }
     if(a==='use-inferred'){capture();state.draft.needs=state.result.inferred.needs;state.draft.goal=state.result.inferred.goal;generator();return;}
     if(a==='logout'){try{await post('/logout',{});}finally{clearConsultation();state.user=null;state.csrf='';state.materials=[];state.selected.clear();renderLogin();}return;}
     if(a==='password'){passwordDialog();return;}
     if(a==='new-material'||a==='edit-material'){materialEditor(id);return;}
     if(a==='material-filter'){state.filter=id;materialsPage();return;}
-    if(a==='delete-material'){if(!confirm('确定删除这条资料？删除后不可恢复。'))return;await request(`/materials/${id}`,{method:'DELETE'});await loadMaterials();materialsPage();notice('资料已删除');return;}
+    if(a==='delete-material'){if(!confirm('确定删除这条资料？删除后不可恢复。'))return;await request(`/materials/${id}`,{method:'DELETE'});await loadMaterials();materialsPage();notify('资料已删除');return;}
+    if(a==='new-customer'||a==='edit-customer'){customerEditor(id);return;}
+    if(a==='toggle-customer'){await request(`/customers/${id}`,{method:'PUT',body:JSON.stringify({active:button.dataset.active==='1'})});await loadCustomers();if(state.customerId===id)state.customerId='';customersPage();return;}
+    if(a==='issue-filter'){state.issueFilter=id;await issuesPage();return;}
+    if(a==='issue-status'){await request(`/issues/${id}`,{method:'PUT',body:JSON.stringify({status:button.dataset.status})});await issuesPage();return;}
     if(a==='material-versions'){const data=await request(`/materials/${id}/versions`);showModal(`${modalHead('资料版本记录')}<div class="stack">${data.items.map(v=>{const m=JSON.parse(v.snapshot);return `<section><h3>V${v.version} · ${esc(m.title)}</h3><p class="small">${esc(new Date(v.updated_at).toLocaleString('zh-CN'))}</p><p class="resource-preview">${esc(m.content)}</p></section>`;}).join('')}</div>`);return;}
     if(a==='new-user'||a==='reset-user'){userEditor(id);return;}
     if(a==='toggle-user'){await request(`/users/${id}`,{method:'PUT',body:JSON.stringify({active:button.dataset.active!=='1'})});await usersPage();return;}
@@ -212,14 +280,16 @@ document.addEventListener('click', async e => {
     if(a==='conv-page'){loadConversations(Number(button.dataset.page));return;}
     capture();state.controller?.abort();const version=++state.sequence;state.pending=false;
     if(a==='materials'){await loadMaterials();if(version===state.sequence&&state.user)materialsPage();}
+    if(a==='customers'){await loadCustomers();if(version===state.sequence&&state.user)customersPage();}
     if(a==='generate-page')generator();
     if(a==='users')await usersPage();
     if(a==='usage')await usagePage();
     if(a==='conversations')conversationsPage();
+    if(a==='issues')await issuesPage();
   }catch(error){notify(error.message);}
 });
 document.addEventListener('submit', async e=>{
-  const form=e.target;if(!['login-form','material-form','password-form','user-form'].includes(form.id))return;e.preventDefault();
+  const form=e.target;if(!['login-form','material-form','customer-form','feedback-form','password-form','user-form'].includes(form.id))return;e.preventDefault();
   const submit=form.querySelector('[type=submit]');submit.disabled=true;
   try {
     const values=Object.fromEntries(new FormData(form));
@@ -229,9 +299,18 @@ document.addEventListener('submit', async e=>{
       await post('/login',credentials);form.reset();await enter();return;
     }
     if(form.id==='material-form'){
-      const body={title:values['material-title'],product:values['material-product'],content:maskText(values['material-content']),kind:values.kind,audience:values.audience,valid_from:values['material-from'],valid_to:values['material-to'],active:values.active==='on',confirmed:values.confirmed==='on',version:Number(form.dataset.version)};
+      const body={title:values['material-title'],product:values['material-product'],price:maskText(values['material-price']||''),specification:maskText(values['material-specification']||''),applicable:maskText(values['material-applicable']||''),effect:maskText(values['material-effect']||''),usage_notes:maskText(values['material-usage']||''),precautions:maskText(values['material-precautions']||''),content:maskText(values['material-content']),kind:values.kind,audience:values.audience,valid_from:values['material-from'],valid_to:values['material-to'],active:values.active==='on',confirmed:values.confirmed==='on',version:Number(form.dataset.version)};
       if(form.dataset.id)await request(`/materials/${form.dataset.id}`,{method:'PUT',body:JSON.stringify(body)});else await post('/materials',body);
       modal.close();state.result=null;state.conflicts=[];await loadMaterials();materialsPage();notify('公共资料已保存');return;
+    }
+    if(form.id==='customer-form'){
+      const body={display_name:maskText(values['customer-name']),audience:values.audience,salutation:maskText(values['customer-salutation']||''),phone_suffix:String(values['customer-phone']||'').replace(/\D/g,'').slice(-4),purchased_products:maskText(values['customer-purchased']||''),interests:maskText(values['customer-interests']||''),concerns:maskText(values['customer-concerns']||''),contraindications:maskText(values['customer-contraindications']||''),notes:maskText(values['customer-notes']||''),active:values.active==='on'};
+      if(form.dataset.id)await request(`/customers/${form.dataset.id}`,{method:'PUT',body:JSON.stringify(body)});else await post('/customers',body);
+      modal.close();await loadCustomers();customersPage();notify('客户档案已保存');return;
+    }
+    if(form.id==='feedback-form'){
+      const body=new FormData();body.append('generation_id',form.dataset.id);body.append('rating','unusable');body.append('reason',values.reason);body.append('note',maskText(values['feedback-note']||''));const file=form.querySelector('#feedback-screenshot')?.files?.[0];if(file)body.append('screenshot',file);
+      await postForm('/feedback',body);modal.close();state.feedback='unusable';capture();generator();notify('问题已进入管理员台账');return;
     }
     if(form.id==='password-form'){await post('/password',{current_password:values['current-password'],new_password:values['new-password']});form.reset();modal.close();clearConsultation();state.user=null;state.csrf='';state.materials=[];renderLogin();notify('密码已修改，请重新登录');return;}
     if(form.id==='user-form'){

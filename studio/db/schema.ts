@@ -16,6 +16,9 @@ export const materials = sqliteTable('studio_materials', {
   id: text('id').primaryKey(), version: integer('version').notNull(), title: text('title').notNull(),
   kind: text('kind').notNull(), audience: text('audience').notNull(), product: text('product').notNull(),
   content: text('content').notNull(), validFrom: text('valid_from').notNull(), validTo: text('valid_to').notNull(),
+  price: text('price').notNull().default(''), specification: text('specification').notNull().default(''),
+  applicable: text('applicable').notNull().default(''), effect: text('effect').notNull().default(''),
+  usageNotes: text('usage_notes').notNull().default(''), precautions: text('precautions').notNull().default(''),
   active: integer('active').notNull().default(1), updatedBy: text('updated_by').notNull(), updatedAt: integer('updated_at').notNull(),
 });
 export const versions = sqliteTable('studio_material_versions', {
@@ -36,9 +39,25 @@ export const usage = sqliteTable('studio_usage', {
 
 export const conversations = sqliteTable('studio_conversations', {
   id: text('id').primaryKey(), usageId: text('usage_id').notNull(), userId: text('user_id').notNull(),
+  customerId: text('customer_id'),
   audience: text('audience').notNull(), scene: text('scene').notNull(),
   messages: text('messages').notNull(), reply: text('reply'), nextStep: text('next_step'),
   followups: text('followups'), resources: text('resources'), supplement: text('supplement'),
   salutation: text('salutation'), needs: text('needs'), goal: text('goal'), instruction: text('instruction'),
   status: text('status').notNull(), feedback: text('feedback'), createdAt: integer('created_at').notNull(),
+});
+
+export const customers = sqliteTable('studio_customers', {
+  id: text('id').primaryKey(), displayName: text('display_name').notNull(), audience: text('audience').notNull(),
+  ownerUserId: text('owner_user_id').notNull(), salutation: text('salutation').notNull().default(''),
+  phoneSuffix: text('phone_suffix').notNull().default(''), purchasedProducts: text('purchased_products').notNull().default(''),
+  interests: text('interests').notNull().default(''), concerns: text('concerns').notNull().default(''),
+  contraindications: text('contraindications').notNull().default(''), notes: text('notes').notNull().default(''),
+  active: integer('active').notNull().default(1), updatedBy: text('updated_by').notNull(), updatedAt: integer('updated_at').notNull(),
+});
+
+export const issues = sqliteTable('studio_issues', {
+  id: text('id').primaryKey(), generationId: text('generation_id').notNull(), userId: text('user_id').notNull(),
+  reason: text('reason').notNull(), note: text('note').notNull().default(''), screenshot: text('screenshot'),
+  status: text('status').notNull().default('open'), createdAt: integer('created_at').notNull(),
 });

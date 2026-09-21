@@ -4,7 +4,7 @@
   "scripts": {
     "dev:studio": "node studio/dev.mjs",
     "build:studio": "node studio/build.mjs",
-    "test:studio": "node --test tests/studio.test.mjs",
+    "test:studio": "node --test tests/studio.test.mjs tests/studio-operational-loop.test.mjs",
     "test:browser": "node tests/studio.browser.mjs",
     "test:frontend": "node tests/frontend_smoke.js",
     "db:generate": "drizzle-kit generate --config studio/drizzle.config.mjs",
