@@ -42,6 +42,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const runtime = await startServer({ db, port: Number(process.env.STUDIO_PORT || 0), env: {
     STUDIO_LOCAL_SETUP: '1', STUDIO_LLM_API_KEY: process.env.STUDIO_LLM_API_KEY,
     STUDIO_LLM_BASE_URL: process.env.STUDIO_LLM_BASE_URL,
+    BAILIAN_KB_API_KEY: process.env.BAILIAN_KB_API_KEY,
+    BAILIAN_KB_BASE_URL: process.env.BAILIAN_KB_BASE_URL,
+    BAILIAN_KB_WORKSPACE_ID: process.env.BAILIAN_KB_WORKSPACE_ID,
+    BAILIAN_KB_AGENT_ID: process.env.BAILIAN_KB_AGENT_ID,
+    BAILIAN_KB_TOP_K: process.env.BAILIAN_KB_TOP_K,
   } });
   console.log(`Local: ${runtime.url}/script-studio`);
   console.log('Local-only preview. Create your own administrator; real generation requires server environment credentials.');

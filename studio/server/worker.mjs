@@ -1,6 +1,7 @@
 import { Store } from './store.mjs';
 import { checkOrigin, readBody, fail, HttpError, json, checkPassword, passwordHash, verifyPassword, randomToken, digest, cookie } from './security.mjs';
 import { generate, validateMaterial } from './generation.mjs';
+import { knowledgeConfigured } from './knowledge.mjs';
 import { maskText, MODEL, monthKey } from '../shared.mjs';
 
 const cleanName = value => typeof value === 'string' && /^[a-zA-Z][a-zA-Z0-9_.-]{2,39}$/.test(value);
@@ -24,7 +25,7 @@ export async function api(request, env, dependencies = {}) {
  if (route === '/api/studio/status' && method === 'GET') {
    const count = await store.query('SELECT COUNT(*) AS n FROM studio_users').first();
     const noUsers = !count.n;
-    return json({ model_configured: !!(env.STUDIO_LLM_API_KEY && env.STUDIO_LLM_BASE_URL), local_setup: noUsers, model: MODEL });
+    return json({ model_configured: !!(env.STUDIO_LLM_API_KEY && env.STUDIO_LLM_BASE_URL), knowledge_configured: knowledgeConfigured(env), local_setup: noUsers, model: MODEL });
  }
  if (route === '/api/studio/setup' && method === 'POST') {
     const existing = await store.query('SELECT COUNT(*) AS n FROM studio_users').first();
@@ -56,7 +57,7 @@ export async function api(request, env, dependencies = {}) {
   }
   const user = await store.authenticate(request);
   if (method !== 'GET' && request.headers.get('X-Studio-CSRF') !== user.csrf) fail(403, '登录校验已失效，请重新登录', 'CSRF_REJECTED');
-  if (route === '/api/studio/me' && method === 'GET') return json({ user: publicUser(user), csrf: user.csrf, model_configured: !!(env.STUDIO_LLM_API_KEY && env.STUDIO_LLM_BASE_URL) });
+  if (route === '/api/studio/me' && method === 'GET') return json({ user: publicUser(user), csrf: user.csrf, model_configured: !!(env.STUDIO_LLM_API_KEY && env.STUDIO_LLM_BASE_URL), knowledge_configured: knowledgeConfigured(env) });
   if (route === '/api/studio/logout' && method === 'POST') {
     await store.query('DELETE FROM studio_sessions WHERE token_hash=?', user.token_hash).run();
     return json({ logged_out: true }, 200, { 'Set-Cookie': cookie('', request, 0) });
@@ -118,7 +119,7 @@ export async function api(request, env, dependencies = {}) {
   if (route === '/api/studio/generations' && method === 'POST') {
     await store.cleanup();
     await store.rateLimit(`generate:${user.id}`, 12, 60);
-    return json(await generate(store, user, await readBody(request), env, dependencies.fetchModel));
+    return json(await generate(store, user, await readBody(request), env, dependencies.fetchModel, dependencies.fetchKnowledge));
   }
   if (route === '/api/studio/feedback' && method === 'POST') {
     const body = await readBody(request);

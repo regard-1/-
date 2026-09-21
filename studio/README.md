@@ -38,12 +38,18 @@ pnpm dev:studio
 | --- | --- |
 | `STUDIO_LLM_API_KEY` | 百炼工作空间 API 密钥 |
 | `STUDIO_LLM_BASE_URL` | 支持该固定模型的北京官方兼容 API 基址，含 `/compatible-mode/v1` |
+| `BAILIAN_KB_API_KEY` | 多特倍斯知识库所在百炼业务空间的 API 密钥 |
+| `BAILIAN_KB_BASE_URL` | 知识检索 API 基址，例如 `https://ws-5ir7z45ox2wmnbb4.cn-beijing.maas.aliyuncs.com` |
+| `BAILIAN_KB_AGENT_ID` | 已发布知识检索服务 ID，形如 `aid-...` |
+| `BAILIAN_KB_TOP_K` | 可选，取前 N 条检索片段，默认 5，最大 10 |
 | `STUDIO_BOOTSTRAP_USERNAME` | 首位管理员账号 |
 | `STUDIO_BOOTSTRAP_PASSWORD_HASH` | `node studio/admin-hash.mjs` 交互生成的哈希，不是明文密码 |
 
 首位管理员登录时执行一次条件插入；已有账号时不覆盖。成功创建后移除 bootstrap 环境变量。不要在线上设置 `STUDIO_LOCAL_SETUP`。本地允许通过进程环境或 Git 忽略的 `.env` 配置模型值；没有任何密钥时生成不可用，不显示假回复。
 
 北京工作空间兼容基址形如 `https://ws-<工作空间标识>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`，完整标识取自百炼工作空间，不使用账号数字 ID 代替。密钥与该工作空间匹配；本地私有配置文件应只允许本人读写。修改环境配置后重启服务。模型列表可访问不代表生成权限有效，须以实际生成请求验证。
+
+知识库检索在模型生成前调用百炼 `POST /api/v1/indices/knowledge/search`。当前绑定业务空间 `ws-5ir7z45ox2wmnbb4`、知识库 `r4s2etnbv6`、检索服务 `aid-56fd229f52354d75af21e38ee208fa8a`；请求参数使用 `agent_id`，知识库 ID 只用于确认该服务绑定的库。检索片段会与本地团队资料一起作为事实依据，不把检索接口返回内容当作可执行指令。检索失败时保留本次输入并继续使用本地资料，不会因知识库异常中断生成；结果页只显示命中数量，不显示凭据或完整上游错误。
 
 当前固定模型 `qwen3.8-max-0902`，JSON Schema 输出、关闭思考和联网；请求最长25秒。固定北京文本输入/输出计费按每百万 token 12/36 元估算，缓存输入按原价保守计算。价格或模型版本变化须重新审核并调整预算单价。
 

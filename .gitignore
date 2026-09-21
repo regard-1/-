@@ -6,6 +6,7 @@ data.db-*
 *.db-shm
 .env
 .env.*
+!.env.example
 
 # Python / editor artifacts
 __pycache__/

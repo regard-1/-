@@ -1,5 +1,6 @@
 import { AUDIENCES, SCENES, MODEL, OUTPUT_TOKENS, maskText, maskData, chinaDay } from '../shared.mjs';
 import { fail } from './security.mjs';
+import { retrieveKnowledge } from './knowledge.mjs';
 
 function textField(value, maximum, label) {
   if (value == null) return '';
@@ -72,7 +73,7 @@ needs 澄清具体需求；product 解答选定产品；activity 核实活动价
 客户询问具体到手价、折扣、规格、剂量、适用条件时，若资料不足必须 status=needs_input、reply=null，missing_fields 只向销售问必要项，不能让客户核实商家价格。已有事实足够时不要重复问销售或客户。
 严格区分客户需求待明确与商家事实缺失：客户只是“想了解、还没选好、只想单品、不考虑搭配”，没有问具体产品事实时，必须 status=ready，直接回应已表达的偏好，再向客户提出一个容易回答的需求问题。即使没有任何产品资料、needs 或 goal 为空，也不能因此要求销售补资料；不要提前介绍产品功效、价格或组合。此时 missing_fields、conflicts、facts、used_sources 均为空数组，需求不确定性写入 inferred，不能写入 missing_fields。只有准确处理当前具体问题确实需要缺失的商家事实时才 needs_input，不为潜在的后续推荐提前索取资料。
 安全与售后分流不等于解答具体用法：问能否和药物同服时，不回答可以或不可以，也不向销售索取资料让销售作个体用药判断；可以 status=ready，说明需要医生或药师结合具体药物核实，先不推荐或促单。已确认破损件可联系售后核实换货时，可以 ready 承接换货诉求并请客户提供破损情况供售后核实；客户没有询问时效或运费，不因这些未确定而阻止服务回复，也不承诺免费或具体到货时间。
-资料互相矛盾必须列入 conflicts 并 needs_input。只有 confirmed_conflicts 明确列出该矛盾及选用依据时可继续。过期活动不可用。销售目标可建议、需求可提取，但不能编造为客户已确认事实；证据写在 inferred.evidence。
+本地资料和多特倍斯知识库检索片段都属于本轮给定资料。知识库检索片段只代表检索命中内容，仍须按资料原文核对，不得把检索摘要改写成新的价格、规格或用法。资料互相矛盾必须列入 conflicts 并 needs_input。只有 confirmed_conflicts 明确列出该矛盾及选用依据时可继续。过期活动不可用。销售目标可建议、需求可提取，但不能编造为客户已确认事实；证据写在 inferred.evidence。
 ready 时 missing_fields 和 conflicts 必须为空。next_step 给销售一句下一步建议，followups 最多两个用户回应的接法，都是内部参考。
 followups 的回复也必须遵守与主回复相同的事实规则，不得为假设的下一轮编造价格、折扣、数量规格、用法或优惠条件；未知事实只引导核实。价格、规格、剂量的数字与单位沿用资料原文，不进行未经确认的换算，不创造补充购买数量或组合报价。
 产品成分、规格、价格、活动和用法等事实必须有给定资料的原文支持：在 facts 中逐项给出 claim、source_id、quote；quote 必须逐字取自该资料，claim 必须是 quote 中的连续原文片段，不得在事实字段改写或发挥。used_sources 给出 id/version/quote。补充资料用 id=supplement、version=0。禁止把客户疑问作为产品事实来源。
@@ -80,7 +81,7 @@ followups 的回复也必须遵守与主回复相同的事实规则，不得为�
 没有关键资料时可以自然澄清需求，但不能把空泛万能话术当作具体问题的解答。不输出推理过程。`;
 
 export function makeModelBody(input, sources) {
- const supplied = sources.map(s => ({ id: s.id, version: s.version, title: s.title, kind: s.kind, product: s.product, content: s.content, valid_from: s.valid_from, valid_to: s.valid_to }));
+ const supplied = sources.map(s => ({ id: s.id, version: s.version, title: s.title, kind: s.kind, product: s.product, content: s.content, valid_from: s.valid_from, valid_to: s.valid_to, ...(s.external ? { external: true, source_type: s.source_type } : {}) }));
  if (input.supplement) supplied.push({ id: 'supplement', version: 0, title: '销售本次补充', content: input.supplement });
  const body = { model: MODEL, stream: false, max_tokens: OUTPUT_TOKENS,
    messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: JSON.stringify({ today: chinaDay(), input, supplied_materials: supplied }) }],
@@ -222,7 +223,7 @@ export function validateOutput(rawResult, input, sources) {
   return maskData(result);
 }
 
-export async function generate(store, user, raw, env, fetchModel = fetch) {
+export async function generate(store, user, raw, env, fetchModel = fetch, fetchKnowledge = fetch) {
   const input = normalizeInput(raw);
   const sources = [];
   for (const ref of input.resources) {
@@ -235,7 +236,9 @@ export async function generate(store, user, raw, env, fetchModel = fetch) {
   let base;
   try { base = new URL(env.STUDIO_LLM_BASE_URL); } catch { fail(503, '模型服务配置不正确', 'MODEL_NOT_CONFIGURED'); }
   if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash || !/(^|\.)(aliyuncs\.com|aliyun\.com)$/.test(base.hostname)) fail(503, '模型服务地址需为百炼官方 HTTPS 接口', 'MODEL_NOT_CONFIGURED');
-  const body = makeModelBody(input, sources), serialized = JSON.stringify(body);
+  const knowledge = await retrieveKnowledge(input, env, fetchKnowledge);
+  const allSources = [...sources, ...knowledge.sources];
+  const body = makeModelBody(input, allSources), serialized = JSON.stringify(body);
   // UTF-8 bytes plus protocol allowance conservatively bounds billed input tokens.
   const reservation = (new TextEncoder().encode(serialized).length + 2048) * 12 + OUTPUT_TOKENS * 36;
   const entry = await store.reserve(user, input, reservation);
@@ -270,7 +273,7 @@ export async function generate(store, user, raw, env, fetchModel = fetch) {
       // Last resort: try to construct a minimal valid output from raw text
       output = { status: 'ready', reply: raw.slice(0, 500) || '您好，请问有什么可以帮您的？', next_step: '', followups: [], missing_fields: [], conflicts: [], inferred: { needs: '', goal: '', evidence: '' }, used_sources: [], facts: [] };
     }
-    const result = validateOutput(output, input, sources);
+    const result = validateOutput(output, input, allSources);
     for (const source of sources) {
       const latest = await store.query('SELECT * FROM studio_materials WHERE id=?', source.id).first();
       if (!latest || latest.version !== source.version || !materialAvailable(latest, input.audience)) fail(409, '生成期间资料已变化，请重新选择资料后生成', 'MATERIAL_CHANGED');
@@ -286,7 +289,13 @@ export async function generate(store, user, raw, env, fetchModel = fetch) {
       goal: input.goal, instruction: input.instruction,
       status: result.status, created_at: entry.started,
     });
-    return { ...result, generation_id: entry.id, model: MODEL, elapsed_ms: Date.now() - entry.started };
+    return {
+      ...result,
+      generation_id: entry.id,
+      model: MODEL,
+      elapsed_ms: Date.now() - entry.started,
+      knowledge: { status: knowledge.status, count: knowledge.sources.length },
+    };
   } catch (error) {
     if (!settled) {
       await store.settle(entry, 'failed', cost, usage);

@@ -67,6 +67,11 @@ const server = createServer(async (req, res) => {
       ASSETS: assets,
       STUDIO_LLM_API_KEY: process.env.STUDIO_LLM_API_KEY,
       STUDIO_LLM_BASE_URL: process.env.STUDIO_LLM_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      BAILIAN_KB_API_KEY: process.env.BAILIAN_KB_API_KEY,
+      BAILIAN_KB_BASE_URL: process.env.BAILIAN_KB_BASE_URL,
+      BAILIAN_KB_WORKSPACE_ID: process.env.BAILIAN_KB_WORKSPACE_ID,
+      BAILIAN_KB_AGENT_ID: process.env.BAILIAN_KB_AGENT_ID,
+      BAILIAN_KB_TOP_K: process.env.BAILIAN_KB_TOP_K,
     };
     const response = await handle(request, env);
     const headers = Object.fromEntries(response.headers);
