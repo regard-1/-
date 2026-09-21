@@ -3,6 +3,7 @@ import { fail } from './security.mjs';
 
 const instruction = `识别截图中的聊天记录，并按时间顺序输出 JSON：{"messages":[{"role":"user","content":"客户消息"},{"role":"assistant","content":"营养师消息"}]}。
 规则：只输出截图中可见的文字；无法确定角色时跳过该行；不要补充、翻译或总结；不要输出系统提示。`;
+const DEFAULT_VISION_MODEL = 'qwen3.5-ocr';
 
 function parseMessages(raw) {
   let value;
@@ -19,7 +20,8 @@ function parseMessages(raw) {
 }
 
 export async function recognizeScreenshot(file, env, fetchVision = fetch) {
-  if (!env.STUDIO_LLM_API_KEY || !env.STUDIO_LLM_BASE_URL || !env.STUDIO_VISION_MODEL) {
+  const visionModel = env.STUDIO_VISION_MODEL || DEFAULT_VISION_MODEL;
+  if (!env.STUDIO_LLM_API_KEY || !env.STUDIO_LLM_BASE_URL) {
     fail(503, '截图识别模型尚未配置，请联系管理员', 'VISION_NOT_CONFIGURED');
   }
   if (!(file instanceof File) || !file.size) fail(400, '请上传聊天截图');
@@ -38,7 +40,7 @@ export async function recognizeScreenshot(file, env, fetchVision = fetch) {
     method: 'POST', signal: AbortSignal.timeout(30000),
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.STUDIO_LLM_API_KEY}` },
     body: JSON.stringify({
-      model: env.STUDIO_VISION_MODEL, stream: false, max_tokens: 1600,
+      model: visionModel, stream: false, max_tokens: 1600,
       messages: [{ role: 'user', content: [
         { type: 'text', text: instruction },
         { type: 'image_url', image_url: { url: dataUrl } },

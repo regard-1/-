@@ -170,7 +170,9 @@ test('screenshot OCR is explicit, authenticated, and masked before returning', a
   const sales = await h.login('sales');
   const form = new FormData();
   form.append('screenshot', new File(['synthetic-image'], 'chat.png', { type: 'image/png' }));
-  assert.equal((await h.call('/ocr', 'POST', form, sales)).status, 503);
+  const defaultResult = await h.call('/ocr', 'POST', form, sales);
+  assert.equal(defaultResult.status, 200);
+  assert.equal(JSON.parse(visionBody).model, 'qwen3.5-ocr');
 
   h.env.STUDIO_VISION_MODEL = 'synthetic-vision-model';
   const result = await h.call('/ocr', 'POST', form, sales);
