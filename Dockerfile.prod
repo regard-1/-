@@ -1,8 +1,17 @@
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY package.json ./
+RUN npm install --no-audit --no-fund
+COPY studio/ ./studio/
+COPY index.html ./
+COPY assets/ ./assets/
+RUN node studio/build.mjs
+
 FROM node:22-alpine
 WORKDIR /app
 COPY package.json ./
-RUN npm install --production
-COPY dist/ ./dist/
+RUN npm install --omit=dev --no-audit --no-fund
+COPY --from=build /app/dist/ ./dist/
 COPY studio/local-db.mjs ./studio/local-db.mjs
 COPY studio/pg-db.mjs ./studio/pg-db.mjs
 COPY drizzle/ ./drizzle/

@@ -7,8 +7,7 @@
 # =============================================================================
 # 前置条件:
 #   1. 产线已完成首次部署(/opt/dotbest-ops/ 已存在)
-#   2. dist/ 目录在产线(仓库不含,首次部署时人工构建)
-#   3. CI 服务器与产线在同一 VPC(10.0.0.0/24),内网互通
+#   2. CI 服务器与产线在同一 VPC(10.0.0.0/24),内网互通
 # =============================================================================
 
 set -euo pipefail
@@ -66,15 +65,7 @@ if ! remote_cmd "echo SSH-OK" >/dev/null 2>&1; then
 fi
 ok "SSH 连通"
 
-# 1.4 检查 dist/ 目录(前端构建产物,仓库不含)
-if ! remote_cmd "test -d ${REMOTE_DIR}/dist" 2>/dev/null; then
-    err "${REMOTE_DIR}/dist/ 不存在,前端尚未构建"
-    err "请在产线执行: cd ${REMOTE_DIR} && npm install && npm run build:studio"
-    exit 1
-fi
-ok "dist/ 目录存在"
-
-# 1.5 检查 docker-compose.prod.yml
+# 1.4 检查 docker-compose.prod.yml
 if ! remote_cmd "test -f ${REMOTE_DIR}/docker-compose.prod.yml" 2>/dev/null; then
     err "${REMOTE_DIR}/docker-compose.prod.yml 不存在"
     exit 1
@@ -102,7 +93,7 @@ ok "备份完成"
 log "上传代码到 ${REMOTE_DIR} ..."
 
 # 排除列表:
-# - dist/ : 前端构建产物(产线有,仓库不含)
+# - dist/ : Docker 构建阶段从源码重新生成,避免沿用旧前端
 # - node_modules/ : 依赖(产线有,docker build 时安装)
 # - .env : 密钥(产线有)
 # - docker-compose.prod.yml : 产线 compose(不覆盖)
