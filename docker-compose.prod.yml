@@ -8,6 +8,7 @@ services:
     environment:
       STUDIO_LLM_API_KEY: ${STUDIO_LLM_API_KEY}
       STUDIO_LLM_BASE_URL: https://dashscope.aliyuncs.com/compatible-mode/v1
+      STUDIO_VISION_MODEL: ${STUDIO_VISION_MODEL}
       BAILIAN_KB_API_KEY: ${BAILIAN_KB_API_KEY}
       BAILIAN_KB_BASE_URL: https://ws-5ir7z45ox2wmnbb4.cn-beijing.maas.aliyuncs.com
       BAILIAN_KB_AGENT_ID: aid-56fd229f52354d75af21e38ee208fa8a
