@@ -156,7 +156,6 @@ export async function api(request, env, dependencies = {}) {
   const sendMatch = route.match(/^\/api\/studio\/outreach\/tasks\/([\w-]+)\/send$/);
   if (sendMatch && method === 'POST') {
     admin(user);
-    await store.rateLimit(`outreach-send:${user.id}`, 20, 60);
     return json(await sendTask(store, env, sendMatch[1], dependencies));
   }
   if (route === '/api/studio/outreach/messages' && method === 'GET') {

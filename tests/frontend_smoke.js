@@ -184,17 +184,17 @@ async function request(url,options){const response=await fetch(url,options);retu
     '用户触达应与话术中心相邻'
   );
   assert.match(appSource,/async function renderOutreach\(\)/);
-  assert.match(appSource,/src="\/script-studio\/index.html\?page=outreach"/);
+  assert.doesNotMatch(appSource,/src="\/script-studio\/index.html\?page=outreach"/);
+  assert.match(appSource,/studioApi\('\/outreach'\)/);
+  assert.match(appSource,/function refreshOutreachStrategies\(/);
+  assert.match(appSource,/function bindOutreachContact\(/);
+  assert.match(appSource,/function confirmOutreachSend\(/);
+  assert.ok(appSource.includes('仅管理员可以执行主动触达'));
   const studioSource=fs.readFileSync(path.join(__dirname,'..','studio','public','app.mjs'),'utf8');
-  assert.match(studioSource,/page.{0,20}outreach/);
+  assert.doesNotMatch(studioSource,/page.{0,20}outreach/);
   assert.match(appSource,/function updateOutreachVisibility\(\)/);
-  assert.match(studioSource,/dotbest-studio-role/);
-  assert.match(appSource,/function renderOutreachStrategy\(/);
-  assert.match(appSource,/function renderOutreachExecution\(/);
-  assert.match(appSource,/function queueOutreach\(/);
-  assert.match(appSource,/function pauseOutreach\(/);
-  assert.match(cssSource,/\.outreach-board/);
-  assert.match(cssSource,/\.outreach-strategy-card/);
+  assert.match(cssSource,/\.outreach-workspace/);
+  assert.match(cssSource,/\.outreach-task-list/);
   assert.ok(
     htmlSource.indexOf('data-page="assets"') < htmlSource.indexOf('data-page="scripts"')
       && htmlSource.indexOf('data-page="scripts"') < htmlSource.indexOf('data-page="outreach"'),

@@ -68,9 +68,11 @@ function listCustomersResponse() {
       imContactId: 'external-contact-1',
       name: '陈先生',
       remarkMobiles: [fullPhone],
+      systemTags: ['NMN用户', '高互动'],
+      remark: '客户关注睡眠和精力',
       gender: 1,
       friendshipStatus: 1,
-      imInfo: { externalUserId: 'external-user-1' },
+      imInfo: { externalUserId: 'external-user-1', tags: ['老客', 'NMN用户'] },
       botInfo: { imBotId: 'bot-1', name: '合成托管账号' },
     }],
     next_seq: '',
@@ -143,6 +145,8 @@ test('sync masks phone, binds matching customer, and never stores token', async 
   const contact = h.db.sqlite.prepare('SELECT * FROM studio_juzi_contacts').get();
   assert.equal(contact.phone_suffix, '5678');
   assert.equal(contact.match_status, 'suggested');
+  assert.equal(contact.tags, 'NMN用户、高互动、老客');
+  assert.equal(contact.remark, '客户关注睡眠和精力');
 
   const bot = await h.call('/api/studio/outreach/bots/bot-1', 'PUT', { owner_user_id: 'sales' }, admin);
   assert.equal(bot.status, 200);
@@ -216,6 +220,8 @@ test('queued messages send with unique external IDs and persist request IDs only
   const contact = snapshot.data.contacts[0];
   await h.call(`/api/studio/outreach/contacts/${contact.id}/bind`, 'PUT', { local_customer_id: 'customer-1' }, admin);
   const first = await h.call('/api/studio/outreach/strategies', 'POST', { limit: 1 }, admin);
+  h.db.sqlite.prepare('UPDATE studio_outreach_tasks SET plan_day=? WHERE id=?')
+    .run('2000-01-01', first.data.tasks[0].id);
   const second = await h.call('/api/studio/outreach/strategies', 'POST', { limit: 1 }, admin);
   await h.call(`/api/studio/outreach/tasks/${first.data.tasks[0].id}/queue`, 'POST', {}, admin);
   await h.call(`/api/studio/outreach/tasks/${second.data.tasks[0].id}/queue`, 'POST', {}, admin);

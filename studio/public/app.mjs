@@ -4,7 +4,7 @@ import { AUDIENCES, SCENES, maskText, escapeHtml as esc, chinaDay } from '../sha
 const $ = selector => document.querySelector(selector);
 const root = $('#root'), modal = $('#modal');
 const draft = () => ({ salutation: '', needs: '', goal: '', supplement: '', instruction: '' });
-const state = { user: null, csrf: '', page: 'generate', audience: 'anti_aging', scene: 'needs', draft: draft(), composer: { text: '', role: null }, editing: null, messages: [], result: null, selected: new Set(), materials: [], customers: [], customerId: '', issues: [], issueFilter: 'open', filter: 'all', pending: false, ocrPending: false, error: '', feedback: '', configured: false, knowledgeConfigured: false, sequence: 0, controller: null, conflicts: [], outreach: null, outreachUsers: [], outreachPending: false, outreachAudience: '', outreachLimit: 10 };
+const state = { user: null, csrf: '', page: 'generate', audience: 'anti_aging', scene: 'needs', draft: draft(), composer: { text: '', role: null }, editing: null, messages: [], result: null, selected: new Set(), materials: [], customers: [], customerId: '', issues: [], issueFilter: 'open', filter: 'all', pending: false, ocrPending: false, error: '', feedback: '', configured: false, knowledgeConfigured: false, sequence: 0, controller: null, conflicts: [] };
 let noticeTimer;
 const icon = (name, cls = '') => `<i data-lucide="${name}" class="${cls}" aria-hidden="true"></i>`;
 const action = (name, text, ico, cls = '', extra = '') => `<button type="button" data-action="${name}" class="${cls}" ${extra}>${ico ? icon(ico) : ''}${esc(text)}</button>`;
@@ -32,7 +32,7 @@ function renderLogin(localSetup = false) {
 }
 function shell(title) {
   const admin = state.user.role === 'admin';
-  root.innerHTML = `<section class="studio-module"><header class="module-toolbar"><nav class="module-tabs" aria-label="话术中心功能">${action('generate-page', '生成回复', 'message-circle', state.page === 'generate' ? 'active' : '')}${admin ? action('outreach', '用户触达', 'send', state.page === 'outreach' ? 'active' : '') : ''}${action('customers', '客户档案', 'users-round', state.page === 'customers' ? 'active' : '')}${action('materials', '团队资料', 'folder-open', state.page === 'materials' ? 'active' : '')}${action('usage', '用量与反馈', 'chart-no-axes-combined', state.page === 'usage' ? 'active' : '')}${admin ? action('issues', '问题台账', 'clipboard-list', state.page === 'issues' ? 'active' : '') : ''}${admin ? action('conversations', '对话留档', 'archive', state.page === 'conversations' ? 'active' : '') : ''}${admin ? action('users', '试用账号', 'user-round-cog', state.page === 'users' ? 'active' : '') : ''}</nav><div class="module-account"><span class="badge ${state.configured ? '' : 'warn'}">${state.configured ? (state.knowledgeConfigured ? '真实 AI · 知识库已接入' : '真实 AI · 小组试用') : '模型尚未配置'}</span><span class="small">${esc(state.user.display_name)}</span>${action('password', '', 'key-round', 'icon-button quiet', 'title="修改密码" aria-label="修改密码"')}${action('logout', '', 'log-out', 'icon-button quiet', 'title="退出话术服务" aria-label="退出话术服务"')}</div></header><main class="main" id="main" aria-label="${esc(title)}"></main></section>`;
+  root.innerHTML = `<section class="studio-module"><header class="module-toolbar"><nav class="module-tabs" aria-label="话术中心功能">${action('generate-page', '生成回复', 'message-circle', state.page === 'generate' ? 'active' : '')}${action('customers', '客户档案', 'users-round', state.page === 'customers' ? 'active' : '')}${action('materials', '团队资料', 'folder-open', state.page === 'materials' ? 'active' : '')}${action('usage', '用量与反馈', 'chart-no-axes-combined', state.page === 'usage' ? 'active' : '')}${admin ? action('issues', '问题台账', 'clipboard-list', state.page === 'issues' ? 'active' : '') : ''}${admin ? action('conversations', '对话留档', 'archive', state.page === 'conversations' ? 'active' : '') : ''}${admin ? action('users', '试用账号', 'user-round-cog', state.page === 'users' ? 'active' : '') : ''}</nav><div class="module-account"><span class="badge ${state.configured ? '' : 'warn'}">${state.configured ? (state.knowledgeConfigured ? '真实 AI · 知识库已接入' : '真实 AI · 小组试用') : '模型尚未配置'}</span><span class="small">${esc(state.user.display_name)}</span>${action('password', '', 'key-round', 'icon-button quiet', 'title="修改密码" aria-label="修改密码"')}${action('logout', '', 'log-out', 'icon-button quiet', 'title="退出话术服务" aria-label="退出话术服务"')}</div></header><main class="main" id="main" aria-label="${esc(title)}"></main></section>`;
 }
 function available(material) { const day = chinaDay(); return !!material?.active && ['all', state.audience].includes(material.audience) && (!material.valid_from || material.valid_from <= day) && (!material.valid_to || material.valid_to >= day); }
 function autoSelectMaterials() {
@@ -125,63 +125,6 @@ async function usersPage() {
   state.page = 'users'; const version = state.sequence; const data = await request('/users'); if (version !== state.sequence || !state.user) return; shell('试用账号');
   $('#main').innerHTML = `<div class="row between page-intro"><span class="muted">${data.items.length} 个试用账号</span>${action('new-user','添加账号','user-plus','primary')}</div><div class="table-scroll"><table class="table"><thead><tr><th>账号</th><th>名称</th><th>角色</th><th>状态</th><th>操作</th></tr></thead><tbody>${data.items.map(u=>`<tr><td>${esc(u.username)}</td><td>${esc(u.display_name)}</td><td>${u.role==='admin'?'管理员':'销售'}</td><td>${u.active?'可用':'停用'}${u.must_change?' · 待改密码':''}</td><td>${action('toggle-user',u.active?'停用':'启用','',u.active?'danger':'',`data-id="${u.id}" data-active="${u.active}"`)} ${action('reset-user','重置密码','','',`data-id="${u.id}"`)}</td></tr>`).join('')}</tbody></table></div>`; iconsNow();
 }
-const OUTREACH_STATUS = { draft: '草稿', queued: '已入队', sent: '已发送' };
-const MATCH_STATUS = { bound: '已绑定', suggested: '待确认', ambiguous: '多个候选', unmatched: '未匹配' };
-async function loadOutreach() {
-  const version = ++state.sequence;
-  const [data, users] = await Promise.all([request('/outreach'), request('/users')]);
-  if (version !== state.sequence || !state.user) return;
-  state.outreach = data; state.outreachUsers = users.items;
-  if (state.page === 'outreach') renderOutreach();
-}
-async function outreachPage() {
-  state.page = 'outreach'; shell('用户触达');
-  $('#main').innerHTML = '<div class="empty">正在读取触达数据…</div>';
-  await loadOutreach();
-}
-function outreachContactCandidates(contact, data) {
-  const rows = data.local_customers || [];
-  if (contact.local_customer_id) return rows.filter(c => c.id === contact.local_customer_id);
-  const byPhone = contact.phone_suffix ? rows.filter(c => c.phone_suffix === contact.phone_suffix) : [];
-  const exactName = byPhone.filter(c => c.display_name === contact.display_name);
-  return exactName.length ? exactName : byPhone;
-}
-function outreachContactSelect(contact, data) {
-  const candidates = outreachContactCandidates(contact, data);
-  const selected = contact.local_customer_id || (contact.match_status === 'suggested' && candidates.length === 1 ? candidates[0].id : '');
-  if (!candidates.length && !selected) return '<span class="small">暂无候选档案</span>';
-  const options = [
-    '<option value="">未绑定</option>',
-    ...candidates.map(c => `<option value="${esc(c.id)}" ${selected === c.id ? 'selected' : ''}>${esc(c.display_name)} · ${esc(AUDIENCES[c.audience] || c.audience)}${c.phone_suffix ? ` · 尾号${esc(c.phone_suffix)}` : ''}</option>`),
-  ];
-  return `<select data-contact="${esc(contact.id)}" aria-label="绑定本地客户">${options.join('')}</select>`;
-}
-function renderOutreach() {
-  const data = state.outreach; if (!data) return;
-  const salesUsers = state.outreachUsers.filter(u => u.role === 'sales');
-  const ownerOptions = owner => `<option value="">未分配</option>${salesUsers.map(u => `<option value="${esc(u.id)}" ${owner === u.id ? 'selected' : ''}>${esc(u.display_name)}</option>`).join('')}`;
-  const botRows = data.bots.map(b => `<tr><td>${esc(b.bot_name)}</td><td>${esc(b.im_bot_id)}</td><td><select data-bot="${esc(b.im_bot_id)}" aria-label="托管账号归属">${ownerOptions(b.owner_user_id)}</select></td><td>${b.last_synced_at ? new Date(b.last_synced_at).toLocaleString('zh-CN') : '未同步'}</td></tr>`).join('') || '<tr><td colspan="4">暂无托管账号</td></tr>';
-  const contactRows = data.contacts.map(c => `<tr><td>${esc(c.display_name)}</td><td>${c.phone_suffix ? esc(c.phone_suffix) : '未提供'}</td><td><span class="outreach-state ${esc(c.match_status)}">${MATCH_STATUS[c.match_status] || c.match_status}</span></td><td>${outreachContactSelect(c, data)}</td></tr>`).join('') || '<tr><td colspan="4">暂无同步客户</td></tr>';
-  const audienceOptions = Object.entries(AUDIENCES).map(([id, name]) => `<option value="${id}" ${state.outreachAudience === id ? 'selected' : ''}>${esc(name)}</option>`).join('');
-  const taskRows = data.tasks.map(t => `<tr><td>${esc(t.customer_name || t.contact_name)}</td><td>${t.priority === 'high' ? '高' : t.priority === 'medium' ? '中' : '低'}</td><td class="outreach-message">${esc(t.recommended_message)}</td><td class="outreach-message">${esc(t.next_action)}</td><td class="outreach-message">${esc(t.stop_rule)}</td><td><span class="outreach-state ${esc(t.status)}">${OUTREACH_STATUS[t.status] || t.status}</span></td><td class="outreach-actions">${t.status === 'draft' ? action('outreach-queue', '入队', 'list-plus', '', 'data-id="' + esc(t.id) + '"') : ''}${t.status === 'queued' ? action('outreach-send', '确认发送', 'send', 'primary', 'data-id="' + esc(t.id) + '"') : ''}</td></tr>`).join('') || '<tr><td colspan="7">暂无触达任务</td></tr>';
-  const messageRows = data.messages.map(m => `<tr><td>${new Date(m.created_at).toLocaleString('zh-CN')}</td><td>${esc(m.contact_name)}</td><td>${m.direction === 'outbound' ? '发出' : m.direction === 'inbound' ? '收到' : '未知'}</td><td class="outreach-message">${esc(m.content)}</td><td>${m.status === 'sent' ? '已送达上游' : m.status === 'received' ? '已收到' : m.status === 'failed' ? '失败' : m.status}</td></tr>`).join('') || '<tr><td colspan="5">暂无消息留档</td></tr>';
-  $('#main').innerHTML = `<div class="outreach-page">
-    <section class="outreach-summary">
-      <div><small>连接状态</small><strong>${data.connected ? '句子互动已连接' : '尚未配置句子互动'}</strong></div>
-      <div><small>同步客户</small><strong>${data.counts.contacts}</strong></div>
-      <div><small>已绑定</small><strong>${data.counts.bound}</strong></div>
-      <div><small>待确认 / 多候选</small><strong>${data.counts.suggested} / ${data.counts.ambiguous}</strong></div>
-      <div><small>草稿 / 已入队</small><strong>${data.counts.draft} / ${data.counts.queued}</strong></div>
-      ${action('outreach-sync', data.connected ? '同步句子互动客户' : '无法同步', 'refresh-cw', 'primary', data.connected ? '' : 'disabled')}
-    </section>
-    <section class="outreach-section"><header><h2>托管账号归属</h2><span class="small">用于按营养师划分触达责任</span></header><div class="table-scroll"><table class="table"><thead><tr><th>托管账号</th><th>账号 ID</th><th>归属顾问</th><th>最近同步</th></tr></thead><tbody>${botRows}</tbody></table></div></section>
-    <section class="outreach-section"><header><h2>客户匹配</h2><span class="small">手机号仅使用后四位，多个候选时需人工确认</span></header><div class="table-scroll"><table class="table"><thead><tr><th>句子互动客户</th><th>尾号</th><th>匹配状态</th><th>本地档案</th></tr></thead><tbody>${contactRows}</tbody></table></div></section>
-    <section class="outreach-section"><header><h2>触达策略生成</h2><span class="small">仅使用已人工绑定的客户，发送前需管理员确认</span></header><div class="outreach-generator"><div class="field"><label for="outreach-audience">人群</label><select id="outreach-audience"><option value="">全部人群</option>${audienceOptions}</select></div><div class="field"><label for="outreach-limit">本次候选数</label><input id="outreach-limit" type="number" min="1" max="20" value="${state.outreachLimit}"></div>${action('outreach-generate', state.outreachPending ? '生成中…' : '生成触达策略', 'wand-sparkles', 'primary', state.outreachPending ? 'disabled' : '')}</div></section>
-    <section class="outreach-section"><header><h2>触达任务</h2><span class="small">草稿确认后入队，入队后仍需人工点击发送</span></header><div class="table-scroll"><table class="table"><thead><tr><th>客户</th><th>优先级</th><th>触达话术</th><th>后续动作</th><th>暂停规则</th><th>状态</th><th>操作</th></tr></thead><tbody>${taskRows}</tbody></table></div></section>
-    <section class="outreach-section"><header><h2>30 天消息留档</h2><span class="small">仅管理员可见，用于跟进与对账</span></header><div class="table-scroll"><table class="table"><thead><tr><th>时间</th><th>客户</th><th>方向</th><th>内容</th><th>状态</th></tr></thead><tbody>${messageRows}</tbody></table></div></section>
-  </div>`;
-  iconsNow();
-}
 async function usagePage() {
   state.page = 'usage'; const version = state.sequence; const data = await request('/usage'); if (version !== state.sequence || !state.user) return; shell('用量与反馈');
   const {summary:s}=data;
@@ -265,26 +208,12 @@ function feedbackDialog(generationId) {
 function userEditor(id = '') { showModal(`${modalHead(id?'重置临时密码':'添加试用账号')}<form id="user-form" data-id="${esc(id)}">${id?'':`${field('new-username','账号','',{required:true,max:40})}${field('display-name','显示名称','',{required:true,max:40})}<div class="field"><label for="user-role">角色</label><select name="role" id="user-role"><option value="sales">销售</option><option value="admin">管理员</option></select></div>`}${field('temporary-password','临时密码（至少12位，含字母和数字）','',{type:'password',required:true,autocomplete:'new-password',max:128})}<div class="form-error" role="alert"></div><footer><button type="submit" class="primary">${id?'重置密码':'创建账号'}</button></footer></form>`); }
 async function enter() {
   const me = await request('/me'); state.user = me.user; state.csrf = me.csrf; state.configured = me.model_configured; state.knowledgeConfigured = !!me.knowledge_configured;
-  if (window.parent !== window) window.parent.postMessage({ type: 'dotbest-studio-role', role: state.user.role }, window.location.origin);
   if (state.user.must_change) { shell('首次登录'); $('#main').innerHTML = '<div class="warning">请先修改临时密码。</div>'; iconsNow(); passwordDialog(true); return; }
   await Promise.all([loadMaterials(), loadCustomers()]);
-  if (new URLSearchParams(location.search).get('page') === 'outreach' && state.user.role === 'admin') return outreachPage();
   generator();
 }
 document.addEventListener('input', e => { if (e.target.id in state.draft) { state.draft[e.target.id] = maskText(e.target.value); if (state.pending) { state.controller?.abort(); state.sequence++; state.pending=false; } if (state.result) { state.result=null; $('.result-column').innerHTML='<h2>回复建议</h2><p class="muted">咨询内容已调整，请重新生成。</p>'; } const runButton=$('[data-action="run"]'); if(runButton) { runButton.disabled=!state.configured; runButton.textContent='生成回复'; } } if (e.target.id === 'composer-text') { state.composer.text = maskText(e.target.value); if (state.pending) { state.controller?.abort(); state.sequence++; state.pending=false; } if (state.result) { state.result=null; $('.result-column').innerHTML='<h2>回复建议</h2><p class="muted">咨询内容已调整，请重新生成。</p>'; } const rb=$('[data-action="run"]'); if(rb) { rb.disabled=!canGenerate(); } } });
 document.addEventListener('change', async e => {
-  if (e.target.dataset.bot) {
-    const id = e.target.dataset.bot, owner = e.target.value || null;
-    try { await request(`/outreach/bots/${id}`, { method: 'PUT', body: JSON.stringify({ owner_user_id: owner }) }); notify('托管账号归属已更新'); }
-    catch (error) { notify(error.message); }
-    await loadOutreach(); return;
-  }
-  if (e.target.dataset.contact) {
-    const id = e.target.dataset.contact, customerId = e.target.value || null;
-    try { await request(`/outreach/contacts/${id}/bind`, { method: 'PUT', body: JSON.stringify({ local_customer_id: customerId }) }); notify(customerId ? '客户绑定已确认' : '客户绑定已解除'); }
-    catch (error) { notify(error.message); }
-    await loadOutreach(); return;
-  }
   if (e.target.id === 'customer-select') {
     capture(); state.customerId = e.target.value;
     const customer = state.customers.find(c => c.id === state.customerId);
@@ -354,27 +283,6 @@ document.addEventListener('click', async e => {
     if(a==='issue-status'){await request(`/issues/${id}`,{method:'PUT',body:JSON.stringify({status:button.dataset.status})});await issuesPage();return;}
     if(a==='material-versions'){const data=await request(`/materials/${id}/versions`);showModal(`${modalHead('资料版本记录')}<div class="stack">${data.items.map(v=>{const m=JSON.parse(v.snapshot);return `<section><h3>V${v.version} · ${esc(m.title)}</h3><p class="small">${esc(new Date(v.updated_at).toLocaleString('zh-CN'))}</p><p class="resource-preview">${esc(m.content)}</p></section>`;}).join('')}</div>`);return;}
     if(a==='new-user'||a==='reset-user'){userEditor(id);return;}
-    if(a==='outreach-sync'){
-      try { const result = await post('/outreach/sync', {}); notify(`已同步 ${result.synced} 个句子互动客户，绑定 ${result.bound} 个，待确认 ${result.suggested} 个`); }
-      catch (error) { notify(error.message); return; }
-      await loadOutreach(); return;
-    }
-    if(a==='outreach-generate'){
-      state.outreachAudience = $('#outreach-audience')?.value || '';
-      state.outreachLimit = Math.min(20, Math.max(1, Number($('#outreach-limit')?.value) || 10));
-      state.outreachPending = true; renderOutreach();
-      try { const result = await post('/outreach/strategies', { audience: state.outreachAudience, limit: state.outreachLimit }); notify(`已生成 ${result.created_count} 条触达策略，请核对后入队`); }
-      catch (error) { notify(error.message); }
-      finally { state.outreachPending = false; }
-      await loadOutreach(); return;
-    }
-    if(a==='outreach-queue'){await post(`/outreach/tasks/${id}/queue`,{});notify('触达任务已入队，发送前请再次确认');await loadOutreach();return;}
-    if(a==='outreach-send'){
-      const task = state.outreach?.tasks.find(t => t.id === id);
-      if (!task) return notify('触达任务已失效，请刷新');
-      if (!confirm(`确认向 ${task.customer_name || task.contact_name} 发送以下内容？\n\n${task.recommended_message}`)) return;
-      await post(`/outreach/tasks/${id}/send`,{});notify('触达消息已发送');await loadOutreach();return;
-    }
     if(a==='toggle-user'){await request(`/users/${id}`,{method:'PUT',body:JSON.stringify({active:button.dataset.active!=='1'})});await usersPage();return;}
     if(a==='conv-search'){state.convFilters={user:$('#conv-filter-user')?.value||'',scene:$('#conv-filter-scene')?.value||'',audience:$('#conv-filter-audience')?.value||'',feedback:$('#conv-filter-feedback')?.value||'',status:$('#conv-filter-status')?.value||''};loadConversations(1);return;}
     if(a==='conv-detail'){conversationDetail(id);return;}
@@ -384,7 +292,6 @@ document.addEventListener('click', async e => {
     if(a==='materials'){await loadMaterials();if(version===state.sequence&&state.user)materialsPage();}
     if(a==='customers'){await loadCustomers();if(version===state.sequence&&state.user)customersPage();}
     if(a==='generate-page')generator();
-    if(a==='outreach')await outreachPage();
     if(a==='users')await usersPage();
     if(a==='usage')await usagePage();
     if(a==='conversations')conversationsPage();

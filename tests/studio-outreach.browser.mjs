@@ -12,8 +12,8 @@ catch { ({ chromium } = createRequire(`${process.env.STUDIO_TEST_MODULES}/packag
 
 const db = new LocalDB();
 const hash = await passwordHash('OutreachPass123!');
-db.sqlite.prepare('INSERT INTO studio_users VALUES(?,?,?,?,?,1,0,?)').run('outreach-admin', 'admin', '验收管理员', hash, 'admin', Date.now());
-db.sqlite.prepare('INSERT INTO studio_users VALUES(?,?,?,?,?,1,0,?)').run('outreach-sales', 'sales', '验收销售', hash, 'sales', Date.now());
+db.sqlite.prepare('INSERT INTO studio_users VALUES(?,?,?,?,?,1,0,?)').run('outreach-admin', 'outreach-admin', '验收管理员', hash, 'admin', Date.now());
+db.sqlite.prepare('INSERT INTO studio_users VALUES(?,?,?,?,?,1,0,?)').run('outreach-sales', 'outreach-sales', '验收销售', hash, 'sales', Date.now());
 db.sqlite.prepare(`INSERT INTO studio_customers(id,display_name,audience,owner_user_id,salutation,phone_suffix,
   purchased_products,interests,concerns,contraindications,notes,active,updated_by,updated_at)
   VALUES('customer-1','陈先生','anti_aging','outreach-sales','陈哥','5678','NMN','精力','价格','','先核实安全',1,'outreach-sales',?)`).run(Date.now());
@@ -71,49 +71,63 @@ const screenshot = async name => {
 
 try {
   await mkdir('artifacts', { recursive: true });
-  await page.goto(runtime.url + '/script-studio/index.html?page=outreach');
-  await page.locator('#username').fill('admin');
-  await page.locator('#password').fill('OutreachPass123!');
+  await page.goto(runtime.url + '/');
+  await page.locator('#login-form [name=username]').fill('demo_operator');
+  await page.locator('#login-form [name=password]').fill('demo');
   await page.locator('#login-form [type=submit]').click();
-  await page.locator('.outreach-page').waitFor();
-  assert.ok((await page.locator('.outreach-page').textContent()).includes('句子互动已连接'));
+  await page.locator('.app-shell').waitFor();
+  await page.locator('[data-page="outreach"]').click();
+  await page.locator('#outreach-login-form').waitFor();
+  await page.locator('#outreach-username').fill('outreach-admin');
+  await page.locator('#outreach-password').fill('OutreachPass123!');
+  await page.locator('#outreach-login-form [type=submit]').click();
+  await page.locator('.outreach-workspace').waitFor();
+  assert.ok((await page.locator('.outreach-workspace').textContent()).includes('句子互动已连接'));
 
   const syncResponse = page.waitForResponse(response => response.url().endsWith('/api/studio/outreach/sync'));
   await page.locator('[data-action="outreach-sync"]').click();
   await syncResponse;
   await page.waitForSelector('[data-contact]');
-  assert.ok((await page.locator('.outreach-page').textContent()).includes('5678'));
-  assert.ok(!(await page.locator('.outreach-page').textContent()).includes('13800135678'));
+  assert.ok((await page.locator('.outreach-workspace').textContent()).includes('5678'));
+  assert.ok(!(await page.locator('.outreach-workspace').textContent()).includes('13800135678'));
 
-  await page.locator('[data-contact]').selectOption('customer-1');
-  await page.waitForFunction(() => document.querySelector('.outreach-page')?.textContent.includes('已绑定'));
   const generated = page.waitForResponse(response => response.url().endsWith('/api/studio/outreach/strategies'));
-  await page.locator('[data-action="outreach-generate"]').click();
+  await page.locator('[data-contact]').selectOption('customer-1');
   await generated;
+  await page.waitForFunction(() => document.querySelector('.outreach-workspace')?.textContent.includes('已绑定'));
   await page.waitForFunction(() => document.querySelectorAll('[data-action="outreach-queue"]').length === 1);
-  assert.ok((await page.locator('.outreach-page').textContent()).includes('陈哥'));
+  assert.ok((await page.locator('.outreach-workspace').textContent()).includes('陈哥'));
 
   await page.locator('[data-action="outreach-queue"]').click();
-  await page.locator('[data-action="outreach-send"]').waitFor();
+  await page.locator('[data-action="outreach-send"]').first().waitFor();
   page.once('dialog', dialog => dialog.accept());
   const sent = page.waitForResponse(response => response.url().includes('/api/studio/outreach/tasks/') && response.url().endsWith('/send'));
-  await page.locator('[data-action="outreach-send"]').click();
+  await page.locator('[data-action="outreach-send"]').first().click();
   await sent;
-  await page.waitForFunction(() => document.querySelector('.outreach-page')?.textContent.includes('已送达上游'));
+  await page.waitForFunction(() => document.querySelector('.outreach-workspace')?.textContent.includes('已发送'));
   await screenshot('desktop');
 
   await page.setViewportSize({ width: 390, height: 844 });
   await screenshot('mobile');
 
-  await page.locator('[data-action="logout"]').click();
-  await page.locator('#login-form').waitFor();
-  await page.locator('#username').fill('sales');
-  await page.locator('#password').fill('OutreachPass123!');
-  await page.locator('#login-form [type=submit]').click();
-  await page.locator('#composer-text').waitFor();
-  assert.equal(await page.locator('[data-action="outreach"]').count(), 0);
+  const salesContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const salesPage = await salesContext.newPage();
+  await salesPage.goto(runtime.url + '/');
+  await salesPage.locator('#login-form [name=username]').fill('demo_operator');
+  await salesPage.locator('#login-form [name=password]').fill('demo');
+  await salesPage.locator('#login-form [type=submit]').click();
+  await salesPage.locator('.app-shell').waitFor();
+  await salesPage.locator('[data-page="outreach"]').click();
+  await salesPage.locator('#outreach-login-form').waitFor();
+  await salesPage.locator('#outreach-username').fill('outreach-sales');
+  await salesPage.locator('#outreach-password').fill('OutreachPass123!');
+  await salesPage.locator('#outreach-login-form [type=submit]').click();
+  await salesPage.locator('.empty-card').waitFor();
+  assert.ok((await salesPage.locator('.empty-card').textContent()).includes('当前账号没有用户触达权限'));
+  await salesPage.close();
+  await salesContext.close();
   assert.deepEqual(errors, []);
-  console.log('Outreach browser QA passed: admin sync/bind/generate/queue/send, privacy, mobile layout, and sales hidden entry. Synthetic upstream and model only.');
+  console.log('Outreach browser QA passed: native host page, admin sync/bind/generate/queue/send, privacy, mobile layout, and sales permission. Synthetic upstream and model only.');
 } finally {
   await browser.close();
   await runtime.close();

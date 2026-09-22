@@ -1,4 +1,4 @@
-const state={user:null,studioRole:null,page:'workbench',categories:[],audience:null,audienceQuery:'',audienceOwner:'',audiencePage:1,customer:null,scripts:[],tasks:[],taskCategory:'all',outreach:null,outreachTab:'strategy'};
+const state={user:null,studioRole:null,page:'workbench',categories:[],audience:null,audienceQuery:'',audienceOwner:'',audiencePage:1,customer:null,scripts:[],tasks:[],taskCategory:'all',outreachUser:null,outreachCsrf:'',outreachData:null,outreachUsers:[],outreachPending:false,outreachAutoStarted:false,outreachModelConfigured:false,outreachError:''};
 let navigationVersion=0;
 const $=(selector,root=document)=>root.querySelector(selector);
 const $$=(selector,root=document)=>[...root.querySelectorAll(selector)];
@@ -12,18 +12,23 @@ function showApp(){$('#login-view').classList.add('hidden');$('#app').classList.
 function showDrawer(html){$('#drawer-content').innerHTML=html;$('#drawer').classList.remove('hidden');$('#drawer-backdrop').classList.remove('hidden')}
 function closeDrawer(){$('#drawer').classList.add('hidden');$('#drawer-backdrop').classList.add('hidden')}
 function setHeader(title,crumb){$('#page-title').textContent=title;$('#breadcrumb').textContent=`私域运营中台 / ${crumb}`}
-function setNav(page){state.page=page;$$('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.page===page));$('#main-content').classList.toggle('studio-content',page==='scripts'||page==='outreach');$('.sync-state').textContent=page==='scripts'||page==='outreach'?'话术服务 · 账号保护':'演示数据'}
+function setNav(page){state.page=page;$$('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.page===page));$('#main-content').classList.toggle('studio-content',page==='scripts');$('.sync-state').textContent=page==='scripts'||page==='outreach'?'话术服务 · 账号保护':'演示数据'}
 
 async function bootstrap(){try{state.user=await api('/api/me');applyUser();await syncStudioRole();showApp();navigate(initialPage(),'replace')}catch{showLogin()}}
 function applyUser(){$('#user-name').textContent=state.user.display_name;$('#user-role').textContent=state.user.role;$('#user-avatar').textContent=state.user.display_name.slice(0,1)}
 $('#login-form').addEventListener('submit',async e=>{e.preventDefault();const form=new FormData(e.currentTarget);try{await api('/api/login',{method:'POST',body:JSON.stringify(Object.fromEntries(form))});state.user=await api('/api/me');applyUser();await syncStudioRole();showApp();navigate(initialPage())}catch(err){toast(err.message)}});
 $('#logout-button').addEventListener('click',async()=>{navigationVersion++;$('#main-content').replaceChildren();try{await logoutStudio();await api('/api/logout',{method:'POST',body:'{}'});state.user=null;showLogin()}catch{toast('退出未完成，请重试')}});
-window.addEventListener('message',event=>{if(event.origin!==location.origin||event.data?.type!=='dotbest-studio-role'||!['admin','sales'].includes(event.data.role))return;state.studioRole=event.data.role;updateOutreachVisibility()});
 function updateOutreachVisibility(){const button=$('[data-page="outreach"]');if(button)button.classList.toggle('hidden',state.studioRole==='sales')}
-async function syncStudioRole(){try{const response=await fetch('/api/studio/me',{credentials:'same-origin'});if(!response.ok)return;const result=await response.json();if(result.success&&['admin','sales'].includes(result.data?.user?.role)){state.studioRole=result.data.user.role;updateOutreachVisibility()}}catch{}}
-async function logoutStudio(){const response=await fetch('/api/studio/me',{credentials:'same-origin'});if(response.status===401||response.status===404)return;if(!response.ok)throw new Error('退出未完成');if(!response.headers.get('Content-Type')?.includes('application/json'))return;const result=await response.json();if(!result.success||!result.data?.csrf)throw new Error('退出未完成');const logout=await fetch('/api/studio/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-Studio-CSRF':result.data.csrf},body:'{}'});if(!logout.ok)throw new Error('退出未完成')}
+async function syncStudioRole(){try{const response=await fetch('/api/studio/me',{credentials:'same-origin'});if(response.status===401)return;const result=await response.json();if(result.success&&['admin','sales'].includes(result.data?.user?.role)){state.studioRole=result.data.user.role;state.outreachUser=result.data.user;state.outreachCsrf=result.data.csrf||state.outreachCsrf;state.outreachModelConfigured=!!result.data.model_configured;updateOutreachVisibility()}}catch{}}
+async function logoutStudio(){if(!state.outreachCsrf)return;const response=await fetch('/api/studio/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-Studio-CSRF':state.outreachCsrf},body:'{}'});if(response.status===401||response.status===404){state.outreachUser=null;state.outreachCsrf='';state.studioRole=null;updateOutreachVisibility();return}if(!response.ok)throw new Error('退出未完成');state.outreachUser=null;state.outreachCsrf='';state.studioRole=null;updateOutreachVisibility()}
 $$('[data-page]').forEach(button=>button.addEventListener('click',()=>navigate(button.dataset.page)));
 $('#drawer-backdrop').addEventListener('click',closeDrawer);
+document.addEventListener('change',event=>{
+  const bot=event.target.closest('[data-bot]');
+  if(bot){assignOutreachBot(bot.dataset.bot,bot.value);return}
+  const contact=event.target.closest('[data-contact]');
+  if(contact)bindOutreachContact(contact.dataset.contact,contact.value);
+});
 
 async function navigate(page,historyMode='push'){if(!page)return;const version=++navigationVersion;setNav(page);closeDrawer();loading();if(historyMode!=='none'){const url=new URL(location.href);url.searchParams.set('page',page);if(url.href!==location.href)history[historyMode==='replace'?'replaceState':'pushState']({},'',url)}try{if(page==='workbench')await renderWorkbench();else if(page==='assets')await renderAssets();else if(page==='tasks')await renderTasks();else if(page==='scripts')await renderScripts();else if(page==='outreach')await renderOutreach();else if(page==='script-templates')await renderScriptTemplates();else if(page==='governance')await renderGovernance()}catch(err){if(version!==navigationVersion||err.name==='AbortError')return;$('#main-content').innerHTML=`<div class="empty-card">加载失败：${esc(err.message)}<br><button class="secondary-button" onclick="navigate('${esc(page)}')">重新加载</button></div>`}}
 window.addEventListener('popstate',()=>{if(state.user)navigate(initialPage(),'none')});
@@ -83,37 +88,90 @@ async function completeTask(id){await api(`/api/v1/private/tasks/${id}/status`,{
 
 function initialPage(){const page=new URLSearchParams(location.search).get('page');return ['workbench','assets','tasks','scripts','outreach','script-templates','governance'].includes(page)?page:/^\/script-studio\/?$/.test(location.pathname)?'scripts':'workbench'}
 async function renderOutreach(){
-  setHeader('用户触达','用户触达 / 句子互动执行');
+  setHeader('用户触达','用户触达 / 小蟹 AI 与句子互动');
   const version=navigationVersion;
-  if(state.studioRole==='sales'){$('#main-content').innerHTML='<div class="empty-card">当前账号没有用户触达权限，仅管理员可以执行主动触达。</div>';return}
   try{
-    const response=await fetch('/api/studio/status',{credentials:'same-origin'});
-    const result=await response.json();
+    const account=await ensureOutreachAccount();
     if(version!==navigationVersion)return;
-    if(!response.ok||!result.success||typeof result.data?.model_configured!=='boolean')throw new Error('unavailable');
-    $('#main-content').innerHTML='<iframe id="studio-frame" class="studio-frame" src="/script-studio/index.html?page=outreach" title="用户触达" allow="clipboard-write" referrerpolicy="no-referrer"></iframe>';
+    if(account==='setup'){$('#main-content').innerHTML=outreachSetupForm();$('#outreach-setup-form').addEventListener('submit',event=>submitOutreachLogin(event,'setup'));return}
+    if(account==='login'){$('#main-content').innerHTML=outreachLoginForm();$('#outreach-login-form').addEventListener('submit',event=>submitOutreachLogin(event,'login'));return}
+    if(state.outreachUser?.role!=='admin'){$('#main-content').innerHTML='<div class="empty-card">当前账号没有用户触达权限，仅管理员可以执行主动触达。</div>';return}
+    const [data,users]=await Promise.all([studioApi('/outreach'),studioApi('/users')]);
+    if(version!==navigationVersion)return;
+    state.outreachData=data;
+    state.outreachUsers=users.items||[];
+    if(shouldAutoGenerateOutreach(data)){
+      state.outreachAutoStarted=true;
+      state.outreachError='正在生成今日一客一策…';
+      renderOutreachWorkspace(data);
+      await refreshOutreachStrategies(false);
+      return;
+    }
+    renderOutreachWorkspace(data);
   }catch(error){
     if(version!==navigationVersion)return;
-    $('#main-content').innerHTML='<div class="empty-card">当前站点尚未接入句子互动服务。<br><button class="secondary-button" onclick="navigate(\'outreach\')">重试</button></div>';
+    state.outreachError=error.message;
+    renderOutreachWorkspace(state.outreachData);
   }
 }
-function renderOutreachStrategy(data){
-  const segments=data.segments.map(s=>`<button class="outreach-segment" style="--accent:${esc(s.color)}" onclick="filterOutreachSegment('${esc(s.code)}')"><span>${esc(s.name)}</span><strong>${s.user_count}</strong><small>${esc(s.description)}</small></button>`).join('');
-  return `<section class="outreach-board"><header><div><h3>触达策略</h3><p>AI 根据用户事实、互动状态、价值分层和上次触达结果生成建议；低置信或冲突样本进入人工复核。</p></div><button class="secondary-button" onclick="refreshOutreach()">重新生成策略</button></header><div class="outreach-segment-grid">${segments}</div><div class="outreach-strategy-list">${data.strategies.map(outreachStrategyCard).join('')}</div></section>`;
+async function studioApi(path,options={}){
+  const version=navigationVersion;
+  const response=await fetch('/api/studio'+path,{credentials:'same-origin',...options,headers:{'Content-Type':'application/json',...(state.outreachCsrf?{'X-Studio-CSRF':state.outreachCsrf}:{}) ,...(options.headers||{})}});
+  const result=await response.json().catch(()=>({success:false,error:{message:'响应格式错误'}}));
+  if(version!==navigationVersion)throw new DOMException('页面已切换','AbortError');
+  if(!response.ok||!result.success){
+    const error=new Error(result.error?.message||'请求失败');
+    error.status=response.status;error.code=result.error?.code;throw error;
+  }
+  return result.data;
 }
-function outreachStrategyCard(item){const c=item.customer;return `<article class="outreach-strategy-card ${item.review_status==='已加入队列'?'queued':''}"><header><div><strong>${esc(c.salutation||c.name)}</strong><span>${esc(c.phone)} · ${esc(c.owner)} · ${esc(item.audience_name)}</span></div><span class="confidence-pill">${item.confidence}% 置信</span></header><div class="outreach-strategy-body"><div><label>触达理由</label><p>${esc(item.reason)}</p></div><div><label>推荐首句</label><p class="outreach-message">${esc(item.recommended_message)}</p></div><div><label>下一步</label><p>${esc(item.next_action)}</p></div><div><label>停止规则</label><p>${esc(item.stop_rule)}</p></div></div><details><summary>查看判断依据与回复路径</summary><ul>${item.evidence.map(x=>`<li>${esc(x)}</li>`).join('')}</ul><div class="outreach-routes">${item.reply_routes.map(r=>`<div><strong>${esc(r.when)}</strong><p>${esc(r.then)}</p></div>`).join('')}</div></details><footer>${item.review_status==='待确认'?`<button class="primary-button" onclick="queueOutreach('${esc(item.id)}')">加入执行队列</button><button class="secondary-button" onclick="openCustomer(${c.id})">查看用户资料</button>`:`<button class="secondary-button" onclick="switchOutreachTab('execution')">查看队列</button>`}<button class="text-button" onclick="pauseOutreach('${esc(item.id)}')">暂停触达</button></footer></article>`;
+async function ensureOutreachAccount(){
+  if(state.outreachUser&&state.outreachCsrf)return 'ready';
+  try{
+    const data=await studioApi('/me');
+    state.outreachUser=data.user;state.outreachCsrf=data.csrf;state.outreachModelConfigured=!!data.model_configured;
+    state.studioRole=data.user?.role;updateOutreachVisibility();return 'ready';
+  }catch(error){
+    if(error.status!==401)throw error;
+    const status=await studioApi('/status');
+    state.outreachModelConfigured=!!status.model_configured;
+    return status.local_setup?'setup':'login';
+  }
 }
-function renderOutreachExecution(data){const queue=data.queue.length?data.queue.map(outreachQueueCard).join(''):'<div class="empty-card">队列暂无待发送任务。</div>';const history=data.history.length?data.history.map(item=>`<article class="outreach-history-row"><div><strong>${esc(item.customer.salutation||item.customer.name)}</strong><span>${esc(item.customer.phone)} · ${esc(item.customer.owner)}</span></div><p>${esc(item.message)}</p><time>${esc(item.time)}</time></article>`).join(''):'<div class="empty-card">暂无真实发送记录。</div>';return `<section class="outreach-board"><header><div><h3>企微执行</h3><p>队列中的消息必须由归属顾问确认后，才可经句子互动发送；系统不做无人值守群发。</p></div><span class="outreach-provider">${esc(data.connection.provider)}</span></header><div class="outreach-execution-grid"><article class="outreach-connection-card ${data.connection.configured?'ok':''}"><h4>句子互动连接</h4><p>${esc(data.connection.status_message)}</p><ul><li>客户同步：${esc(data.connection.customer_sync)}</li><li>消息回执：${esc(data.connection.reply_callback)}</li><li>员工绑定：${esc(data.connection.staff_binding)}</li></ul></article><article class="outreach-policy-card"><h4>执行边界</h4><ul><li>发送窗口：${esc(data.policy.send_window)}</li><li>单人频率：每日 ${data.policy.daily_limit} 次 / 每周 ${data.policy.weekly_limit} 次 / 每月 ${data.policy.monthly_limit} 次</li><li>留档周期：${esc(data.policy.retention)}</li><li>权限：仅管理员可查看发送与回复留档</li></ul></article></div><div class="outreach-queue-list">${queue}</div><div class="section-heading spaced-heading"><div><h3>发送与回复留档</h3><p>仅保留 30 天，用于复盘开口率与转化路径；不用于模型自动改写。</p></div></div><div class="outreach-history-list">${history}</div></section>`;
+function outreachLoginForm(){return `<section class="outreach-login"><header><h3>用户触达管理员登录</h3><p>仅管理员可以同步小蟹 AI / 句子互动用户、生成每日策略并确认发送。</p></header><form id="outreach-login-form"><label class="form-label">账号<input id="outreach-username" autocomplete="username" required></label><label class="form-label">密码<input id="outreach-password" type="password" autocomplete="current-password" required></label><button class="primary-button full" type="submit">登录用户触达</button></form></section>`}
+function outreachSetupForm(){return `<section class="outreach-login"><header><h3>创建首个用户触达管理员</h3><p>该账号独立于演示中台账号，用于管理句子互动、客户策略和发送留档。</p></header><form id="outreach-setup-form"><label class="form-label">管理员账号<input id="outreach-username" autocomplete="username" required></label><label class="form-label">密码<input id="outreach-password" type="password" autocomplete="new-password" required></label><button class="primary-button full" type="submit">创建管理员</button></form></section>`}
+async function submitOutreachLogin(event,mode){event.preventDefault();const body={username:$('#outreach-username').value.trim(),password:$('#outreach-password').value};try{if(mode==='setup')await studioApi('/setup',{method:'POST',body:JSON.stringify(body)});const data=await studioApi('/login',{method:'POST',body:JSON.stringify(body)});const me=await studioApi('/me');state.outreachUser=data.user;state.outreachCsrf=data.csrf;state.outreachModelConfigured=!!me.model_configured;state.studioRole=data.user?.role;state.outreachAutoStarted=false;updateOutreachVisibility();await renderOutreach()}catch(error){toast(error.message)}}
+function shouldAutoGenerateOutreach(data){return state.outreachAutoStarted===false&&state.outreachModelConfigured&&data?.counts?.today===0&&data.counts.bound>0}
+function renderOutreachWorkspace(data){
+  if(!data){$('#main-content').innerHTML=`<div class="empty-card">${esc(state.outreachError||'用户触达暂时不可用。')}<br><button class="secondary-button" onclick="navigate('outreach')">重新加载</button></div>`;return}
+  const counts=data.counts,tasks=data.tasks||[],contacts=data.contacts||[],bots=data.bots||[],messages=data.messages||[],updates=data.profile_updates||[];
+  $('#main-content').innerHTML=`<section class="outreach-workspace">
+    <header><div><span>OUTREACH CONTROL</span><h3>每日一客一策触达</h3><p>同步小蟹 AI / 句子互动客户与标签，结合本地档案、近期对话和当月资料生成策略。发送必须人工确认。</p></div><div><button class="secondary-button" type="button" data-action="outreach-sync" onclick="syncOutreachContacts()">同步客户</button><button class="primary-button" type="button" data-action="outreach-generate" onclick="refreshOutreachStrategies(true)">刷新今日策略</button></div></header>
+    <div class="outreach-summary-grid">${outreachSummary('句子互动',data.configured?'已连接':'待配置',data.configured?'API 已由服务端保管':'请联系管理员配置')}${outreachSummary('计划日期',data.plan_day,'按天幂等生成')}${outreachSummary('同步客户',counts.contacts,'仅保存手机号后四位')}${outreachSummary('已绑定',counts.bound,'策略使用本地档案')}${outreachSummary('今日策略',counts.today,'不限制每日触达人数')}${outreachSummary('已发送',counts.sentToday,'人工确认后提交上游')}</div>
+    ${state.outreachError?`<div class="outreach-alert">${esc(state.outreachError)}</div>`:''}
+    <section class="outreach-panel"><header><h4>托管账号归属</h4><p>给句子互动托管账号绑定营养师归属，便于按顾问筛选和跟进。</p></header><div class="outreach-bot-list">${bots.length?bots.map(bot=>`<article><strong>${esc(bot.bot_name)}</strong><span>${esc(bot.im_bot_id)}</span><select data-bot="${esc(bot.im_bot_id)}">${outreachUserOptions(state.outreachUsers,bot.owner_user_id)}</select></article>`).join(''):'<div class="empty-card">尚未同步托管账号。</div>'}</div></section>
+    <section class="outreach-panel"><header><h4>客户匹配</h4><p>句子互动标签和备注会一并导入；手机号只显示后四位。</p></header><div class="outreach-contact-list">${contacts.length?contacts.map(outreachContactRow).join(''):'<div class="empty-card">尚未同步客户，请先点击同步客户。</div>'}</div></section>
+    <section class="outreach-panel"><header><h4>今日一客一策</h4><p>每个任务包含触达理由、开口文案、下一步和暂停规则；可从画像更新建议继续追踪。</p></header><div class="outreach-task-list">${tasks.filter(t=>t.plan_day===data.plan_day).length?tasks.filter(t=>t.plan_day===data.plan_day).map(outreachTaskCard).join(''):'<div class="empty-card">今日暂无策略。确认客户已绑定后点击刷新今日策略。</div>'}</div></section>
+    <section class="outreach-panel"><header><h4>执行队列</h4><p>仅管理员可入队和发送；发送前系统弹出完整内容二次确认。</p></header><div class="outreach-queue-list">${tasks.filter(t=>t.status==='queued').map(outreachQueueCard).join('')||'<div class="empty-card">队列暂无待发送任务。</div>'}</div></section>
+    <section class="outreach-panel"><header><h4>30 天消息留档</h4><p>仅管理员可查看，用于复盘开口与画像更新，不用于销售自动改模型。</p></header><div class="outreach-message-archive">${messages.length?messages.map(outreachMessageRow).join(''):'<div class="empty-card">暂无发送与回复留档。</div>'}</div></section>
+    <section class="outreach-panel"><header><h4>画像更新建议</h4><p>客户回复后自动沉淀建议，由管理员复核后再用于下一轮策略。</p></header><div class="outreach-profile-updates">${updates.length?updates.map(outreachProfileRow).join(''):'<div class="empty-card">暂无画像更新建议。</div>'}</div></section>
+  </section>`;
 }
-function outreachQueueCard(item){return `<article class="outreach-queue-card"><div><strong>${esc(item.customer.salutation||item.customer.name)}</strong><span>${esc(item.customer.phone)} · ${esc(item.customer.owner)} · ${esc(item.audience_name)}</span></div><p>${esc(item.recommended_message)}</p><footer><button class="primary-button" onclick="confirmOutreach('${esc(item.id)}')">确认发送</button><button class="secondary-button" onclick="removeOutreach('${esc(item.id)}')">移出队列</button></footer></article>`;
-}
-function switchOutreachTab(tab){state.outreachTab=tab;renderOutreach()}
-function filterOutreachSegment(code){state.outreachSegment=state.outreachSegment===code?'':code;renderOutreach()}
-async function refreshOutreach(){await api('/api/v1/private/outreach/refresh',{method:'POST',body:'{}'});toast('已重新生成触达策略');renderOutreach()}
-async function queueOutreach(id){try{await api('/api/v1/private/outreach/queue',{method:'POST',body:JSON.stringify({id})});state.outreachTab='execution';toast('已加入执行队列，请人工确认后发送');renderOutreach()}catch(err){toast(err.message)}}
-async function confirmOutreach(id){try{await api('/api/v1/private/outreach/send',{method:'POST',body:JSON.stringify({id,confirmed:true})});toast('已提交句子互动发送')}catch(err){toast(err.message)}}
-async function removeOutreach(id){try{await api('/api/v1/private/outreach/remove',{method:'POST',body:JSON.stringify({id})});toast('已移出执行队列');renderOutreach()}catch(err){toast(err.message)}}
-async function pauseOutreach(id){try{await api('/api/v1/private/outreach/pause',{method:'POST',body:JSON.stringify({id})});toast('已暂停该用户主动触达');renderOutreach()}catch(err){toast(err.message)}}
+function outreachSummary(label,value,note){return `<article><span>${esc(label)}</span><strong>${esc(value)}</strong><small>${esc(note)}</small></article>`}
+function outreachUserOptions(users,selected){return `<option value="">未绑定</option>${users.map(u=>`<option value="${esc(u.id)}" ${u.id===selected?'selected':''}>${esc(u.display_name)} · ${esc(u.role==='admin'?'管理员':'营养师')}</option>`).join('')}`}
+function outreachContactRow(contact){const local=contact.local_customer_id||'';const status=contact.match_status==='bound'?'已绑定':contact.match_status==='suggested'?'建议匹配':contact.match_status==='ambiguous'?'需人工确认':'未匹配';return `<article><div><strong>${esc(contact.display_name)}</strong><span>尾号 ${esc(contact.phone_suffix||'—')} · ${esc(contact.owner_name||'未绑定归属')}</span></div><div class="outreach-tag-list">${(contact.tags||'').split('、').filter(Boolean).map(tag=>`<span>${esc(tag)}</span>`).join('')||'<span>无标签</span>'}</div>${contact.remark?`<small>${esc(contact.remark)}</small>`:''}<div><span class="tag ${contact.match_status==='bound'?'green':''}">${status}</span><select data-contact="${esc(contact.id)}"><option value="">选择本地档案</option>${(state.outreachData?.local_customers||[]).map(c=>`<option value="${esc(c.id)}" ${c.id===local?'selected':''}>${esc(c.display_name)} · ${esc(c.phone_suffix)}</option>`).join('')}</select></div></article>`}
+function outreachTaskCard(task){const queued=task.status==='queued',sent=task.status==='sent',paused=task.status==='paused';const contact=(state.outreachData?.contacts||[]).find(item=>item.id===task.contact_id);const phone=task.phone_suffix||contact?.phone_suffix||'—';return `<article class="outreach-task-card ${task.priority}"><header><div><strong>${esc(task.contact_name||task.customer_name||'客户')}</strong><span>尾号 ${esc(phone)} · ${esc(strategyName(task.strategy_type))} · ${esc(task.audience||'')}</span></div><span>${esc(task.status)}</span></header><p>${esc(task.recommended_message)}</p><dl><div><dt>触达理由</dt><dd>${esc(task.reason)}</dd></div><div><dt>下一步</dt><dd>${esc(task.next_action)}</dd></div><div><dt>暂停规则</dt><dd>${esc(task.stop_rule)}</dd></div><div><dt>画像沉淀</dt><dd>${esc(profileUpdateText(task.profile_updates))}</dd></div></dl><footer>${task.status==='draft'?`<button class="primary-button" type="button" data-action="outreach-queue" onclick="queueOutreachTask('${esc(task.id)}')">加入执行队列</button>`:''}${queued?`<button class="primary-button" type="button" data-action="outreach-send" onclick="confirmOutreachSend('${esc(task.id)}')">人工确认发送</button>`:''}${paused?'<span class="tag red">已暂停</span>':''}${sent?'<span class="tag green">已发送</span>':''}</footer></article>`}
+function strategyName(type){return ({care:'关怀',repurchase_notice:'复购通知',education:'教育',activity:'活动',service:'服务',boundary_check:'边界确认'}[type]||'关怀')}
+function profileUpdateText(value){try{const data=JSON.parse(value||'{}');return [data.observed_signal,data.next_focus].filter(Boolean).join(' / ')||'暂无'}catch{return '暂无'}}
+function outreachQueueCard(task){return `<article><div><strong>${esc(task.contact_name||task.customer_name||'客户')}</strong><span>${esc(task.bot_name||'')} · 待人工确认</span></div><p>${esc(task.recommended_message)}</p><button class="primary-button" type="button" data-action="outreach-send" onclick="confirmOutreachSend('${esc(task.id)}')">确认发送</button></article>`}
+function outreachMessageRow(item){return `<article><div><strong>${esc(item.contact_name||'客户')}</strong><span>${esc(item.direction==='inbound'?'客户回复':'系统发送')} · ${esc(item.status)}</span></div><p>${esc(item.content)}</p><time>${fmtDate(item.created_at)}</time></article>`}
+function outreachProfileRow(item){return `<article><div><strong>${esc(item.contact_name||'客户')}</strong><span>${esc(item.created_at?fmtDate(item.created_at):'')}</span></div><p>${esc(item.suggested_update||item.update_json||'暂无建议')}</p></article>`}
+async function syncOutreachContacts(){if(state.outreachPending)return;state.outreachPending=true;toast('正在同步句子互动客户…');try{await studioApi('/outreach/sync',{method:'POST',body:'{}'});state.outreachAutoStarted=false;await renderOutreach();toast('客户同步完成')}catch(error){toast(error.message)}finally{state.outreachPending=false}}
+async function refreshOutreachStrategies(refresh){if(state.outreachPending)return;state.outreachPending=true;state.outreachError=refresh?'正在重新生成今日策略…':'正在生成今日策略…';renderOutreachWorkspace(state.outreachData);try{await studioApi('/outreach/strategies',{method:'POST',body:JSON.stringify({refresh})});state.outreachError='';await renderOutreach();toast('今日策略已生成')}catch(error){state.outreachError=error.message;renderOutreachWorkspace(state.outreachData);toast(error.message)}finally{state.outreachPending=false}}
+async function bindOutreachContact(id,customerId){try{await studioApi(`/outreach/contacts/${encodeURIComponent(id)}/bind`,{method:'PUT',body:JSON.stringify({local_customer_id:customerId})});toast(customerId?'客户绑定已更新':'已解除绑定');await renderOutreach()}catch(error){toast(error.message)}}
+async function assignOutreachBot(id,userId){try{await studioApi(`/outreach/bots/${encodeURIComponent(id)}`,{method:'PUT',body:JSON.stringify({owner_user_id:userId})});toast('托管账号归属已更新');await renderOutreach()}catch(error){toast(error.message)}}
+async function queueOutreachTask(id){try{await studioApi(`/outreach/tasks/${encodeURIComponent(id)}/queue`,{method:'POST',body:'{}'});toast('已加入执行队列');await renderOutreach()}catch(error){toast(error.message)}}
+async function confirmOutreachSend(id){const task=(state.outreachData?.tasks||[]).find(item=>item.id===id);if(!task)return;const name=task.contact_name||task.customer_name||'客户';if(!confirm(`确认发送给 ${name}？\n\n${task.recommended_message}`))return;try{await studioApi(`/outreach/tasks/${encodeURIComponent(id)}/send`,{method:'POST',body:'{}'});toast('已提交句子互动发送')}catch(error){toast(error.message)}finally{await renderOutreach()}}
 async function renderScripts(){
   setHeader('话术中心','话术中心');
   const version=navigationVersion;
@@ -135,5 +193,5 @@ async function copyEditedScript(){try{await navigator.clipboard.writeText($('#sc
 
 async function renderGovernance(){setHeader('合规与权限','合规与权限');const data=await api('/api/v1/private/governance');$('#main-content').innerHTML=`<section class="permission-banner"><div><span>当前角色</span><h3>${esc(data.role)}</h3><p>权限围绕本人负责用户的触达执行配置。</p></div><strong>内部信息仅限授权人员使用</strong></section><div class="permission-grid"><article class="permission-card allowed"><h3>允许操作</h3><ul>${data.allowed.map(x=>`<li>✓ ${esc(x)}</li>`).join('')}</ul></article><article class="permission-card blocked"><h3>禁止操作</h3><ul>${data.blocked.map(x=>`<li>× ${esc(x)}</li>`).join('')}</ul></article></div><section class="panel"><div class="panel-title"><h4>最近操作记录</h4><span>演示审计日志</span></div>${data.audit.map(x=>`<div class="audit-row"><time>${esc(x.time)}</time><strong>${esc(x.action)}</strong><span>${esc(x.object)}</span><b>${esc(x.result)}</b></div>`).join('')}</section>`}
 
-Object.assign(window,{navigate,openSegment,openAudience,searchAudience,selectOwner,changeAudiencePage,openCustomerForm,saveCustomer,openImportForm,renderImportPreview,loadImportFile,saveCustomerImport,openCustomer,closeDrawer,refreshProfile,filterTasks,openTaskDetail,refreshTouchOptimization,completeTask,switchOutreachTab,filterOutreachSegment,refreshOutreach,queueOutreach,confirmOutreach,removeOutreach,pauseOutreach,copyScript,openScript,copyEditedScript});
+Object.assign(window,{navigate,openSegment,openAudience,searchAudience,selectOwner,changeAudiencePage,openCustomerForm,saveCustomer,openImportForm,renderImportPreview,loadImportFile,saveCustomerImport,openCustomer,closeDrawer,refreshProfile,filterTasks,openTaskDetail,refreshTouchOptimization,completeTask,syncOutreachContacts,refreshOutreachStrategies,bindOutreachContact,assignOutreachBot,queueOutreachTask,confirmOutreachSend,copyScript,openScript,copyEditedScript});
 bootstrap();

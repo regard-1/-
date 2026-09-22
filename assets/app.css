@@ -290,3 +290,44 @@ button,input,select,textarea{font:inherit} button{cursor:pointer}.hidden{display
 @media(max-width:1180px){.outreach-metric-grid{grid-template-columns:repeat(3,1fr)}.outreach-hero{align-items:flex-start;flex-direction:column}.outreach-status{min-width:0}}
 @media(max-width:900px){.outreach-strategy-body,.outreach-routes,.outreach-execution-grid{grid-template-columns:1fr}.outreach-history-row{grid-template-columns:1fr;text-align:left}.outreach-history-row time{text-align:left}}
 @media(max-width:700px){.outreach-metric-grid,.outreach-segment-grid{grid-template-columns:1fr}.outreach-board>header{align-items:flex-start;flex-direction:column}.outreach-strategy-card>footer{flex-wrap:wrap}}
+
+/* Native admin outreach workspace */
+.outreach-login{width:min(460px,100%);margin:8vh auto;padding:34px;border:1px solid var(--line);border-radius:16px;background:#fff;box-shadow:var(--shadow)}
+.outreach-login header h3{margin:0;color:#17416b}.outreach-login header p{margin:8px 0 22px;color:var(--muted);line-height:1.7}
+.outreach-login input{display:block;width:100%;margin-top:8px;padding:12px 13px;border:1px solid var(--line);border-radius:10px;background:#fff;outline:none}
+.outreach-login input:focus{border-color:#3b7cc8;box-shadow:0 0 0 3px #e0ecf8}
+.outreach-workspace{display:grid;gap:16px}
+.outreach-workspace>header{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:26px 28px;border:1px solid #c6dbee;border-radius:18px;background:linear-gradient(125deg,#eaf4fd,#f8fbff);box-shadow:0 14px 38px rgba(33,66,105,.08)}
+.outreach-workspace>header span{display:block;color:#2b7ab8;font-size:10px;font-weight:800;letter-spacing:1.5px}
+.outreach-workspace>header h3{margin:7px 0;color:#173c64;font-size:22px}.outreach-workspace>header p{margin:0;color:#54718d;font-size:12px;line-height:1.7;max-width:760px}
+.outreach-workspace>header>div:last-child{display:flex;gap:10px;flex-shrink:0}
+.outreach-summary-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
+.outreach-summary-grid article{padding:16px;border:1px solid #cddff0;border-radius:14px;background:#fff}
+.outreach-summary-grid span{display:block;color:#65809a;font-size:10px}.outreach-summary-grid strong{display:block;margin-top:8px;color:#1d4d79;font-size:20px}.outreach-summary-grid small{display:block;margin-top:5px;color:#6c89a5;font-size:10px;line-height:1.5}
+.outreach-alert{padding:14px 16px;border:1px solid #dfc9c5;border-left:4px solid #c25b52;border-radius:12px;background:#fff8f7;color:#8d4f48}
+.outreach-panel{min-width:0;border:1px solid #cddff0;border-radius:16px;background:#fff;overflow:hidden}
+.outreach-panel>header{padding:17px 19px;border-bottom:1px solid #dce9f5;background:#f3f8fd}
+.outreach-panel>header h4{margin:0;color:#1d4d79;font-size:14px}.outreach-panel>header p{margin:6px 0 0;color:#67839e;font-size:10px;line-height:1.6}
+.outreach-bot-list,.outreach-contact-list,.outreach-task-list,.outreach-queue-list,.outreach-message-archive,.outreach-profile-updates{display:grid;gap:12px;padding:16px 18px 18px}
+.outreach-bot-list article{display:grid;grid-template-columns:minmax(150px,1fr) minmax(180px,1fr);gap:12px;align-items:center;padding:14px;border:1px solid #dce9f5;border-radius:12px;background:#f8fbff}
+.outreach-bot-list strong{display:block;color:#1d4d79}.outreach-bot-list span{display:block;margin-top:4px;color:#6c89a5;font-size:10px}
+.outreach-contact-list article{display:grid;grid-template-columns:minmax(160px,.8fr) minmax(260px,1fr) minmax(220px,.8fr);gap:13px;align-items:start;padding:15px;border:1px solid #dce9f5;border-radius:13px;background:#fff}
+.outreach-contact-list article>div:first-child strong{display:block;color:#1d4d79}.outreach-contact-list article>div:first-child span{display:block;margin-top:5px;color:#6c89a5;font-size:10px}
+.outreach-contact-list small{grid-column:1/-1;color:#6c89a5;font-size:10px;line-height:1.6}
+.outreach-contact-list article>div:last-child{display:flex;justify-content:space-between;gap:10px;align-items:center}
+.outreach-tag-list{display:flex;gap:6px;flex-wrap:wrap}
+.outreach-tag-list span,.outreach-task-card .tag{padding:5px 7px;border-radius:8px;background:#e3eefc;color:#29638f;font-size:9px;line-height:1.4}
+.outreach-task-list article,.outreach-queue-list article,.outreach-message-archive article,.outreach-profile-updates article{display:grid;gap:10px;padding:16px;border:1px solid #dce9f5;border-radius:14px;background:#fff}
+.outreach-task-card header,.outreach-queue-list header,.outreach-message-archive article>div:first-child,.outreach-profile-updates article>div:first-child{display:flex;justify-content:space-between;gap:12px;align-items:center}
+.outreach-task-card header strong,.outreach-queue-list strong{color:#1d4d79;font-size:14px}
+.outreach-task-card header span,.outreach-queue-list span{color:#6c89a5;font-size:10px;line-height:1.5}
+.outreach-task-card p,.outreach-queue-list p,.outreach-message-archive p,.outreach-profile-updates p{margin:0;padding:11px 12px;border-left:3px solid #4a90ca;border-radius:0 10px 10px 0;background:#f2f7fc;color:#3c5671;font-size:12px;line-height:1.75;white-space:pre-wrap;overflow-wrap:anywhere}
+.outreach-task-card dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:0}
+.outreach-task-card dt{font-size:10px;font-weight:800;color:#5c7894}.outreach-task-card dd{margin:5px 0 0;color:#41566c;font-size:11px;line-height:1.65}
+.outreach-task-card footer,.outreach-queue-list footer{display:flex;gap:10px;flex-wrap:wrap}
+.outreach-message-archive time,.outreach-profile-updates time{color:#8ba0b5;font-size:10px}
+.outreach-workspace select{max-width:100%;padding:10px 11px;border:1px solid var(--line);border-radius:10px;background:#fff;color:#3c5671;outline:none}
+.outreach-workspace .empty-card{padding:26px}
+@media(max-width:1250px){.outreach-summary-grid{grid-template-columns:repeat(3,1fr)}.outreach-contact-list article{grid-template-columns:1fr 1fr}.outreach-contact-list small{grid-column:auto}.outreach-contact-list article>div:last-child{grid-column:1/-1}}
+@media(max-width:900px){.outreach-workspace>header{align-items:flex-start;flex-direction:column}.outreach-workspace>header>div:last-child{width:100%;flex-wrap:wrap}.outreach-bot-list article,.outreach-contact-list article{grid-template-columns:1fr}.outreach-contact-list article>div:last-child{grid-column:auto;flex-direction:column;align-items:stretch}}
+@media(max-width:700px){.outreach-summary-grid{grid-template-columns:repeat(2,1fr)}.outreach-task-card dl{grid-template-columns:1fr}.outreach-login{padding:24px}.outreach-workspace>header>div:last-child button{flex:1}}
