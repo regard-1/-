@@ -163,15 +163,20 @@ async function request(url,options){const response=await fetch(url,options);retu
   const appSource=fs.readFileSync(path.join(__dirname,'..','assets','app.js'),'utf8');
   const cssSource=fs.readFileSync(path.join(__dirname,'..','assets','app.css'),'utf8');
   const htmlSource=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
-  assert.match(appSource,/className='strategy-panel'/);
-  assert.match(appSource,/openingPlanHtml\(c\)/);
+  assert.doesNotMatch(appSource,/className='strategy-panel'/);
+  assert.doesNotMatch(appSource,/openingPlanHtml\(/);
   assert.doesNotMatch(appSource,/projectMaterialsHtml/);
-  assert.match(appSource,/async function renderProjects\(\)/);
-  assert.match(appSource,/resource-activity/);
-  assert.match(appSource,/当月活动机制/);
-  assert.match(appSource,/产品搭配组合/);
-  assert.match(appSource,/多特倍斯知识库/);
-  assert.match(htmlSource,/data-page="projects"/);
+  assert.doesNotMatch(appSource,/async function renderProjects\(\)/);
+  assert.doesNotMatch(appSource,/async function renderConversations\(\)/);
+  assert.doesNotMatch(appSource,/openConversationFor/);
+  assert.doesNotMatch(appSource,/openTaskConversation/);
+  assert.doesNotMatch(appSource,/saveResources\(/);
+  assert.doesNotMatch(appSource,/resource-activity/);
+  assert.doesNotMatch(appSource,/navigate\('conversations'\)/);
+  assert.doesNotMatch(htmlSource,/data-page="projects"/);
+  assert.doesNotMatch(htmlSource,/data-page="conversations"/);
+  assert.doesNotMatch(htmlSource,/项目资料/);
+  assert.doesNotMatch(htmlSource,/会话工作台/);
   assert.match(htmlSource,/data-page="outreach"/);
   assert.ok(
     htmlSource.indexOf('data-page="scripts"') < htmlSource.indexOf('data-page="outreach"')
@@ -186,13 +191,13 @@ async function request(url,options){const response=await fetch(url,options);retu
   assert.match(cssSource,/\.outreach-board/);
   assert.match(cssSource,/\.outreach-strategy-card/);
   assert.ok(
-    htmlSource.indexOf('data-page="assets"') < htmlSource.indexOf('data-page="projects"')
-    && htmlSource.indexOf('data-page="projects"') < htmlSource.indexOf('data-page="conversations"'),
-    '项目资料应位于用户资产与会话工作台之间'
+    htmlSource.indexOf('data-page="assets"') < htmlSource.indexOf('data-page="scripts"')
+      && htmlSource.indexOf('data-page="scripts"') < htmlSource.indexOf('data-page="outreach"'),
+    '话术中心与用户触达应保留在用户资产之后'
   );
-  assert.match(cssSource,/\.materials-grid/);
-  assert.match(cssSource,/\.projects-hero/);
-  assert.doesNotMatch(cssSource,/\.materials-panel/);
+  assert.doesNotMatch(appSource,/conversation-workspace/);
+  assert.doesNotMatch(appSource,/materials-grid/);
+  assert.doesNotMatch(appSource,/projects-hero/);
 
   const subpathSource=fs.readFileSync(path.join(__dirname,'..','assets','demo-api.js'),'utf8')
     .replace(/\/api\//g,'/dotbest-ops/api/');
