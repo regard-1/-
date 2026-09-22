@@ -324,4 +324,7 @@ test('migrations and production configuration keep the token server-side', () =>
   const compose = readFileSync(new URL('../docker-compose.prod.yml', import.meta.url), 'utf8');
   assert.match(compose, /WECOM_API_TOKEN:\s*\$\{WECOM_API_TOKEN\}/);
   assert.ok(!compose.includes(juziToken));
+  const pgAdapter = readFileSync(new URL('../studio/pg-db.mjs', import.meta.url), 'utf8');
+  assert.match(pgAdapter, /0005_pg_outreach_profile/);
+  assert.ok(readFileSync(new URL('../drizzle/0005_pg_outreach_profile.sql', import.meta.url), 'utf8').includes('studio_customer_profile_updates'));
 });

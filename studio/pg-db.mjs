@@ -24,6 +24,7 @@ export class PgDB {
         { tag: '0002_pg_init', file: '../drizzle/0002_pg_init.sql' },
         { tag: '0003_pg_operational_loop', file: '../drizzle/0003_pg_operational_loop.sql' },
         { tag: '0004_pg_juzi_outreach', file: '../drizzle/0004_pg_juzi_outreach.sql' },
+        { tag: '0005_pg_outreach_profile', file: '../drizzle/0005_pg_outreach_profile.sql' },
       ];
       for (const migration of migrations) {
         const exists = await client.query('SELECT tag FROM pg_migrations WHERE tag=$1', [migration.tag]);
