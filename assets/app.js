@@ -1,4 +1,4 @@
-const state={user:null,page:'workbench',categories:[],audience:null,audienceQuery:'',audienceOwner:'',audiencePage:1,customer:null,scripts:[],tasks:[],taskCategory:'all',outreach:null,outreachTab:'strategy'};
+const state={user:null,studioRole:null,page:'workbench',categories:[],audience:null,audienceQuery:'',audienceOwner:'',audiencePage:1,customer:null,scripts:[],tasks:[],taskCategory:'all',outreach:null,outreachTab:'strategy'};
 let navigationVersion=0;
 const $=(selector,root=document)=>root.querySelector(selector);
 const $$=(selector,root=document)=>[...root.querySelectorAll(selector)];
@@ -12,12 +12,15 @@ function showApp(){$('#login-view').classList.add('hidden');$('#app').classList.
 function showDrawer(html){$('#drawer-content').innerHTML=html;$('#drawer').classList.remove('hidden');$('#drawer-backdrop').classList.remove('hidden')}
 function closeDrawer(){$('#drawer').classList.add('hidden');$('#drawer-backdrop').classList.add('hidden')}
 function setHeader(title,crumb){$('#page-title').textContent=title;$('#breadcrumb').textContent=`私域运营中台 / ${crumb}`}
-function setNav(page){state.page=page;$$('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.page===page));$('#main-content').classList.toggle('studio-content',page==='scripts');$('.sync-state').textContent=page==='scripts'?'话术服务 · 账号保护':'演示数据'}
+function setNav(page){state.page=page;$$('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.page===page));$('#main-content').classList.toggle('studio-content',page==='scripts'||page==='outreach');$('.sync-state').textContent=page==='scripts'||page==='outreach'?'话术服务 · 账号保护':'演示数据'}
 
-async function bootstrap(){try{state.user=await api('/api/me');applyUser();showApp();navigate(initialPage(),'replace')}catch{showLogin()}}
+async function bootstrap(){try{state.user=await api('/api/me');applyUser();await syncStudioRole();showApp();navigate(initialPage(),'replace')}catch{showLogin()}}
 function applyUser(){$('#user-name').textContent=state.user.display_name;$('#user-role').textContent=state.user.role;$('#user-avatar').textContent=state.user.display_name.slice(0,1)}
-$('#login-form').addEventListener('submit',async e=>{e.preventDefault();const form=new FormData(e.currentTarget);try{await api('/api/login',{method:'POST',body:JSON.stringify(Object.fromEntries(form))});state.user=await api('/api/me');applyUser();showApp();navigate(initialPage())}catch(err){toast(err.message)}});
+$('#login-form').addEventListener('submit',async e=>{e.preventDefault();const form=new FormData(e.currentTarget);try{await api('/api/login',{method:'POST',body:JSON.stringify(Object.fromEntries(form))});state.user=await api('/api/me');applyUser();await syncStudioRole();showApp();navigate(initialPage())}catch(err){toast(err.message)}});
 $('#logout-button').addEventListener('click',async()=>{navigationVersion++;$('#main-content').replaceChildren();try{await logoutStudio();await api('/api/logout',{method:'POST',body:'{}'});state.user=null;showLogin()}catch{toast('退出未完成，请重试')}});
+window.addEventListener('message',event=>{if(event.origin!==location.origin||event.data?.type!=='dotbest-studio-role'||!['admin','sales'].includes(event.data.role))return;state.studioRole=event.data.role;updateOutreachVisibility()});
+function updateOutreachVisibility(){const button=$('[data-page="outreach"]');if(button)button.classList.toggle('hidden',state.studioRole==='sales')}
+async function syncStudioRole(){try{const response=await fetch('/api/studio/me',{credentials:'same-origin'});if(!response.ok)return;const result=await response.json();if(result.success&&['admin','sales'].includes(result.data?.user?.role)){state.studioRole=result.data.user.role;updateOutreachVisibility()}}catch{}}
 async function logoutStudio(){const response=await fetch('/api/studio/me',{credentials:'same-origin'});if(response.status===401||response.status===404)return;if(!response.ok)throw new Error('退出未完成');if(!response.headers.get('Content-Type')?.includes('application/json'))return;const result=await response.json();if(!result.success||!result.data?.csrf)throw new Error('退出未完成');const logout=await fetch('/api/studio/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-Studio-CSRF':result.data.csrf},body:'{}'});if(!logout.ok)throw new Error('退出未完成')}
 $$('[data-page]').forEach(button=>button.addEventListener('click',()=>navigate(button.dataset.page)));
 $('#drawer-backdrop').addEventListener('click',closeDrawer);
@@ -79,11 +82,20 @@ async function refreshTouchOptimization(){const data=await api('/api/v1/private/
 async function completeTask(id){await api(`/api/v1/private/tasks/${id}/status`,{method:'POST',body:JSON.stringify({status:'done'})});toast('任务已完成，并进入下一次复盘');renderTasks()}
 
 function initialPage(){const page=new URLSearchParams(location.search).get('page');return ['workbench','assets','tasks','scripts','outreach','script-templates','governance'].includes(page)?page:/^\/script-studio\/?$/.test(location.pathname)?'scripts':'workbench'}
-async function renderOutreach(){setHeader('用户触达','用户触达 / 一客一策与企微执行');const segment=state.outreachSegment||'';const data=await api(`/api/v1/private/outreach${segment?`?segment=${encodeURIComponent(segment)}`:''}`);state.outreach=data;const tab=state.outreachTab||'strategy';const connection=data.connection;const strategyCount=data.strategies.filter(x=>x.review_status==='待确认').length;const queueCount=data.queue.length;const historyCount=data.history.length;const pilot=data.pilot;
-  $('#main-content').innerHTML=`<section class="outreach-hero"><div><p class="hero-kicker">PROACTIVE OUTREACH ENGINE</p><h3>AI 先判断“谁值得触达、怎么触达”，销售确认后才执行</h3><p>本模块与话术中心并列，专注主动触达。当前为演示策略引擎；句子互动密钥未配置前，不会真实发送任何客户消息。</p></div><div class="outreach-status ${connection.configured?'ok':''}"><strong>${connection.configured?'句子互动已连接':'句子互动待接入'}</strong><span>${esc(connection.status_message)}</span><small>发送窗口 ${esc(data.policy.send_window)} · 单人上限 ${data.policy.daily_limit}/${data.policy.weekly_limit}/${data.policy.monthly_limit}</small></div></section>
-  <div class="outreach-tabs"><button class="${tab==='strategy'?'active':''}" onclick="switchOutreachTab('strategy')">触达策略</button><button class="${tab==='execution'?'active':''}" onclick="switchOutreachTab('execution')">企微执行</button></div>
-  <div class="touch-metric-grid outreach-metric-grid">${metric('待确认策略',strategyCount,'AI 提案，需人工确认','urgent')}${metric('执行队列',queueCount,'已确认，等待发送')}${metric('发送留档',historyCount,'仅保留 30 天')}${metric('试点用户',pilot.user_count,'抗衰 + 基础营养')}${metric('建议置信区间',pilot.confidence_range,'低置信进入人工复核')}${metric('自动发送',0,'默认关闭，销售确认')}</div>
-  ${tab==='strategy'?renderOutreachStrategy(data):renderOutreachExecution(data)}`;
+async function renderOutreach(){
+  setHeader('用户触达','用户触达 / 句子互动执行');
+  const version=navigationVersion;
+  if(state.studioRole==='sales'){$('#main-content').innerHTML='<div class="empty-card">当前账号没有用户触达权限，仅管理员可以执行主动触达。</div>';return}
+  try{
+    const response=await fetch('/api/studio/status',{credentials:'same-origin'});
+    const result=await response.json();
+    if(version!==navigationVersion)return;
+    if(!response.ok||!result.success||typeof result.data?.model_configured!=='boolean')throw new Error('unavailable');
+    $('#main-content').innerHTML='<iframe id="studio-frame" class="studio-frame" src="/script-studio/index.html?page=outreach" title="用户触达" allow="clipboard-write" referrerpolicy="no-referrer"></iframe>';
+  }catch(error){
+    if(version!==navigationVersion)return;
+    $('#main-content').innerHTML='<div class="empty-card">当前站点尚未接入句子互动服务。<br><button class="secondary-button" onclick="navigate(\'outreach\')">重试</button></div>';
+  }
 }
 function renderOutreachStrategy(data){
   const segments=data.segments.map(s=>`<button class="outreach-segment" style="--accent:${esc(s.color)}" onclick="filterOutreachSegment('${esc(s.code)}')"><span>${esc(s.name)}</span><strong>${s.user_count}</strong><small>${esc(s.description)}</small></button>`).join('');

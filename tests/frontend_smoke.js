@@ -184,6 +184,11 @@ async function request(url,options){const response=await fetch(url,options);retu
     '用户触达应与话术中心相邻'
   );
   assert.match(appSource,/async function renderOutreach\(\)/);
+  assert.match(appSource,/src="\/script-studio\/index.html\?page=outreach"/);
+  const studioSource=fs.readFileSync(path.join(__dirname,'..','studio','public','app.mjs'),'utf8');
+  assert.match(studioSource,/page.{0,20}outreach/);
+  assert.match(appSource,/function updateOutreachVisibility\(\)/);
+  assert.match(studioSource,/dotbest-studio-role/);
   assert.match(appSource,/function renderOutreachStrategy\(/);
   assert.match(appSource,/function renderOutreachExecution\(/);
   assert.match(appSource,/function queueOutreach\(/);

@@ -71,13 +71,10 @@ const screenshot = async name => {
 
 try {
   await mkdir('artifacts', { recursive: true });
-  await page.goto(runtime.url + '/script-studio/index.html');
+  await page.goto(runtime.url + '/script-studio/index.html?page=outreach');
   await page.locator('#username').fill('admin');
   await page.locator('#password').fill('OutreachPass123!');
   await page.locator('#login-form [type=submit]').click();
-  await page.locator('#composer-text').waitFor();
-
-  await page.locator('[data-action="outreach"]').click();
   await page.locator('.outreach-page').waitFor();
   assert.ok((await page.locator('.outreach-page').textContent()).includes('句子互动已连接'));
 

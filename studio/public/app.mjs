@@ -265,8 +265,11 @@ function feedbackDialog(generationId) {
 function userEditor(id = '') { showModal(`${modalHead(id?'重置临时密码':'添加试用账号')}<form id="user-form" data-id="${esc(id)}">${id?'':`${field('new-username','账号','',{required:true,max:40})}${field('display-name','显示名称','',{required:true,max:40})}<div class="field"><label for="user-role">角色</label><select name="role" id="user-role"><option value="sales">销售</option><option value="admin">管理员</option></select></div>`}${field('temporary-password','临时密码（至少12位，含字母和数字）','',{type:'password',required:true,autocomplete:'new-password',max:128})}<div class="form-error" role="alert"></div><footer><button type="submit" class="primary">${id?'重置密码':'创建账号'}</button></footer></form>`); }
 async function enter() {
   const me = await request('/me'); state.user = me.user; state.csrf = me.csrf; state.configured = me.model_configured; state.knowledgeConfigured = !!me.knowledge_configured;
+  if (window.parent !== window) window.parent.postMessage({ type: 'dotbest-studio-role', role: state.user.role }, window.location.origin);
   if (state.user.must_change) { shell('首次登录'); $('#main').innerHTML = '<div class="warning">请先修改临时密码。</div>'; iconsNow(); passwordDialog(true); return; }
-  await Promise.all([loadMaterials(), loadCustomers()]); generator();
+  await Promise.all([loadMaterials(), loadCustomers()]);
+  if (new URLSearchParams(location.search).get('page') === 'outreach' && state.user.role === 'admin') return outreachPage();
+  generator();
 }
 document.addEventListener('input', e => { if (e.target.id in state.draft) { state.draft[e.target.id] = maskText(e.target.value); if (state.pending) { state.controller?.abort(); state.sequence++; state.pending=false; } if (state.result) { state.result=null; $('.result-column').innerHTML='<h2>回复建议</h2><p class="muted">咨询内容已调整，请重新生成。</p>'; } const runButton=$('[data-action="run"]'); if(runButton) { runButton.disabled=!state.configured; runButton.textContent='生成回复'; } } if (e.target.id === 'composer-text') { state.composer.text = maskText(e.target.value); if (state.pending) { state.controller?.abort(); state.sequence++; state.pending=false; } if (state.result) { state.result=null; $('.result-column').innerHTML='<h2>回复建议</h2><p class="muted">咨询内容已调整，请重新生成。</p>'; } const rb=$('[data-action="run"]'); if(rb) { rb.disabled=!canGenerate(); } } });
 document.addEventListener('change', async e => {
