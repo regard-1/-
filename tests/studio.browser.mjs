@@ -177,7 +177,9 @@ try {
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), await studio.locator('#reply').inputValue());
   const documentRequests = [];
   page.on('request', r => { if (r.isNavigationRequest() && r.frame() === page.mainFrame()) documentRequests.push(r.url()); });
-  for (const target of ['assets', 'conversations', 'workbench']) {
+  assert.equal(await page.locator('.nav-item[data-page="projects"]').count(), 0);
+  assert.equal(await page.locator('.nav-item[data-page="conversations"]').count(), 0);
+  for (const target of ['assets', 'workbench']) {
     await page.locator(`.nav-item[data-page="${target}"]`).click();
     await page.locator('#main-content .loading-card').waitFor({ state: 'detached' });
     assert.equal(await page.locator('#studio-frame').count(), 0);
