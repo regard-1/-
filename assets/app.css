@@ -311,10 +311,14 @@ button,input,select,textarea{font:inherit} button{cursor:pointer}.hidden{display
 .outreach-bot-list,.outreach-contact-list,.outreach-task-list,.outreach-queue-list,.outreach-message-archive,.outreach-profile-updates{display:grid;gap:12px;padding:16px 18px 18px}
 .outreach-bot-list article{display:grid;grid-template-columns:minmax(150px,1fr) minmax(180px,1fr);gap:12px;align-items:center;padding:14px;border:1px solid #dce9f5;border-radius:12px;background:#f8fbff}
 .outreach-bot-list strong{display:block;color:#1d4d79}.outreach-bot-list span{display:block;margin-top:4px;color:#6c89a5;font-size:10px}
-.outreach-contact-list article{display:grid;grid-template-columns:minmax(160px,.8fr) minmax(260px,1fr) minmax(220px,.8fr);gap:13px;align-items:start;padding:15px;border:1px solid #dce9f5;border-radius:13px;background:#fff}
+.outreach-contact-list article{display:grid;grid-template-columns:minmax(170px,.9fr) minmax(280px,1.5fr);gap:13px;align-items:start;padding:15px;border:1px solid #dce9f5;border-radius:13px;background:#fff}
 .outreach-contact-list article>div:first-child strong{display:block;color:#1d4d79}.outreach-contact-list article>div:first-child span{display:block;margin-top:5px;color:#6c89a5;font-size:10px}
 .outreach-contact-list small{grid-column:1/-1;color:#6c89a5;font-size:10px;line-height:1.6}
-.outreach-contact-list article>div:last-child{display:flex;justify-content:space-between;gap:10px;align-items:center}
+.outreach-contact-list article>div:last-child{grid-column:1/-1;display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+.outreach-contact-actions .tag{align-self:center}
+.outreach-contact-actions select{min-width:220px}
+.outreach-profile-line{display:block;color:#65809a;font-size:10px;line-height:1.6}
+.tag.blue{background:#e3eefc;color:#29638f}
 .outreach-tag-list{display:flex;gap:6px;flex-wrap:wrap}
 .outreach-tag-list span,.outreach-task-card .tag{padding:5px 7px;border-radius:8px;background:#e3eefc;color:#29638f;font-size:9px;line-height:1.4}
 .outreach-task-list article,.outreach-queue-list article,.outreach-message-archive article,.outreach-profile-updates article{display:grid;gap:10px;padding:16px;border:1px solid #dce9f5;border-radius:14px;background:#fff}
@@ -328,6 +332,19 @@ button,input,select,textarea{font:inherit} button{cursor:pointer}.hidden{display
 .outreach-message-archive time,.outreach-profile-updates time{color:#8ba0b5;font-size:10px}
 .outreach-workspace select{max-width:100%;padding:10px 11px;border:1px solid var(--line);border-radius:10px;background:#fff;color:#3c5671;outline:none}
 .outreach-workspace .empty-card{padding:26px}
+.outreach-drawer{display:grid;gap:18px}
+.outreach-drawer h4{margin:0 0 10px;color:#1d4d79;font-size:13px}
+.outreach-drawer-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:15px;border:1px solid #dce9f5;border-radius:13px;background:#fff}
+.outreach-drawer-grid p{margin:10px 0 0;color:#41566c;font-size:11px;line-height:1.7}
+.outreach-drawer-grid small{display:block;margin-top:7px;color:#7a90a8;font-size:10px}
+.outreach-drawer>section{display:grid;gap:12px;justify-items:start}
+.outreach-drawer>section>button{width:auto}
+.outreach-chat{display:flex;flex-direction:column;gap:10px;width:100%;padding:14px;border:1px solid #dce9f5;border-radius:13px;background:#f6f9fc;max-height:420px;overflow:auto}
+.outreach-chat article{max-width:78%;display:grid;gap:6px;padding:10px 12px;border-radius:12px;background:#fff;box-shadow:0 2px 8px rgba(28,63,101,.06)}
+.outreach-chat article.inbound{align-self:flex-start;border-top-left-radius:4px}
+.outreach-chat article.outbound{align-self:flex-end;border-top-right-radius:4px;background:#dcedfb}
+.outreach-chat p{margin:0;color:#33495f;font-size:11px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}
+.outreach-chat time{color:#7a90a8;font-size:9px}
 @media(max-width:1250px){.outreach-summary-grid{grid-template-columns:repeat(3,1fr)}.outreach-contact-list article{grid-template-columns:1fr 1fr}.outreach-contact-list small{grid-column:auto}.outreach-contact-list article>div:last-child{grid-column:1/-1}}
-@media(max-width:900px){.outreach-workspace>header{align-items:flex-start;flex-direction:column}.outreach-workspace>header>div:last-child{width:100%;flex-wrap:wrap}.outreach-bot-list article,.outreach-contact-list article{grid-template-columns:1fr}.outreach-contact-list article>div:last-child{grid-column:auto;flex-direction:column;align-items:stretch}}
+@media(max-width:900px){.outreach-workspace>header{align-items:flex-start;flex-direction:column}.outreach-workspace>header>div:last-child{width:100%;flex-wrap:wrap}.outreach-bot-list article,.outreach-contact-list article,.outreach-drawer-grid{grid-template-columns:1fr}.outreach-contact-list article>div:last-child{grid-column:auto;flex-direction:column;align-items:stretch}.outreach-contact-actions select{width:100%}.outreach-chat article{max-width:100%}}
 @media(max-width:700px){.outreach-summary-grid{grid-template-columns:repeat(2,1fr)}.outreach-task-card dl{grid-template-columns:1fr}.outreach-login{padding:24px}.outreach-workspace>header>div:last-child button{flex:1}}

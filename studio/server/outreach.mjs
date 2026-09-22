@@ -1,5 +1,5 @@
 import { fail } from './security.mjs';
-import { juziConfigured, listCustomers, sendText } from './juzi.mjs';
+import { juziConfigured, listCustomers, listHistory, sendText } from './juzi.mjs';
 import { MODEL, maskText, chinaDay, AUDIENCES } from '../shared.mjs';
 
 const textValue = (value, maximum, label) => {
@@ -47,8 +47,9 @@ export async function outreachSnapshot(store, env) {
     queued: tasks.filter(t => t.status === 'queued').length,
     sentToday: tasks.filter(t => t.status === 'sent' && t.plan_day === day).length,
     today: tasks.filter(t => t.plan_day === day).length,
+    messages: messages.length,
   };
-  return { connected: juziConfigured(env), configured: juziConfigured(env), plan_day: day,
+  return { connected: juziConfigured(env), configured: juziConfigured(env), model_configured: !!(env.STUDIO_LLM_API_KEY && env.STUDIO_LLM_BASE_URL), plan_day: day,
     bots, contacts, tasks, messages, profile_updates: profileUpdates,
     local_customers: localCustomers, counts };
 }
@@ -117,6 +118,70 @@ export async function syncContacts(store, env, user, dependencies = {}) {
     }
   }
   return { synced: rows.length, pages, bots: botIds.size, ...counts };
+}
+
+function historyText(message) {
+  const payload = message?.Payload || {};
+  const text = payload.TextPayload?.text || payload.text || '';
+  if (typeof text === 'string' && text.trim()) return maskText(text.trim()).slice(0, 4000);
+  return '';
+}
+
+function historyDay(offset) {
+  return chinaDay(new Date(Date.now() - offset * 86400000));
+}
+
+function matchHistoryContact(message, contacts) {
+  if (message?.coworker) return null;
+  const externalUserId = String(message?.customerExternalUserId || '');
+  const senderId = String(message?.imContactId || '');
+  return contacts.find(contact => (!message?.isSelf && contact.im_contact_id === senderId)
+    || (message?.isSelf && externalUserId && contact.external_user_id === externalUserId)) || null;
+}
+
+export async function syncConversations(store, env, user, dependencies = {}) {
+  if (!juziConfigured(env)) fail(503, '句子互动连接尚未配置，请联系管理员', 'JUZI_NOT_CONFIGURED');
+  const bots = await store.all('SELECT im_bot_id FROM studio_juzi_bots ORDER BY im_bot_id');
+  let upstreamMessages = 0, textMessages = 0, inserted = 0, latestInbound = new Map();
+  for (const bot of bots) {
+    const contacts = await store.all('SELECT id,im_contact_id,external_user_id FROM studio_juzi_contacts WHERE im_bot_id=?', bot.im_bot_id);
+    for (let dayOffset = 0; dayOffset < 30; dayOffset++) {
+      let seq = '0', pages = 0;
+      do {
+        const page = await listHistory(env, dependencies, { imBotId: bot.im_bot_id, snapshotDay: historyDay(dayOffset), seq });
+        pages++;
+        for (const message of page.messages) {
+          upstreamMessages++;
+          const messageId = String(message?.messageId || '');
+          if (!messageId) continue;
+          const contact = matchHistoryContact(message, contacts);
+          if (!contact) continue;
+          const content = historyText(message);
+          if (!content) continue;
+          textMessages++;
+          const at = normalizeTimestamp(message?.timestamp);
+          const result = await store.query(`INSERT INTO studio_outreach_messages(id,task_id,contact_id,direction,content,message_id,status,error,created_at)
+            VALUES(?,NULL,?,?,?,?,'received','',?)
+            ON CONFLICT(message_id) DO NOTHING RETURNING id`, crypto.randomUUID(), contact.id,
+            message?.isSelf ? 'outbound' : 'inbound', content, messageId.slice(0, 128), at).first();
+          if (result) inserted++;
+          if (!message?.isSelf && (!latestInbound.has(contact.id) || at > latestInbound.get(contact.id).at)) {
+            latestInbound.set(contact.id, { at, content, messageId });
+          }
+        }
+        seq = page.seq;
+      } while (seq && pages < 5);
+    }
+  }
+  for (const [contactId, message] of latestInbound) {
+    await updateContactProfile(store, contactId, {
+      messageId: message.messageId,
+      payload: { text: message.content },
+      timestamp: message.at,
+    });
+  }
+  await store.query('DELETE FROM studio_outreach_messages WHERE created_at<?', Date.now() - 2592000000).run();
+  return { bots: bots.length, days: 30, upstream_messages: upstreamMessages, text_messages: textMessages, inserted, updated_profiles: latestInbound.size };
 }
 
 export async function assignBot(store, id, body) {
@@ -191,32 +256,41 @@ function validateTasks(output, candidates) {
 export async function generateStrategies(store, user, body, env, dependencies = {}) {
   const planDay = chinaDay();
   const audience = AUDIENCES[body?.audience] ? body.audience : null;
-  if (body?.refresh !== true) {
-    const existing = await store.all(`SELECT t.*,c.display_name AS contact_name,l.display_name AS customer_name
-      FROM studio_outreach_tasks t JOIN studio_juzi_contacts c ON c.id=t.contact_id
-      LEFT JOIN studio_customers l ON l.id=t.local_customer_id
-      WHERE t.plan_day=? AND t.status IN('draft','queued') ORDER BY t.priority,t.created_at`, planDay);
-    if (existing.length) return { created_count: 0, existing_count: existing.length, plan_day: planDay, tasks: existing };
-  } else {
+  if (body?.refresh === true) {
     await store.query("DELETE FROM studio_outreach_tasks WHERE plan_day=? AND status='draft'", planDay).run();
   }
-  const candidates = (await store.all(`SELECT c.id,c.im_contact_id,c.display_name,c.local_customer_id,
+  const contacts = (await store.all(`SELECT c.id,c.im_contact_id,c.display_name,c.local_customer_id,
     c.tags,c.remark,c.profile_json,l.audience,l.display_name AS customer_name,l.salutation,
     l.purchased_products,l.interests,l.concerns,l.contraindications,l.notes,b.im_bot_id,b.bot_name,u.display_name AS owner_name
-    FROM studio_juzi_contacts c JOIN studio_customers l ON l.id=c.local_customer_id AND l.active=1
+    FROM studio_juzi_contacts c LEFT JOIN studio_customers l ON l.id=c.local_customer_id AND l.active=1
     JOIN studio_juzi_bots b ON b.im_bot_id=c.im_bot_id LEFT JOIN studio_users u ON u.id=l.owner_user_id
-    WHERE c.match_status='bound' ${audience ? 'AND l.audience=?' : ''}
-      AND NOT EXISTS(SELECT 1 FROM studio_outreach_tasks t WHERE t.contact_id=c.id AND t.plan_day=? AND t.status IN('queued','sent','paused'))
-    ORDER BY c.display_name`,
-    ...(audience ? [audience] : []), planDay)).map(c => {
-      let profile = {};
-      try { profile = JSON.parse(c.profile_json || '{}') || {}; } catch {}
-      return { ...c, profile, recent_messages: [] };
-    });
+    ORDER BY c.display_name`)).map(c => {
+    let profile = {};
+    try { profile = JSON.parse(c.profile_json || '{}') || {}; } catch {}
+    const derivedAudience = AUDIENCES[c.audience] ? c.audience
+      : /nmn|麦角硫因|抗衰/i.test(`${c.tags || ''} ${c.remark || ''}`) ? 'anti_aging' : 'daily_nutrition';
+    return { ...c, audience: derivedAudience, profile, recent_messages: [] };
+  });
+  const selectedContacts = contacts.filter(contact => {
+    if (body?.contact_id && contact.id !== String(body.contact_id)) return false;
+    if (audience && contact.audience !== audience) return false;
+    return !contact.profile?.should_pause;
+  });
+  const todayTasks = await store.all(`SELECT t.*,c.display_name AS contact_name,l.display_name AS customer_name
+    FROM studio_outreach_tasks t JOIN studio_juzi_contacts c ON c.id=t.contact_id
+    LEFT JOIN studio_customers l ON l.id=t.local_customer_id
+    WHERE t.plan_day=? ORDER BY CASE t.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,t.created_at`, planDay);
+  const taskContactIds = new Set(todayTasks.map(task => task.contact_id));
+  const candidates = selectedContacts.filter(contact => !taskContactIds.has(contact.id));
+  if (!selectedContacts.length) fail(400, '暂无可生成策略的真实客户，请先同步句子互动客户');
   const recent = await store.all(`SELECT contact_id,direction,content,created_at FROM studio_outreach_messages
     WHERE created_at>? ORDER BY created_at DESC LIMIT 500`, Date.now() - 2592000000);
   for (const candidate of candidates) candidate.recent_messages = recent.filter(m => m.contact_id === candidate.id).slice(0, 5).reverse();
-  if (!candidates.length) fail(400, '暂无已人工绑定的客户，请先同步并确认匹配');
+  const existing = todayTasks.filter(task => selectedContacts.some(contact => contact.id === task.contact_id)
+    && ['draft', 'queued', 'sent', 'paused'].includes(task.status));
+  if (!candidates.length) {
+    return { created_count: 0, existing_count: existing.length, plan_day: planDay, tasks: existing };
+  }
   const materials = await store.all(`SELECT title,kind,audience,product,content,valid_from,valid_to
     FROM studio_materials WHERE active=1 ORDER BY updated_at DESC LIMIT 12`);
   const base = modelBase(env);
@@ -228,7 +302,7 @@ export async function generateStrategies(store, user, body, env, dependencies = 
       model: MODEL, stream: false, max_tokens: 8192, enable_search: false, enable_thinking: false,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: `你是多特倍斯私域触达策略助手。为输入的每个客户生成一条可执行的主动开口策略，不允许遗漏或新增客户。目标优先解决客户愿意回复，再根据其档案选择关怀、复购通知、教育、活动、售后或边界确认，不默认推销。必须一客一策：结合称呼、归属顾问、已购产品、关注点、禁忌、句子互动标签、备注、画像和近期消息。不得编造购买历史、剩余数量、价格、活动、功效保证或个体医疗建议；没有资料支持时不写具体产品事实。语气自然亲切，可沿用已确认称呼。输出 JSON：{"tasks":[{"contact_id":"","strategy_type":"care/repurchase_notice/education/activity/service/boundary_check","priority":"high/medium/low","reason":"","recommended_message":"","next_action":"","stop_rule":"","profile_updates":{"observed_signal":"","next_focus":"","should_pause":false}}]}。` },
+        { role: 'system', content: `你是多特倍斯私域触达策略助手。为输入的每个真实句子互动客户生成一条可执行的主动开口策略，不允许遗漏或新增客户。目标优先解决客户愿意回复，再根据其可用信息选择关怀、复购通知、教育、活动、售后或边界确认，不默认推销。必须一客一策：优先使用近期聊天、句子互动标签、备注和画像；如存在本地档案，再参考称呼、归属顾问、已购产品、关注点、禁忌。档案缺失时不得编造，只能使用对话和标签中的明确信息。不得编造购买历史、剩余数量、价格、活动、功效保证或个体医疗建议；没有资料支持时不写具体产品事实。语气自然亲切，可沿用已确认称呼。输出 JSON：{"tasks":[{"contact_id":"","strategy_type":"care/repurchase_notice/education/activity/service/boundary_check","priority":"high/medium/low","reason":"","recommended_message":"","next_action":"","stop_rule":"","profile_updates":{"observed_signal":"","next_focus":"","should_pause":false}}]}。` },
         { role: 'user', content: JSON.stringify({ today: planDay, audience, candidates: batch, materials }) },
       ],
     };
@@ -263,7 +337,7 @@ export async function generateStrategies(store, user, body, env, dependencies = 
       planDay, task.strategy_type, snapshot, task.profile_updates).run();
     created.push({ id, ...task, status: 'draft', created_at: now });
   }
-  return { created_count: created.length, plan_day: planDay, tasks: created };
+  return { created_count: created.length, existing_count: existing.length, plan_day: planDay, tasks: [...existing, ...created] };
 }
 
 export async function queueTask(store, id) {
@@ -277,7 +351,6 @@ export async function sendTask(store, env, id, dependencies = {}) {
     JOIN studio_juzi_contacts c ON c.id=t.contact_id WHERE t.id=?`, id).first();
   if (!task) fail(404, '触达任务不存在');
   if (task.status !== 'queued') fail(409, '仅已入队任务可发送，请先入队');
-  if (!task.local_customer_id) fail(409, '请先人工绑定本地客户档案');
   const externalId = crypto.randomUUID(), now = Date.now();
   await store.query(`INSERT INTO studio_outreach_messages(id,task_id,contact_id,direction,content,external_request_id,status,created_at)
     VALUES(?,?,?,'outbound',?,?,'pending',?)`, externalId, task.id, task.contact_id, task.recommended_message, externalId, now).run();
@@ -348,13 +421,19 @@ async function updateContactProfile(store, contactId, body) {
   if (pause) profile.pause_reason = '客户在句子互动消息中明确要求暂停';
 
   const updates = { observed_signal: signals.join('、'), next_focus: nextFocus, should_pause: !!pause, last_reply_at: at };
-  await store.db.batch([
+  const existingUpdate = body.messageId
+    ? await store.query('SELECT id FROM studio_customer_profile_updates WHERE message_id=?', String(body.messageId).slice(0, 128)).first()
+    : null;
+  const statements = [
     store.query('UPDATE studio_juzi_contacts SET profile_json=?,last_profile_updated_at=? WHERE id=?',
       JSON.stringify(profile).slice(0, 12000), at, contactId),
-    store.query(`INSERT INTO studio_customer_profile_updates(id,contact_id,local_customer_id,message_id,updates_json,created_by,created_at)
+  ];
+  if (!existingUpdate) {
+    statements.push(store.query(`INSERT INTO studio_customer_profile_updates(id,contact_id,local_customer_id,message_id,updates_json,created_by,created_at)
       VALUES(?,?,?,?,?,?,?)`, crypto.randomUUID(), contactId, contact.local_customer_id,
-      String(body.messageId || '').slice(0, 128), JSON.stringify(updates), 'juzi-callback', at),
-  ]);
+      String(body.messageId || '').slice(0, 128), JSON.stringify(updates), 'juzi-callback', at));
+  }
+  await store.db.batch(statements);
   if (pause) await store.query(
     "UPDATE studio_outreach_tasks SET status='paused' WHERE contact_id=? AND status IN('draft','queued')",
     contactId).run();

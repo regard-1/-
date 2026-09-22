@@ -69,6 +69,33 @@ export async function listCustomers(env, dependencies = {}, seq) {
   return { items: Array.isArray(body?.data) ? body.data : [], nextSeq: body?.next_seq || '' };
 }
 
+export async function listHistory(env, dependencies = {}, input) {
+  const state = client(env, dependencies);
+  const url = requestURL(state, '/api/v2/message/history', {
+    imBotId: input.imBotId,
+    snapshotDay: input.snapshotDay,
+    pageSize: 500,
+    ...(input.seq ? { seq: input.seq } : { seq: '0' }),
+  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), state.timeout);
+  let response;
+  try {
+    response = await state.fetch(url, { method: 'GET', headers: { Accept: 'application/json' }, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === 'AbortError') fail(504, '句子互动聊天历史响应超时，请稍后重试', 'JUZI_TIMEOUT');
+    fail(502, '句子互动聊天历史连接异常，请稍后重试', 'JUZI_UNAVAILABLE');
+  } finally { clearTimeout(timer); }
+
+  let body;
+  try { body = await response.json(); } catch { fail(502, '句子互动聊天历史返回格式异常，请稍后重试', 'JUZI_BAD_RESPONSE'); }
+  const code = Number(body?.errCode ?? body?.errcode ?? 0);
+  if (!response.ok || code !== 0 || !body?.data) {
+    fail(502, safeMessage(code, body?.errMsg || body?.errmsg), 'JUZI_API_ERROR');
+  }
+  return { messages: Array.isArray(body.data.messages) ? body.data.messages : [], seq: String(body.seq || '') };
+}
+
 export async function sendText(env, dependencies = {}, input) {
   const state = client(env, dependencies);
   const body = {

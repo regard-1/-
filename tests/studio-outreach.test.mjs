@@ -94,6 +94,17 @@ function modelTask(contactId, localCustomerId) {
   });
 }
 
+function historyResponse() {
+  const message = {
+    messageId: 'history-message-1',
+    imContactId: 'external-contact-1',
+    isSelf: false,
+    timestamp: Math.floor(Date.now() / 1000),
+    Payload: { TextPayload: { text: `最近睡眠一般，想了解搭配，电话${fullPhone}` } },
+  };
+  return jsonResponse({ data: { messages: [message, { ...message }] }, seq: '' });
+}
+
 test('outreach is admin-only and sales calls never reach upstream or model', async t => {
   let upstreamCalls = 0, modelCalls = 0;
   const h = await harness(t, {
@@ -107,6 +118,7 @@ test('outreach is admin-only and sales calls never reach upstream or model', asy
     ['/api/studio/outreach/bots/bot-1', 'PUT', { owner_user_id: 'sales' }],
     ['/api/studio/outreach/contacts/contact-1/bind', 'PUT', { local_customer_id: 'customer-1' }],
     ['/api/studio/outreach/strategies', 'POST', { limit: 1 }],
+    ['/api/studio/outreach/messages/sync', 'POST', {}],
     ['/api/studio/outreach/tasks/task-1/queue', 'POST', {}],
     ['/api/studio/outreach/tasks/task-1/send', 'POST', {}],
     ['/api/studio/outreach/messages', 'GET', undefined],
@@ -118,6 +130,76 @@ test('outreach is admin-only and sales calls never reach upstream or model', asy
   }
   assert.equal(upstreamCalls, 0);
   assert.equal(modelCalls, 0);
+});
+
+test('unbound Juzi contacts can generate one-customer strategies from real signals', async t => {
+  const h = await harness(t, {
+    fetchJuzi: async () => listCustomersResponse(),
+    fetchModel: async (_, options) => {
+      const body = JSON.parse(options.body);
+      const candidate = JSON.parse(body.messages.at(-1).content).candidates[0];
+      assert.equal(candidate.local_customer_id, null);
+      assert.ok(candidate.tags.includes('NMN用户'));
+      return jsonResponse({
+        choices: [{
+          message: { content: JSON.stringify({ tasks: [{
+            contact_id: candidate.id,
+            priority: 'high',
+            reason: '句子互动标签显示 NMN 用户且备注关注睡眠',
+            recommended_message: '最近整体状态还好吗？有哪里想先弄清楚，我再帮您看。',
+            next_action: '客户回复后先确认本次关注点',
+            stop_rule: '客户明确不需要后暂停触达',
+          }] }) },
+        }],
+      });
+    },
+  });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  const snapshot = await h.call('/api/studio/outreach', 'GET', undefined, admin);
+  const contact = snapshot.data.contacts[0];
+  assert.equal(contact.match_status, 'suggested');
+  assert.equal(contact.local_customer_id, null);
+
+  const generated = await h.call('/api/studio/outreach/strategies', 'POST', { contact_id: contact.id }, admin);
+  assert.equal(generated.status, 200);
+  assert.equal(generated.data.created_count, 1);
+  assert.equal(generated.data.tasks[0].contact_id, contact.id);
+  assert.equal(generated.data.tasks[0].local_customer_id, null);
+  assert.equal(generated.data.tasks[0].audience, 'anti_aging');
+});
+
+test('conversation history is deduplicated, masked, and updates the profile', async t => {
+  const h = await harness(t, {
+    fetchJuzi: async request => {
+      const url = new URL(String(request));
+      if (url.pathname.endsWith('/customer/list')) return listCustomersResponse();
+      return historyResponse();
+    },
+  });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  const result = await h.call('/api/studio/outreach/messages/sync', 'POST', {}, admin);
+  assert.equal(result.status, 200);
+  assert.equal(result.data.inserted, 1);
+  assert.equal(result.data.updated_profiles, 1);
+
+  const message = h.db.sqlite.prepare('SELECT * FROM studio_outreach_messages').get();
+  assert.equal(message.message_id, 'history-message-1');
+  assert.equal(message.direction, 'inbound');
+  assert.ok(message.content.includes('尾号5678'));
+  assert.ok(!message.content.includes(fullPhone));
+
+  const contact = h.db.sqlite.prepare('SELECT * FROM studio_juzi_contacts').get();
+  const profile = JSON.parse(contact.profile_json);
+  assert.equal(profile.should_pause, false);
+  assert.ok(profile.conversation_signals.includes('关注效果或服用方法'));
+  assert.ok(profile.last_inbound_message.content.includes('最近睡眠一般'));
+
+  const updates = h.db.sqlite.prepare('SELECT * FROM studio_customer_profile_updates').all();
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].message_id, 'history-message-1');
+  assert.ok(!JSON.stringify(updates).includes(fullPhone));
 });
 
 test('missing Juzi credentials stop before upstream and expose no secret', async t => {
