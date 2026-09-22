@@ -1105,7 +1105,7 @@
   };
 
   window.fetch=async(input,options={})=>{
-    const url=new URL(typeof input==='string'?input:input.url,location.href);const path=url.pathname.replace(/^\/[^/]+(?=\/api\/)/,'');const method=(options.method||'GET').toUpperCase();
+    const url=new URL(typeof input==='string'?input:input.url,location.href);const path=url.pathname;const method=(options.method||'GET').toUpperCase();
     if(url.pathname==='/api/studio'||url.pathname.startsWith('/api/studio/'))return networkFetch(input,options);
     if(path==='/api/login'&&method==='POST'){loggedIn=true;return ok({display_name:'演示顾问A',role:'一线运营'})}
     if(path==='/api/logout'&&method==='POST'){loggedIn=false;return ok({})}

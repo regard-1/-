@@ -1,6 +1,7 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
+const vm=require('node:vm');
 global.location={href:'http://127.0.0.1:8091/'};
 global.window=global;
 const studioNetworkRequests=[];
@@ -192,5 +193,27 @@ async function request(url,options){const response=await fetch(url,options);retu
   assert.match(cssSource,/\.materials-grid/);
   assert.match(cssSource,/\.projects-hero/);
   assert.doesNotMatch(cssSource,/\.materials-panel/);
+
+  const subpathSource=fs.readFileSync(path.join(__dirname,'..','assets','demo-api.js'),'utf8')
+    .replace(/\/api\//g,'/dotbest-ops/api/');
+  const subpathContext={
+    location:{href:'http://127.0.0.1:8091/dotbest-ops/'},
+    Response,
+    URL,
+    fetch:async()=>new Response(JSON.stringify({success:false}),{status:404}),
+    localStorage:{getItem:()=>null,setItem:()=>{},removeItem:()=>{}},
+    NMN_DEMO_SEED:global.NMN_DEMO_SEED,
+    CHAT_PERSONA_SEED:global.CHAT_PERSONA_SEED
+  };
+  subpathContext.window=subpathContext;
+  vm.runInNewContext(subpathSource,subpathContext);
+  const subpathLogin=await subpathContext.window.fetch('/dotbest-ops/api/login',{
+    method:'POST',
+    body:JSON.stringify({username:'operator',password:'demo'})
+  });
+  assert.equal(subpathLogin.status,200,'子路径部署下演示登录必须可用');
+  const subpathMe=await subpathContext.window.fetch('/dotbest-ops/api/me');
+  assert.equal(subpathMe.status,200,'子路径部署下会话状态必须可用');
+
   console.log('operator frontend smoke: all checks passed');
 })().catch(error=>{console.error(error);process.exitCode=1});
