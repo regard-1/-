@@ -13,9 +13,12 @@ services:
       BAILIAN_KB_BASE_URL: https://ws-5ir7z45ox2wmnbb4.cn-beijing.maas.aliyuncs.com
       BAILIAN_KB_AGENT_ID: aid-56fd229f52354d75af21e38ee208fa8a
       BAILIAN_KB_TOP_K: "5"
+      WECOM_API_BASE: https://stride-bg.dpclouds.com/hub-api
+      WECOM_API_TOKEN: ${WECOM_API_TOKEN}
+      WECOM_API_TIMEOUT_MS: "15000"
       STUDIO_DATA_DIR: /data
       STUDIO_PORT: "3000"
-      DATABASE_URL: postgresql://pdp_user:0f0a6b3bd7c9d9beedfd65606f0fdf54@pdp-postgres:5432/dotbest_ops
+      DATABASE_URL: ${DATABASE_URL}
     volumes:
       - dotbest-ops-data:/data
     ports:

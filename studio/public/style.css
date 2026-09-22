@@ -75,4 +75,23 @@ dialog{width:min(630px,calc(100vw - 28px));max-height:90vh;overflow:auto;padding
 .issue-screenshot{display:block;max-width:100%;max-height:420px;border:1px solid var(--line);border-radius:5px}
 .feedback-reasons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .feedback-reasons label{border:1px solid var(--line);border-radius:5px;padding:8px 10px;font-size:13px}
+/* === 用户触达 === */
+.outreach-page{display:grid;gap:18px;min-width:0}
+.outreach-summary{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr)) auto;gap:14px;align-items:end;background:#fff;border:1px solid var(--line);border-radius:6px;padding:16px}
+.outreach-summary>div{display:grid;gap:5px;min-width:0}
+.outreach-summary small{font-size:12px;color:var(--muted)}
+.outreach-summary strong{font-size:18px;color:#1e2d44;overflow-wrap:anywhere}
+.outreach-section{display:grid;gap:12px;min-width:0;background:#fff;border:1px solid var(--line);border-radius:6px;padding:16px}
+.outreach-section>header{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;min-width:0}
+.outreach-section h2{font-size:17px}
+.outreach-generator{display:grid;grid-template-columns:220px 140px auto;gap:14px;align-items:end}
+.outreach-state{display:inline-flex;align-items:center;padding:3px 7px;border-radius:4px;font-size:11px;font-weight:600;color:var(--muted);background:#eef4fb}
+.outreach-state.bound,.outreach-state.sent{color:#1a7a4e;background:#e3f6ec}
+.outreach-state.suggested,.outreach-state.queued{color:#855a20;background:#fff4de}
+.outreach-state.ambiguous{color:#983d3d;background:#fff1f0}
+.outreach-message{min-width:260px;max-width:460px;white-space:normal;line-height:1.65;overflow-wrap:anywhere}
+.outreach-actions{display:flex;gap:6px;align-items:center;white-space:nowrap}
+.outreach-section select{min-width:170px}
 @media(max-width:680px){.customer-summary,.material-fields,.feedback-reasons{grid-template-columns:1fr}.composer-actions{grid-template-columns:1fr}.role-btn{width:100%}}
+@media(max-width:900px){.outreach-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.outreach-generator{grid-template-columns:1fr}}
+@media(max-width:680px){.outreach-summary{padding:12px}.outreach-summary button{width:100%;grid-column:1/-1}.outreach-message{min-width:180px;max-width:100%}.outreach-actions{display:grid}.outreach-actions button{width:100%}}

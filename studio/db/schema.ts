@@ -61,3 +61,34 @@ export const issues = sqliteTable('studio_issues', {
   reason: text('reason').notNull(), note: text('note').notNull().default(''), screenshot: text('screenshot'),
   status: text('status').notNull().default('open'), createdAt: integer('created_at').notNull(),
 });
+
+export const juziBots = sqliteTable('studio_juzi_bots', {
+  imBotId: text('im_bot_id').primaryKey(), botName: text('bot_name').notNull().default(''),
+  ownerUserId: text('owner_user_id'), lastSyncedAt: integer('last_synced_at').notNull(),
+});
+
+export const juziContacts = sqliteTable('studio_juzi_contacts', {
+  id: text('id').primaryKey(), imContactId: text('im_contact_id').notNull().unique(),
+  externalUserId: text('external_user_id').notNull().default(''), displayName: text('display_name').notNull().default(''),
+  phoneSuffix: text('phone_suffix').notNull().default(''), gender: integer('gender').notNull().default(0),
+  imBotId: text('im_bot_id').notNull(), friendshipStatus: integer('friendship_status').notNull().default(0),
+  localCustomerId: text('local_customer_id'), matchStatus: text('match_status').notNull().default('unmatched'),
+  lastSyncedAt: integer('last_synced_at').notNull(),
+});
+
+export const outreachTasks = sqliteTable('studio_outreach_tasks', {
+  id: text('id').primaryKey(), contactId: text('contact_id').notNull(), localCustomerId: text('local_customer_id'),
+  audience: text('audience').notNull(), priority: text('priority').notNull().default('medium'),
+  reason: text('reason').notNull().default(''), recommendedMessage: text('recommended_message').notNull().default(''),
+  nextAction: text('next_action').notNull().default(''), stopRule: text('stop_rule').notNull().default(''),
+  status: text('status').notNull().default('draft'), createdBy: text('created_by').notNull(),
+  createdAt: integer('created_at').notNull(),
+});
+
+export const outreachMessages = sqliteTable('studio_outreach_messages', {
+  id: text('id').primaryKey(), taskId: text('task_id'), contactId: text('contact_id').notNull(),
+  direction: text('direction').notNull(), content: text('content').notNull(), requestId: text('request_id'),
+  externalRequestId: text('external_request_id').unique(), messageId: text('message_id').unique(),
+  status: text('status').notNull().default('pending'), error: text('error').notNull().default(''),
+  createdAt: integer('created_at').notNull(),
+});

@@ -3,6 +3,7 @@ import { checkOrigin, readBody, fail, HttpError, json, checkPassword, passwordHa
 import { generate, validateMaterial } from './generation.mjs';
 import { knowledgeConfigured } from './knowledge.mjs';
 import { recognizeScreenshot } from './ocr.mjs';
+import { assignBot, bindContact, generateStrategies, handleJuziCallback, outreachSnapshot, queueTask, sendTask, syncContacts } from './outreach.mjs';
 import { AUDIENCES, maskText, MODEL, monthKey } from '../shared.mjs';
 
 const cleanName = value => typeof value === 'string' && /^[a-zA-Z][a-zA-Z0-9_.-]{2,39}$/.test(value);
@@ -123,6 +124,47 @@ export async function api(request, env, dependencies = {}) {
     return json({ changed: true }, 200, { 'Set-Cookie': cookie('', request, 0) });
   }
   if (user.must_change) fail(403, '首次登录请先修改临时密码', 'PASSWORD_CHANGE_REQUIRED');
+  if (route === '/api/studio/outreach' && method === 'GET') {
+    admin(user);
+    return json(await outreachSnapshot(store, env));
+  }
+  if (route === '/api/studio/outreach/sync' && method === 'POST') {
+    admin(user);
+    await store.rateLimit(`outreach-sync:${user.id}`, 2, 60);
+    return json(await syncContacts(store, env, user, dependencies));
+  }
+  const botMatch = route.match(/^\/api\/studio\/outreach\/bots\/([\w-]+)$/);
+  if (botMatch && method === 'PUT') {
+    admin(user);
+    return json(await assignBot(store, botMatch[1], await readBody(request)));
+  }
+  const bindMatch = route.match(/^\/api\/studio\/outreach\/contacts\/([\w-]+)\/bind$/);
+  if (bindMatch && method === 'PUT') {
+    admin(user);
+    return json(await bindContact(store, bindMatch[1], await readBody(request)));
+  }
+  if (route === '/api/studio/outreach/strategies' && method === 'POST') {
+    admin(user);
+    await store.rateLimit(`outreach-strategy:${user.id}`, 6, 60);
+    return json(await generateStrategies(store, user, await readBody(request), env, dependencies));
+  }
+  const queueMatch = route.match(/^\/api\/studio\/outreach\/tasks\/([\w-]+)\/queue$/);
+  if (queueMatch && method === 'POST') {
+    admin(user);
+    return json(await queueTask(store, queueMatch[1]));
+  }
+  const sendMatch = route.match(/^\/api\/studio\/outreach\/tasks\/([\w-]+)\/send$/);
+  if (sendMatch && method === 'POST') {
+    admin(user);
+    await store.rateLimit(`outreach-send:${user.id}`, 20, 60);
+    return json(await sendTask(store, env, sendMatch[1], dependencies));
+  }
+  if (route === '/api/studio/outreach/messages' && method === 'GET') {
+    admin(user);
+    const messages = await store.all(`SELECT m.*,c.display_name AS contact_name FROM studio_outreach_messages m
+      LEFT JOIN studio_juzi_contacts c ON c.id=m.contact_id WHERE m.created_at>? ORDER BY m.created_at DESC LIMIT 500`, Date.now() - 2592000000);
+    return json({ items: messages, retention_days: 30 });
+  }
   if (route === '/api/studio/materials' && method === 'GET') {
     const rows = await store.all('SELECT * FROM studio_materials ORDER BY updated_at DESC');
     return json({ items: rows.filter(row => user.role === 'admin' || row.active) });
@@ -318,6 +360,14 @@ export async function api(request, env, dependencies = {}) {
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self'; form-action 'self'; base-uri 'none'";
 export async function handle(request, env, dependencies = {}) {
   const url = new URL(request.url);
+  if (url.pathname === '/api/webhooks/upstream/messages') {
+    const callbackOK = () => new Response(JSON.stringify({ errcode: 0, errmsg: 'ok' }), {
+      status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+    });
+    if (!env.DB) return callbackOK();
+    try { return await handleJuziCallback(request, env, new Store(env.DB)); }
+    catch { return callbackOK(); }
+  }
   if (url.pathname.startsWith('/api/studio')) {
     try { return await api(request, env, dependencies); }
     catch (error) {

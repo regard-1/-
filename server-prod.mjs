@@ -72,6 +72,9 @@ const server = createServer(async (req, res) => {
       BAILIAN_KB_WORKSPACE_ID: process.env.BAILIAN_KB_WORKSPACE_ID,
       BAILIAN_KB_AGENT_ID: process.env.BAILIAN_KB_AGENT_ID,
       BAILIAN_KB_TOP_K: process.env.BAILIAN_KB_TOP_K,
+      WECOM_API_BASE: process.env.WECOM_API_BASE,
+      WECOM_API_TOKEN: process.env.WECOM_API_TOKEN,
+      WECOM_API_TIMEOUT_MS: process.env.WECOM_API_TIMEOUT_MS,
     };
     const response = await handle(request, env);
     const headers = Object.fromEntries(response.headers);
