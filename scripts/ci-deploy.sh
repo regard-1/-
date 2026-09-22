@@ -105,6 +105,7 @@ log "上传代码到 ${REMOTE_DIR} ..."
 # - .studio-local/ : 本地数据
 # - artifacts/ : 构建产物
 sshpass -e rsync -az --delete \
+    --rsync-path="sudo rsync" \
     --exclude '.git' \
     --exclude '.env' \
     --exclude '.env.*' \
