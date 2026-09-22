@@ -978,6 +978,132 @@
       provider:'Dotbest Human-tone Agent'
     };
   }
+  const outreachConnection={
+    provider:'句子互动',
+    configured:false,
+    status_message:'未配置服务端密钥与回调地址，当前仅生成策略，不会发送客户消息。',
+    customer_sync:'待接入',
+    reply_callback:'待接入',
+    staff_binding:'待接入'
+  };
+  const outreachPolicy={
+    send_window:'09:30-20:30，避开深夜与休息日高频打扰',
+    daily_limit:1,
+    weekly_limit:2,
+    monthly_limit:4,
+    retention:'发送与回复留档保留 30 天',
+    archive_permission:'仅管理员可查看'
+  };
+  let outreachStrategies=[];
+  let outreachQueue=[];
+  const outreachHistory=[];
+  let outreachVersion=1;
+  let outreachInitialized=false;
+
+  const outreachCustomerView=c=>({
+    id:c.id,
+    name:c.name,
+    salutation:c.salutation,
+    phone:c.phone,
+    owner:c.owner,
+    stage:c.stage,
+    product_focus:c.product_focus,
+    consent:c.consent
+  });
+  const outreachAudience=c=>{
+    const anti=c.assetCodes.some(code=>['nmn','ergothioneine'].includes(code));
+    return anti?'anti-aging':'basic-nutrition';
+  };
+  const outreachSegmentMembers=code=>code==='anti-aging'
+    ?customers.filter(c=>outreachAudience(c)==='anti-aging'&&c.stage!=='暂停触达')
+    :customers.filter(c=>outreachAudience(c)==='basic-nutrition'&&c.stage!=='暂停触达');
+  const outreachTaskFor=(c,index)=>{
+    if(c.last_purchase?.hasPurchase)return {category:'purchase_care'};
+    if(c.stage==='已读未回'||c.persona?.recency_days>45)return {category:'reactivation'};
+    if(index===0||Number(c.persona?.intention_score||0)>=80)return {category:'intent'};
+    return {category:'daily'};
+  };
+  const outreachReasonFor=(c,task)=>{
+    const purchase=Boolean(c.last_purchase?.hasPurchase);
+    const concern=String(c.persona?.concerns||'').trim()||'使用节奏与真实需求';
+    if(task.category==='purchase_care')return `已有${c.last_purchase?.product||c.product_focus}使用线索，本轮先确认实际使用与剩余量，再判断是否需要服务或补货。`;
+    if(task.category==='reactivation')return `${c.persona?.recency_label||c.stage}，先用“继续了解/先暂停”降低回复成本，避免连续追问。`;
+    if(task.category==='intent')return `当前关注点是${concern}，本轮只确认一个卡点，不把多个卖点放在同一条消息里。`;
+    return `缺少足够明确的需求事实，先完成低压力建联，让用户选择是否继续了解。`;
+  };
+  const initOutreachStrategies=()=>{
+    outreachStrategies=[];
+    outreachQueue=[];
+    outreachVersion+=1;
+    const selectors=[
+      list=>list.find(c=>c.last_purchase?.hasPurchase),
+      list=>list.find(c=>Number(c.persona?.intention_score||0)>=80),
+      list=>list.find(c=>c.stage==='已读未回'||Number(c.persona?.recency_days||0)>45),
+      list=>list[0]
+    ];
+    ['anti-aging','basic-nutrition'].forEach(segmentCode=>{
+      const members=outreachSegmentMembers(segmentCode);
+      selectors.forEach((selector,index)=>{
+        const c=selector(members.slice(index));
+        if(!c)return;
+        const task=outreachTaskFor(c,index);
+        const opening=buildOpeningStrategy(c,task,'proactive',false);
+        const confidence=Math.max(58,Math.min(92,Number(c.persona?.confidence||0)||72));
+        outreachStrategies.push({
+          id:`or-${segmentCode}-${c.id}`,
+          customer_id:c.id,
+          customer:outreachCustomerView(c),
+          audience_code:segmentCode,
+          audience_name:segmentCode==='anti-aging'?'抗衰人群':'基础营养人群',
+          confidence,
+          reason:outreachReasonFor(c,task),
+          recommended_message:opening.direct,
+          next_action:opening.reply_routes[0]?.advisor_next||'用户回复后先复述其关键词，再确认一个具体下一步。',
+          evidence:[
+            `归属顾问：${c.owner||'待确认'}`,
+            `沟通状态：${c.stage}`,
+            `产品线索：${c.last_purchase?.product||c.product_focus}`,
+            `授权状态：${c.consent||'待确认'}`,
+            ...(c.ai_profile?.evidence||[]).slice(0,3).map(x=>x.label)
+          ],
+          reply_routes:opening.reply_routes.map(route=>({
+            when:route.type,
+            then:route.advisor_next,
+            profile_value:route.profile_value,
+            conversion_value:route.conversion_value
+          })),
+          stop_rule:opening.reply_routes.find(route=>route.type==='拒绝或暂停')?.advisor_next||'用户要求暂停、表达拒绝或涉及医疗判断时，立即停止同类触达并转人工复核。',
+          review_status:'待确认'
+        });
+      });
+    });
+    outreachInitialized=true;
+  };
+  const outreachSnapshot=segment=>{
+    if(!outreachInitialized)initOutreachStrategies();
+    const filter=segment?item=>item.audience_code===segment:()=>true;
+    const segmentViews=segments.map(segmentItem=>({
+      ...segmentItem,
+      user_count:outreachSegmentMembers(segmentItem.code).length
+    }));
+    return {
+      connection:outreachConnection,
+      segments:segmentViews,
+      strategies:outreachStrategies.filter(filter),
+      queue:outreachQueue.filter(filter),
+      history:outreachHistory,
+      policy:outreachPolicy,
+      pilot:{
+        user_count:outreachStrategies.length,
+        confidence_range:outreachStrategies.length
+          ?`${Math.min(...outreachStrategies.map(x=>x.confidence))}-${Math.max(...outreachStrategies.map(x=>x.confidence))}%`
+          :'暂无可评估策略',
+        groups:['抗衰人群','基础营养人群'],
+        version:`Outreach V${outreachVersion}`
+      }
+    };
+  };
+
   window.fetch=async(input,options={})=>{
     const url=new URL(typeof input==='string'?input:input.url,location.href);const path=url.pathname.replace(/^\/[^/]+(?=\/api\/)/,'');const method=(options.method||'GET').toUpperCase();
     if(url.pathname==='/api/studio'||url.pathname.startsWith('/api/studio/'))return networkFetch(input,options);
@@ -987,6 +1113,47 @@
     if(!loggedIn)return fail('请先登录',401);
     if(path==='/api/v1/private/resources'&&method==='GET')return ok({...resources});
     if(path==='/api/v1/private/resources'&&method==='PUT'){const p=body(options);resources={activity:String(p.activity||'').trim(),plan:String(p.plan||'').trim(),knowledge:String(p.knowledge||'').trim()};persistResources();return ok({...resources})}
+    if(path==='/api/v1/private/outreach'&&method==='GET'){
+      const segment=url.searchParams.get('segment');
+      if(segment&&!segments.some(x=>x.code===segment))return fail('触达板块不存在');
+      return ok(outreachSnapshot(segment));
+    }
+    if(path==='/api/v1/private/outreach/refresh'&&method==='POST'){initOutreachStrategies();return ok(outreachSnapshot(url.searchParams.get('segment')))}
+    if(path==='/api/v1/private/outreach/queue'&&method==='POST'){
+      const id=String(body(options).id||'');
+      const item=outreachStrategies.find(x=>x.id===id);
+      if(!item)return fail('触达策略不存在');
+      if(item.review_status==='已加入队列')return fail('该策略已在执行队列');
+      item.review_status='已加入队列';
+      outreachQueue.push(item);
+      return ok(outreachSnapshot());
+    }
+    if(path==='/api/v1/private/outreach/remove'&&method==='POST'){
+      const id=String(body(options).id||'');
+      const item=outreachQueue.find(x=>x.id===id);
+      if(!item)return fail('队列任务不存在');
+      outreachQueue=outreachQueue.filter(x=>x.id!==id);
+      if(outreachStrategies.some(x=>x.id===id))outreachStrategies.find(x=>x.id===id).review_status='待确认';
+      return ok(outreachSnapshot());
+    }
+    if(path==='/api/v1/private/outreach/pause'&&method==='POST'){
+      const id=String(body(options).id||'');
+      const item=outreachStrategies.find(x=>x.id===id);
+      if(!item)return fail('触达策略不存在');
+      outreachQueue=outreachQueue.filter(x=>x.id!==id);
+      const c=customer(item.customer_id);
+      if(c)c.stage='暂停触达';
+      outreachStrategies=outreachStrategies.filter(x=>x.id!==id);
+      return ok(outreachSnapshot());
+    }
+    if(path==='/api/v1/private/outreach/send'&&method==='POST'){
+      const data=body(options);
+      const item=outreachQueue.find(x=>x.id===String(data.id||''));
+      if(!item)return fail('队列任务不存在');
+      if(data.confirmed!==true)return fail('发送前必须由归属顾问人工确认',400);
+      if(!outreachConnection.configured)return fail('句子互动尚未接入，当前演示环境不会真实发送客户消息',503);
+      return fail('演示环境禁止真实发送',503);
+    }
     if(path==='/api/v1/private/workbench')return ok({metrics:{due:tasks.filter(x=>x.status==='pending').length,waiting:customers.filter(x=>x.stage==='待回复'||x.stage==='对话中').length,followups:customers.filter(x=>x.stage==='待跟进').length,paused:customers.filter(x=>x.stage==='暂停触达').length},categories,segments,queue:tasks.filter(x=>x.status==='pending').slice(0,6).map(t=>({...t,customer:customer(t.customer_id)})),completed_today:3});
     if(path==='/api/v1/private/user-assets')return ok({segments,categories,owners:ownerSummaries(customers),total_users:customers.length,updated_at:now()});
     const segMatch=path.match(/^\/api\/v1\/private\/segments\/([\w-]+)\/overview$/);

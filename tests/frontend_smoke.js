@@ -128,6 +128,37 @@ async function request(url,options){const response=await fetch(url,options);retu
   const savedResources=await request('/api/v1/private/resources',{method:'PUT',body:JSON.stringify({activity:'演示活动机制',plan:'演示搭配组合',knowledge:'演示知识条目'})});
   assert.equal(savedResources.status,200);
   assert.equal(savedResources.body.data.activity,'演示活动机制');
+  const outreach=await request('/api/v1/private/outreach');
+  assert.equal(outreach.status,200);
+  assert.equal(outreach.body.data.connection.configured,false);
+  assert.ok(outreach.body.data.connection.status_message.includes('不会发送'));
+  assert.ok(outreach.body.data.segments.length>=2);
+  assert.ok(outreach.body.data.strategies.length>=4);
+  assert.ok(outreach.body.data.strategies.every(item=>item.reply_routes.length>=4));
+  assert.ok(outreach.body.data.strategies.every(item=>item.reply_routes.every(route=>route.when&&route.then&&route.profile_value&&route.conversion_value)));
+  assert.ok(outreach.body.data.strategies.every(item=>/^\d{4}$/.test(item.customer.phone)));
+  assert.ok(outreach.body.data.strategies.every(item=>!/\d{7,}/.test(item.recommended_message)));
+  assert.ok(outreach.body.data.policy.retention.includes('30 天'));
+  assert.equal(outreach.body.data.policy.archive_permission,'仅管理员可查看');
+  const antiAgingOutreach=await request('/api/v1/private/outreach?segment=anti-aging');
+  assert.ok(antiAgingOutreach.body.data.strategies.length>0);
+  assert.ok(antiAgingOutreach.body.data.strategies.every(item=>item.audience_code==='anti-aging'));
+  const firstOutreach=outreach.body.data.strategies[0];
+  const queuedOutreach=await request('/api/v1/private/outreach/queue',{method:'POST',body:JSON.stringify({id:firstOutreach.id})});
+  assert.equal(queuedOutreach.status,200);
+  assert.ok(queuedOutreach.body.data.queue.some(item=>item.id===firstOutreach.id));
+  const blockedSend=await request('/api/v1/private/outreach/send',{method:'POST',body:JSON.stringify({id:firstOutreach.id,confirmed:true})});
+  assert.equal(blockedSend.status,503);
+  assert.match(blockedSend.body.error.message,/句子互动尚未接入/);
+  const removedOutreach=await request('/api/v1/private/outreach/remove',{method:'POST',body:JSON.stringify({id:firstOutreach.id})});
+  assert.equal(removedOutreach.status,200);
+  assert.ok(!removedOutreach.body.data.queue.some(item=>item.id===firstOutreach.id));
+  const pausedOutreach=await request('/api/v1/private/outreach/pause',{method:'POST',body:JSON.stringify({id:outreach.body.data.strategies[1].id})});
+  assert.equal(pausedOutreach.status,200);
+  assert.ok(!pausedOutreach.body.data.strategies.some(item=>item.id===outreach.body.data.strategies[1].id));
+  const refreshedOutreach=await request('/api/v1/private/outreach/refresh',{method:'POST',body:'{}'});
+  assert.equal(refreshedOutreach.status,200);
+  assert.ok(refreshedOutreach.body.data.strategies.length>=4);
   const appSource=fs.readFileSync(path.join(__dirname,'..','assets','app.js'),'utf8');
   const cssSource=fs.readFileSync(path.join(__dirname,'..','assets','app.css'),'utf8');
   const htmlSource=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
@@ -140,6 +171,19 @@ async function request(url,options){const response=await fetch(url,options);retu
   assert.match(appSource,/产品搭配组合/);
   assert.match(appSource,/多特倍斯知识库/);
   assert.match(htmlSource,/data-page="projects"/);
+  assert.match(htmlSource,/data-page="outreach"/);
+  assert.ok(
+    htmlSource.indexOf('data-page="scripts"') < htmlSource.indexOf('data-page="outreach"')
+    && htmlSource.indexOf('data-page="outreach"') < htmlSource.indexOf('data-page="governance"'),
+    '用户触达应与话术中心相邻'
+  );
+  assert.match(appSource,/async function renderOutreach\(\)/);
+  assert.match(appSource,/function renderOutreachStrategy\(/);
+  assert.match(appSource,/function renderOutreachExecution\(/);
+  assert.match(appSource,/function queueOutreach\(/);
+  assert.match(appSource,/function pauseOutreach\(/);
+  assert.match(cssSource,/\.outreach-board/);
+  assert.match(cssSource,/\.outreach-strategy-card/);
   assert.ok(
     htmlSource.indexOf('data-page="assets"') < htmlSource.indexOf('data-page="projects"')
     && htmlSource.indexOf('data-page="projects"') < htmlSource.indexOf('data-page="conversations"'),
