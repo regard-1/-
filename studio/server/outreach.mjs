@@ -294,8 +294,9 @@ export async function generateStrategies(store, user, body, env, dependencies = 
   const materials = await store.all(`SELECT title,kind,audience,product,content,valid_from,valid_to
     FROM studio_materials WHERE active=1 ORDER BY updated_at DESC LIMIT 12`);
   const base = modelBase(env);
+  const batchSize = Math.max(1, Math.min(5, Number(env.STUDIO_OUTREACH_BATCH_SIZE) || 5));
   const batches = [];
-  for (let index = 0; index < candidates.length; index += 20) batches.push(candidates.slice(index, index + 20));
+  for (let index = 0; index < candidates.length; index += batchSize) batches.push(candidates.slice(index, index + batchSize));
   const tasks = [];
   for (const batch of batches) {
     const modelBody = {
@@ -309,7 +310,7 @@ export async function generateStrategies(store, user, body, env, dependencies = 
     let response;
     try {
       response = await dependencies.fetchModel(`${base.href.replace(/\/$/, '')}/chat/completions`, {
-        method: 'POST', signal: AbortSignal.timeout(90000),
+        method: 'POST', signal: AbortSignal.timeout(Math.max(30000, Number(env.STUDIO_OUTREACH_MODEL_TIMEOUT_MS) || 120000)),
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.STUDIO_LLM_API_KEY}` },
         body: JSON.stringify(modelBody),
       });
