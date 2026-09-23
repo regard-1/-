@@ -407,6 +407,8 @@ test('migrations and production configuration keep the token server-side', () =>
   assert.match(compose, /WECOM_API_TOKEN:\s*\$\{WECOM_API_TOKEN\}/);
   assert.match(compose, /STUDIO_LLM_BASE_URL:\s*\$\{STUDIO_LLM_BASE_URL:-https:\/\/dashscope\.aliyuncs\.com\/compatible-mode\/v1\}/);
   assert.ok(!compose.includes(juziToken));
+  const deployScript = readFileSync(new URL('../scripts/ci-deploy.sh', import.meta.url), 'utf8');
+  assert.ok(!/--exclude\s+['"]docker-compose\.prod\.yml['"]/.test(deployScript));
   const pgAdapter = readFileSync(new URL('../studio/pg-db.mjs', import.meta.url), 'utf8');
   assert.match(pgAdapter, /0005_pg_outreach_profile/);
   assert.ok(readFileSync(new URL('../drizzle/0005_pg_outreach_profile.sql', import.meta.url), 'utf8').includes('studio_customer_profile_updates'));

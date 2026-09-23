@@ -111,7 +111,6 @@ sshpass -e rsync -az --delete \
     --exclude '.env.*' \
     --exclude 'dist/' \
     --exclude 'node_modules/' \
-    --exclude 'docker-compose.prod.yml' \
     --exclude 'docker-compose.yml' \
     --exclude 'data.db' \
     --exclude '*.db' \
