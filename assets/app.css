@@ -305,6 +305,7 @@ button,input,select,textarea{font:inherit} button{cursor:pointer}.hidden{display
 .outreach-summary-grid article{padding:16px;border:1px solid #cddff0;border-radius:14px;background:#fff}
 .outreach-summary-grid span{display:block;color:#65809a;font-size:10px}.outreach-summary-grid strong{display:block;margin-top:8px;color:#1d4d79;font-size:20px}.outreach-summary-grid small{display:block;margin-top:5px;color:#6c89a5;font-size:10px;line-height:1.5}
 .outreach-alert{padding:14px 16px;border:1px solid #dfc9c5;border-left:4px solid #c25b52;border-radius:12px;background:#fff8f7;color:#8d4f48}
+.outreach-notice{padding:14px 16px;border:1px solid #bfd9ee;border-left:4px solid #3178a5;border-radius:12px;background:#f2f8fd;color:#28597d}
 .outreach-panel{min-width:0;border:1px solid #cddff0;border-radius:16px;background:#fff;overflow:hidden}
 .outreach-panel>header{padding:17px 19px;border-bottom:1px solid #dce9f5;background:#f3f8fd}
 .outreach-panel>header h4{margin:0;color:#1d4d79;font-size:14px}.outreach-panel>header p{margin:6px 0 0;color:#67839e;font-size:10px;line-height:1.6}

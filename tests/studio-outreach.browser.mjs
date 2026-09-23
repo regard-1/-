@@ -44,6 +44,9 @@ const runtime = await startServer({ db, env: {
     if (new URL(String(url)).pathname.endsWith('/message/send')) {
       sentText = JSON.parse(init.body).payload.text;
     }
+    if (new URL(String(url)).pathname.endsWith('/message/history')) {
+      return new Response(JSON.stringify({ errcode: 0, data: { messages: [], seq: '' } }), { headers: { 'Content-Type': 'application/json' } });
+    }
     return new Response(JSON.stringify({ errcode: 0, requestId: 'synthetic-request-id' }), { headers: { 'Content-Type': 'application/json' } });
   },
   fetchModel: async (_url, options) => {
@@ -90,6 +93,31 @@ try {
   await page.waitForSelector('[data-contact]');
   assert.ok((await page.locator('.outreach-workspace').textContent()).includes('5678'));
   assert.ok(!(await page.locator('.outreach-workspace').textContent()).includes('13800135678'));
+
+  const firstHistory = page.waitForResponse(response => response.url().endsWith('/api/studio/outreach/messages/sync'));
+  await page.locator('[data-action="outreach-history"]').click();
+  assert.equal((await firstHistory).status(), 200);
+
+  const secondHistory = page.waitForResponse(response => response.url().endsWith('/api/studio/outreach/messages/sync'));
+  await page.locator('[data-action="outreach-history"]').click();
+  assert.equal((await secondHistory).status(), 429);
+  await page.locator('.outreach-notice').waitFor();
+  assert.ok((await page.locator('.outreach-notice').textContent()).includes('同步间隔未到'));
+
+  const refreshRequests = [];
+  const refreshListener = request => {
+    if (request.url().includes('/api/studio/outreach')) refreshRequests.push(request);
+  };
+  page.on('request', refreshListener);
+  for (let i = 0; i < 3; i++) {
+    const cacheRead = page.waitForResponse(response => response.url().endsWith('/api/studio/outreach'));
+    await page.locator('[data-action="outreach-refresh"]').click();
+    await cacheRead;
+  }
+  page.off('request', refreshListener);
+  assert.ok(refreshRequests.length >= 3);
+  assert.ok(refreshRequests.every(request => request.method() === 'GET'));
+  assert.ok(!refreshRequests.some(request => request.url().endsWith('/outreach/messages/sync')));
 
   await page.locator('[data-contact]').selectOption('customer-1');
   await page.waitForFunction(() => document.querySelector('[data-contact]')?.value === 'customer-1');
