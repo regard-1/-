@@ -568,12 +568,12 @@ test('replied contacts are surfaced, manually correctable, and can generate foll
   assert.ok(reply.data.recommended_message.startsWith('陈老师'));
   assert.ok(modelInput.messages.some(message => message.content.includes('最近睡眠一般')));
 
+  const queued = await h.call(`/api/studio/outreach/tasks/${reply.data.id}/queue`, 'POST', {}, admin);
+  assert.equal(queued.status, 200);
   const edited = await h.call(`/api/studio/outreach/tasks/${reply.data.id}/message`, 'PUT', {
     message: '陈老师，您先说说最近是入睡难还是容易醒，我帮您看得更准一点。',
   }, admin);
   assert.equal(edited.status, 200);
-  const queued = await h.call(`/api/studio/outreach/tasks/${reply.data.id}/queue`, 'POST', {}, admin);
-  assert.equal(queued.status, 200);
   sending = true;
   const sent = await h.call(`/api/studio/outreach/tasks/${reply.data.id}/send`, 'POST', {}, admin);
   assert.equal(sent.status, 200);

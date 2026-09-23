@@ -393,8 +393,9 @@ export async function updateContactReplyStatus(store, id, body) {
 
 export async function updateTaskMessage(store, user, id, body) {
   const message = textValue(body?.message, 600, '触达内容');
-  const result = await store.query("UPDATE studio_outreach_tasks SET recommended_message=? WHERE id=? AND status='draft' RETURNING id", message, id).first();
-  if (!result) fail(404, '触达任务不存在或已不可编辑');
+  const result = await store.query(`UPDATE studio_outreach_tasks SET recommended_message=?
+    WHERE id=? AND status IN('draft','queued') RETURNING id`, message, id).first();
+  if (!result) fail(404, '触达任务不存在或已进入不可编辑状态');
   return { updated: true, message };
 }
 

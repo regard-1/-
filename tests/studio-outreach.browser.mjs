@@ -18,6 +18,7 @@ db.sqlite.prepare(`INSERT INTO studio_customers(id,display_name,audience,owner_u
   purchased_products,interests,concerns,contraindications,notes,active,updated_by,updated_at)
   VALUES('customer-1','陈先生','anti_aging','outreach-sales','陈哥','5678','NMN','精力','价格','','先核实安全',1,'outreach-sales',?)`).run(Date.now());
 
+let sentText = '';
 const runtime = await startServer({ db, env: {
   STUDIO_LLM_API_KEY: 'test-only',
   STUDIO_LLM_BASE_URL: 'https://model.example/v1',
@@ -39,6 +40,9 @@ const runtime = await startServer({ db, env: {
         }],
         next_seq: '',
       }), { headers: { 'Content-Type': 'application/json' } });
+    }
+    if (new URL(String(url)).pathname.endsWith('/message/send')) {
+      sentText = JSON.parse(init.body).payload.text;
     }
     return new Response(JSON.stringify({ errcode: 0, requestId: 'synthetic-request-id' }), { headers: { 'Content-Type': 'application/json' } });
   },
@@ -95,12 +99,18 @@ try {
   await page.waitForSelector('.drawer [data-action="outreach-queue"]');
   assert.ok((await page.locator('.outreach-workspace').textContent()).includes('陈哥'));
 
+  await page.locator('.drawer .outreach-task-editor').fill('陈哥，先问一句：最近是精力跟不太上，还是睡眠先受影响？');
   await page.locator('.drawer [data-action="outreach-queue"]').click();
   await page.locator('.drawer [data-action="outreach-send"]').waitFor();
+  await page.locator('.drawer .outreach-task-editor').fill('陈哥，先问一句：最近主要是精力跟不太上，还是睡眠先受影响？');
   page.once('dialog', dialog => dialog.accept());
+  const messageUpdate = page.waitForRequest(request => request.url().includes('/api/studio/outreach/tasks/') && request.url().endsWith('/message'));
   const sent = page.waitForResponse(response => response.url().includes('/api/studio/outreach/tasks/') && response.url().endsWith('/send'));
   await page.locator('.drawer [data-action="outreach-send"]').click();
+  const updateRequest = await messageUpdate;
+  assert.equal(JSON.parse(updateRequest.postData()).message, '陈哥，先问一句：最近主要是精力跟不太上，还是睡眠先受影响？');
   await sent;
+  assert.equal(sentText, '陈哥，先问一句：最近主要是精力跟不太上，还是睡眠先受影响？');
   await page.waitForFunction(() => document.querySelector('.outreach-workspace')?.textContent.includes('已发送'));
   await screenshot('desktop');
 
