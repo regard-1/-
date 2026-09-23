@@ -166,6 +166,9 @@ try {
   await studio.locator('#composer-text').waitFor();
   assert.equal(await page.locator('.sidebar').count(), 1);
   assert.equal(await studio.locator('.sidebar').count(), 0);
+  const juziLink = page.locator('.nav-item[href="https://stride-bg.dpclouds.com/hub-app/"]');
+  assert.equal(await juziLink.count(), 1);
+  assert.equal(await juziLink.getAttribute('target'), '_blank');
   assert.equal(await page.locator('.nav-item.active').getAttribute('data-page'), 'scripts');
   assert.equal(new URL(page.url()).origin, runtime.url);
   await studio.locator('#composer-text').fill('仅本次嵌入咨询，不应被用户资产读取。');

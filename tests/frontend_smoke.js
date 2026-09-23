@@ -178,6 +178,9 @@ async function request(url,options){const response=await fetch(url,options);retu
   assert.doesNotMatch(htmlSource,/项目资料/);
   assert.doesNotMatch(htmlSource,/会话工作台/);
   assert.match(htmlSource,/data-page="outreach"/);
+  const juziLink=htmlSource.match(/<a class="nav-item"[^>]*href="([^"]+)"[^>]*>/);
+  assert.ok(juziLink, '句子互动工作台入口应作为左侧独立外链存在');
+  assert.equal(juziLink[1], 'https://stride-bg.dpclouds.com/hub-app/');
   assert.ok(
     htmlSource.indexOf('data-page="scripts"') < htmlSource.indexOf('data-page="outreach"')
     && htmlSource.indexOf('data-page="outreach"') < htmlSource.indexOf('data-page="governance"'),
