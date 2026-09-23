@@ -3,7 +3,7 @@ import { checkOrigin, readBody, fail, HttpError, json, checkPassword, passwordHa
 import { generate, validateMaterial } from './generation.mjs';
 import { knowledgeConfigured } from './knowledge.mjs';
 import { recognizeScreenshot } from './ocr.mjs';
-import { assignBot, bindContact, generateStrategies, handleJuziCallback, outreachSnapshot, queueTask, sendTask, syncContacts } from './outreach.mjs';
+import { assignBot, bindContact, generateStrategies, handleJuziCallback, outreachSnapshot, queueTask, sendTask, syncContacts, syncConversations } from './outreach.mjs';
 import { AUDIENCES, maskText, MODEL, monthKey } from '../shared.mjs';
 
 const cleanName = value => typeof value === 'string' && /^[a-zA-Z][a-zA-Z0-9_.-]{2,39}$/.test(value);
@@ -132,6 +132,11 @@ export async function api(request, env, dependencies = {}) {
     admin(user);
     await store.rateLimit(`outreach-sync:${user.id}`, 2, 60);
     return json(await syncContacts(store, env, user, dependencies));
+  }
+  if (route === '/api/studio/outreach/messages/sync' && method === 'POST') {
+    admin(user);
+    await store.rateLimit(`outreach-history-sync:${user.id}`, 1, 300);
+    return json(await syncConversations(store, env, user, dependencies));
   }
   const botMatch = route.match(/^\/api\/studio\/outreach\/bots\/([\w-]+)$/);
   if (botMatch && method === 'PUT') {
