@@ -282,6 +282,42 @@ function renderTemplate(template, contact, messages = []) {
     .replace(/\{\{\s*姓名\s*\}\}/g, name || nickname)).slice(0, 600);
 }
 
+function parseSnapshot(value) {
+  try { return JSON.parse(value || '{}') || {}; } catch { return {}; }
+}
+
+function replaceOpeningSalutation(message, oldSalutation, confirmedSalutation) {
+  const old = String(oldSalutation || '').trim();
+  const confirmed = String(confirmedSalutation || '').trim();
+  if (!old || !confirmed || old === confirmed) return String(message || '');
+  return String(message || '').replace(
+    new RegExp(`^${escapeRegExp(old)}(?=[\\s,，.。:：!！?？]|$)`),
+    confirmed,
+  );
+}
+
+function applyConfirmedSalutation(message, contact, messages = [], snapshot = {}) {
+  const confirmed = String(contact?.confirmed_salutation || '').trim();
+  if (!confirmed) return String(message || '');
+  const family = familyName(contactFullName(contact));
+  const genderSalutation = contact?.gender === 1 ? `${family}哥` : contact?.gender === 2 ? `${family}姐` : '';
+  const oldSalutations = [
+    snapshot.salutation,
+    contact?.salutation,
+    contact?.local_customer_name,
+    contact?.customer_name,
+    contact?.display_name,
+    genderSalutation,
+    inferSalutation({ ...contact, confirmed_salutation: null }),
+    inferSalutation({ ...contact, confirmed_salutation: null }, messages),
+  ];
+  let result = String(message || '');
+  for (const old of [...new Set(oldSalutations.map(value => String(value || '').trim()).filter(Boolean))]) {
+    result = replaceOpeningSalutation(result, old, confirmed);
+  }
+  return result;
+}
+
 function validateTemplate(body) {
   if (/\d{11}/.test(String(body?.content || ''))) fail(400, '模板内容不能包含完整手机号');
   const title = textValue(body?.title, 40, '模板名称');
@@ -316,7 +352,36 @@ export async function updateContactSalutation(store, id, body) {
   const salutation = textValue(body?.salutation, 30, '称呼');
   const result = await store.query('UPDATE studio_juzi_contacts SET confirmed_salutation=? WHERE id=? RETURNING id', salutation, id).first();
   if (!result) fail(404, '句子互动客户不存在');
-  return { updated: true, salutation };
+
+  const contact = await store.query(`SELECT c.*,l.display_name AS local_customer_name,l.salutation AS local_salutation
+    FROM studio_juzi_contacts c LEFT JOIN studio_customers l ON l.id=c.local_customer_id AND l.active=1 WHERE c.id=?`, id).first();
+  const messages = contact ? (await store.all(`SELECT contact_id,direction,content,created_at FROM studio_outreach_messages
+    WHERE contact_id=? ORDER BY created_at DESC LIMIT 20`, id)).reverse() : [];
+  const tasks = contact ? await store.all(`SELECT id,recommended_message,profile_snapshot,source,template_id
+    FROM studio_outreach_tasks WHERE contact_id=? AND status IN('draft','queued') ORDER BY created_at`, id) : [];
+
+  for (const task of tasks) {
+    let message = String(task.recommended_message || '');
+    const template = task.template_id
+      ? await store.query('SELECT * FROM studio_outreach_templates WHERE id=?', task.template_id).first()
+      : null;
+    if (template && task.source === 'template') {
+      message = renderTemplate(template, contact, messages);
+    } else {
+      const snapshot = parseSnapshot(task.profile_snapshot);
+      message = applyConfirmedSalutation(message, {
+        ...contact, salutation: contact.local_salutation || contact.salutation,
+      }, messages, snapshot);
+    }
+
+    const snapshot = parseSnapshot(task.profile_snapshot);
+    snapshot.salutation = salutation;
+    snapshot.confirmed_salutation = salutation;
+    await store.query(`UPDATE studio_outreach_tasks SET recommended_message=?,profile_snapshot=?
+      WHERE id=? AND status IN('draft','queued')`, message, JSON.stringify(snapshot).slice(0, 8000), task.id).run();
+  }
+
+  return { updated: true, salutation, updated_tasks: tasks.length };
 }
 
 export async function updateContactReplyStatus(store, id, body) {
@@ -406,7 +471,8 @@ export async function generateReply(store, user, body, env, dependencies = {}) {
       { role: 'system', content: `你是多特倍斯私域跟进回复助手。根据客户最新回复、可用画像和已核对资料，生成一条可直接编辑后发送的回复。先准确回应客户当前问题，再推进一个自然动作；语气亲切自然，可使用已确认称呼。没有资料支持的价格、规格、活动、用法不编造；售后或身体不适优先处理安全和服务。输出 JSON：{"reply":"","next_action":"","reason":""}。` },
       { role: 'user', content: JSON.stringify({ salutation, contact: {
         display_name: contact.display_name, tags: contact.tags, remark: contact.remark,
-        salutation: contact.salutation, purchased_products: contact.purchased_products,
+        salutation: contact.salutation, confirmed_salutation: contact.confirmed_salutation,
+        purchased_products: contact.purchased_products,
         interests: contact.interests, concerns: contact.concerns,
         contraindications: contact.contraindications, profile: contact.profile,
       }, recent_messages: messages, materials }) },
@@ -423,7 +489,7 @@ export async function generateReply(store, user, body, env, dependencies = {}) {
   if (!response.ok) fail(502, '推荐回复生成服务暂时不可用，请稍后重试', 'MODEL_UNAVAILABLE');
   let payload; try { payload = await response.json(); } catch { fail(502, '推荐回复生成格式异常，请重试', 'MODEL_FORMAT'); }
   const output = extractJSON(payload.choices?.[0]?.message?.content || '');
-  const reply = textValue(output.reply, 600, '推荐回复');
+  const reply = applyConfirmedSalutation(textValue(output.reply, 600, '推荐回复'), contact, messages);
   if (/保证|一定有效|包治|替代药物|建议停药/.test(reply)) fail(502, '推荐回复包含不安全表述，请重试', 'UNSAFE_STRATEGY');
   const id = crypto.randomUUID(), now = Date.now(), planDay = chinaDay();
   const task = {
@@ -473,12 +539,13 @@ function validateTasks(output, candidates) {
     const candidate = allowed.get(String(item?.contact_id || ''));
     if (!candidate) fail(502, '触达策略包含未提供的客户，请重试', 'MODEL_FORMAT');
     const message = textValue(item.recommended_message, 600, '触达话术');
+    const confirmedMessage = applyConfirmedSalutation(message, candidate, candidate.recent_messages || []);
     if (/保证|一定有效|包治|替代药物|建议停药|高价值客户|内部评分/.test(message)) fail(502, '触达话术包含不安全表述，请重试', 'UNSAFE_STRATEGY');
     return {
       contact_id: candidate.id, local_customer_id: candidate.local_customer_id, audience: candidate.audience,
       priority: ['high', 'medium', 'low'].includes(item.priority) ? item.priority : 'medium',
       strategy_type: STRATEGY_TYPES.includes(item.strategy_type) ? item.strategy_type : 'care',
-      reason: maskText(String(item.reason || '')).slice(0, 600), recommended_message: message,
+      reason: maskText(String(item.reason || '')).slice(0, 600), recommended_message: confirmedMessage,
       next_action: maskText(String(item.next_action || '')).slice(0, 600),
       stop_rule: maskText(String(item.stop_rule || '')).slice(0, 600),
       profile_updates: JSON.stringify(item.profile_updates && typeof item.profile_updates === 'object' ? item.profile_updates : {})
@@ -497,7 +564,7 @@ export async function generateStrategies(store, user, body, env, dependencies = 
     await store.query("DELETE FROM studio_outreach_tasks WHERE plan_day=? AND status='draft'", planDay).run();
   }
   const contacts = (await store.all(`SELECT c.id,c.im_contact_id,c.display_name,c.local_customer_id,
-    c.tags,c.remark,c.profile_json,l.audience,l.display_name AS customer_name,l.salutation,
+    c.confirmed_salutation,c.tags,c.remark,c.profile_json,l.audience,l.display_name AS customer_name,l.salutation,
     l.purchased_products,l.interests,l.concerns,l.contraindications,l.notes,b.im_bot_id,b.bot_name,u.display_name AS owner_name
     FROM studio_juzi_contacts c LEFT JOIN studio_customers l ON l.id=c.local_customer_id AND l.active=1
     JOIN studio_juzi_bots b ON b.im_bot_id=c.im_bot_id LEFT JOIN studio_users u ON u.id=l.owner_user_id
@@ -565,7 +632,8 @@ export async function generateStrategies(store, user, body, env, dependencies = 
     const id = crypto.randomUUID();
     const candidate = candidateMap.get(task.contact_id);
     const snapshot = JSON.stringify({
-      salutation: candidate?.salutation, owner_name: candidate?.owner_name,
+      salutation: candidate?.confirmed_salutation || candidate?.salutation,
+      confirmed_salutation: candidate?.confirmed_salutation, owner_name: candidate?.owner_name,
       audience: candidate?.audience, purchased_products: candidate?.purchased_products,
       interests: candidate?.interests, concerns: candidate?.concerns,
       contraindications: candidate?.contraindications, notes: candidate?.notes,

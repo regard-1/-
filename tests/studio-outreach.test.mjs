@@ -407,7 +407,15 @@ test('outreach retention is 30 days for tasks and messages', async t => {
 });
 
 test('outreach templates are admin-only and render confirmed salutations', async t => {
-  const h = await harness(t, { fetchJuzi: async () => listCustomersResponse() });
+  let sending = false;
+  const outbound = [];
+  const h = await harness(t, {
+    fetchJuzi: async (url, init) => {
+      if (!sending) return listCustomersResponse();
+      outbound.push({ url: String(url), body: JSON.parse(init.body || '{}') });
+      return jsonResponse({ errcode: 0, requestId: 'template-request-1' });
+    },
+  });
   const sales = await h.login('sales');
   const forbidden = await h.call('/api/studio/outreach/templates', 'POST', { title: '销售模板', content: '中秋快乐呀' }, sales);
   assert.equal(forbidden.status, 403);
@@ -417,7 +425,6 @@ test('outreach templates are admin-only and render confirmed salutations', async
   const snapshot = await h.call('/api/studio/outreach', 'GET', undefined, admin);
   const contact = snapshot.data.contacts[0];
   await h.call(`/api/studio/outreach/contacts/${contact.id}/bind`, 'PUT', { local_customer_id: 'customer-1' }, admin);
-  await h.call(`/api/studio/outreach/contacts/${contact.id}/salutation`, 'PUT', { salutation: '陈老师' }, admin);
 
   const invalid = await h.call('/api/studio/outreach/templates', 'POST', { title: '隐私模板', content: `联系${fullPhone}` }, admin);
   assert.equal(invalid.status, 400);
@@ -430,7 +437,33 @@ test('outreach templates are admin-only and render confirmed salutations', async
   const generated = await h.call(`/api/studio/outreach/templates/${created.data.id}/generate`, 'POST', {}, admin);
   assert.equal(generated.status, 200);
   assert.equal(generated.data.created_count, 1);
-  assert.equal(generated.data.tasks[0].recommended_message, '陈老师，中秋快乐呀，祝您身体健康。');
+  assert.equal(generated.data.tasks[0].recommended_message, '陈哥，中秋快乐呀，祝您身体健康。');
+  const pendingTaskId = generated.data.tasks[0].id;
+
+  const saved = await h.call(`/api/studio/outreach/contacts/${contact.id}/salutation`, 'PUT', { salutation: '陈老师' }, admin);
+  assert.equal(saved.status, 200);
+  assert.equal(saved.data.updated_tasks, 1);
+  assert.equal(h.db.sqlite.prepare('SELECT recommended_message FROM studio_outreach_tasks WHERE id=?').get(pendingTaskId)
+    .recommended_message, '陈老师，中秋快乐呀，祝您身体健康。');
+
+  const queued = await h.call(`/api/studio/outreach/tasks/${pendingTaskId}/queue`, 'POST', {}, admin);
+  assert.equal(queued.status, 200);
+  const savedQueued = await h.call(`/api/studio/outreach/contacts/${contact.id}/salutation`, 'PUT', { salutation: '陈教授' }, admin);
+  assert.equal(savedQueued.status, 200);
+  assert.equal(savedQueued.data.updated_tasks, 1);
+  assert.equal(h.db.sqlite.prepare('SELECT recommended_message FROM studio_outreach_tasks WHERE id=?').get(pendingTaskId)
+    .recommended_message, '陈教授，中秋快乐呀，祝您身体健康。');
+
+  sending = true;
+  const sent = await h.call(`/api/studio/outreach/tasks/${pendingTaskId}/send`, 'POST', {}, admin);
+  assert.equal(sent.status, 200);
+  assert.equal(outbound[0].body.payload.text, '陈教授，中秋快乐呀，祝您身体健康。');
+
+  const savedAfterSend = await h.call(`/api/studio/outreach/contacts/${contact.id}/salutation`, 'PUT', { salutation: '陈老师' }, admin);
+  assert.equal(savedAfterSend.status, 200);
+  assert.equal(savedAfterSend.data.updated_tasks, 0);
+  assert.equal(h.db.sqlite.prepare('SELECT recommended_message FROM studio_outreach_tasks WHERE id=?').get(pendingTaskId)
+    .recommended_message, '陈教授，中秋快乐呀，祝您身体健康。');
 
   const repeat = await h.call(`/api/studio/outreach/templates/${created.data.id}/generate`, 'POST', {}, admin);
   assert.equal(repeat.status, 200);
@@ -447,6 +480,45 @@ test('outreach templates are admin-only and render confirmed salutations', async
   assert.equal(stopped.status, 404);
 });
 
+test('confirmed salutations are sent to AI strategies and enforced in generated messages', async t => {
+  let modelInput;
+  const h = await harness(t, {
+    fetchJuzi: async () => listCustomersResponse(),
+    fetchModel: async (_, options) => {
+      modelInput = JSON.parse(options.body);
+      const candidate = JSON.parse(modelInput.messages.at(-1).content).candidates[0];
+      const output = {
+        tasks: [{
+          contact_id: candidate.id,
+          priority: 'medium',
+          reason: '测试确认称呼',
+          recommended_message: '陈哥，最近整体状态还好吗？',
+          next_action: '等待客户回复',
+          stop_rule: '客户明确不需要后暂停',
+        }],
+      };
+      return jsonResponse({
+        choices: [{ message: { content: JSON.stringify(output) } }],
+      });
+    },
+  });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  const initial = await h.call('/api/studio/outreach', 'GET', undefined, admin);
+  const contact = initial.data.contacts[0];
+  await h.call(`/api/studio/outreach/contacts/${contact.id}/bind`, 'PUT', { local_customer_id: 'customer-1' }, admin);
+  await h.call(`/api/studio/outreach/contacts/${contact.id}/salutation`, 'PUT', { salutation: '陈老师' }, admin);
+
+  const generated = await h.call('/api/studio/outreach/strategies', 'POST', { contact_id: contact.id }, admin);
+  assert.equal(generated.status, 200);
+  assert.equal(generated.data.tasks[0].recommended_message, '陈老师，最近整体状态还好吗？');
+  const task = h.db.sqlite.prepare('SELECT profile_snapshot FROM studio_outreach_tasks WHERE id=?')
+    .get(generated.data.tasks[0].id);
+  assert.equal(JSON.parse(task.profile_snapshot).confirmed_salutation, '陈老师');
+  const candidate = JSON.parse(modelInput.messages.at(-1).content).candidates[0];
+  assert.equal(candidate.confirmed_salutation, '陈老师');
+});
+
 test('replied contacts are surfaced, manually correctable, and can generate follow-up replies', async t => {
   let modelInput;
   const outbound = [];
@@ -461,7 +533,7 @@ test('replied contacts are surfaced, manually correctable, and can generate foll
       modelInput = JSON.parse(options.body);
       return jsonResponse({
         choices: [{ message: { content: JSON.stringify({
-          reply: '陈老师，先别急着加产品。您最近是入睡难，还是容易醒？我先帮您把情况弄清楚。',
+          reply: '陈哥，先别急着加产品。您最近是入睡难，还是容易醒？我先帮您把情况弄清楚。',
           next_action: '根据客户补充的睡眠细节确认下一步',
           reason: '客户已回复且反馈睡眠问题',
         }) } }],
@@ -473,6 +545,7 @@ test('replied contacts are surfaced, manually correctable, and can generate foll
   const initial = await h.call('/api/studio/outreach', 'GET', undefined, admin);
   const contact = initial.data.contacts[0];
   assert.equal(contact.replied, false);
+  await h.call(`/api/studio/outreach/contacts/${contact.id}/salutation`, 'PUT', { salutation: '陈老师' }, admin);
 
   h.db.sqlite.prepare(`INSERT INTO studio_outreach_messages(id,contact_id,direction,content,message_id,status,error,created_at)
     VALUES(?,?,?,?,?,?,?,?)`).run('reply-message', contact.id, 'inbound', '陈老师，最近睡眠一般。', 'reply-message-1', 'received', '', Date.now());
