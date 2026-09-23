@@ -76,6 +76,14 @@ export const juziContacts = sqliteTable('studio_juzi_contacts', {
   lastSyncedAt: integer('last_synced_at').notNull(),
   tags: text('tags').notNull().default(''), remark: text('remark').notNull().default(''),
   profileJson: text('profile_json'), lastProfileUpdatedAt: integer('last_profile_updated_at'),
+  confirmedSalutation: text('confirmed_salutation').notNull().default(''),
+  replyStatusOverride: integer('reply_status_override').notNull().default(0),
+});
+
+export const outreachTemplates = sqliteTable('studio_outreach_templates', {
+  id: text('id').primaryKey(), title: text('title').notNull(),
+  content: text('content').notNull(), active: integer('active').notNull().default(1),
+  createdBy: text('created_by').notNull(), updatedAt: integer('updated_at').notNull(),
 });
 
 export const outreachTasks = sqliteTable('studio_outreach_tasks', {
@@ -87,6 +95,7 @@ export const outreachTasks = sqliteTable('studio_outreach_tasks', {
   createdAt: integer('created_at').notNull(), planDay: text('plan_day').notNull().default(''),
   strategyType: text('strategy_type').notNull().default('care'), profileSnapshot: text('profile_snapshot'),
   profileUpdates: text('profile_updates'),
+  source: text('source').notNull().default('strategy'), templateId: text('template_id'),
 });
 
 export const outreachMessages = sqliteTable('studio_outreach_messages', {

@@ -71,6 +71,7 @@ export class Store {
    this.query('DELETE FROM studio_outreach_messages WHERE created_at<?', now - 2592000000),
    this.query('DELETE FROM studio_outreach_tasks WHERE created_at<?', now - 2592000000),
    this.query('DELETE FROM studio_customer_profile_updates WHERE created_at<?', now - 2592000000),
+   this.query('DELETE FROM studio_outreach_templates WHERE active=0 AND updated_at<?', now - 2592000000),
   ]);
     const stale = await this.all("SELECT id,month,reservation,created_at FROM studio_usage WHERE status='pending' AND created_at<? LIMIT 100", now - 120000);
     for (const row of stale) await this.settle({ ...row, started: row.created_at }, 'unknown', row.reservation);

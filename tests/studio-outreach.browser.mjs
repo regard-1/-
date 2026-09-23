@@ -91,18 +91,19 @@ try {
   assert.ok((await page.locator('.outreach-workspace').textContent()).includes('5678'));
   assert.ok(!(await page.locator('.outreach-workspace').textContent()).includes('13800135678'));
 
-  const generated = page.waitForResponse(response => response.url().endsWith('/api/studio/outreach/strategies'));
   await page.locator('[data-contact]').selectOption('customer-1');
+  await page.waitForFunction(() => document.querySelector('[data-contact]')?.value === 'customer-1');
+  const generated = page.waitForResponse(response => response.url().endsWith('/api/studio/outreach/strategies'));
+  await page.getByRole('button', { name: '生成一客一策' }).click();
   await generated;
-  await page.waitForFunction(() => document.querySelector('.outreach-workspace')?.textContent.includes('已绑定'));
-  await page.waitForFunction(() => document.querySelectorAll('[data-action="outreach-queue"]').length === 1);
+  await page.waitForSelector('.drawer [data-action="outreach-queue"]');
   assert.ok((await page.locator('.outreach-workspace').textContent()).includes('陈哥'));
 
-  await page.locator('[data-action="outreach-queue"]').click();
-  await page.locator('[data-action="outreach-send"]').first().waitFor();
+  await page.locator('.drawer [data-action="outreach-queue"]').click();
+  await page.locator('.drawer [data-action="outreach-send"]').waitFor();
   page.once('dialog', dialog => dialog.accept());
   const sent = page.waitForResponse(response => response.url().includes('/api/studio/outreach/tasks/') && response.url().endsWith('/send'));
-  await page.locator('[data-action="outreach-send"]').first().click();
+  await page.locator('.drawer [data-action="outreach-send"]').click();
   await sent;
   await page.waitForFunction(() => document.querySelector('.outreach-workspace')?.textContent.includes('已发送'));
   await screenshot('desktop');

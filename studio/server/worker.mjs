@@ -3,7 +3,7 @@ import { checkOrigin, readBody, fail, HttpError, json, checkPassword, passwordHa
 import { generate, validateMaterial } from './generation.mjs';
 import { knowledgeConfigured } from './knowledge.mjs';
 import { recognizeScreenshot } from './ocr.mjs';
-import { assignBot, bindContact, generateStrategies, handleJuziCallback, outreachSnapshot, queueTask, sendTask, syncContacts, syncConversations } from './outreach.mjs';
+import { assignBot, bindContact, createTemplate, deleteTemplate, generateReply, generateStrategies, generateTemplateTasks, handleJuziCallback, outreachSnapshot, queueTask, sendTask, syncContacts, syncConversations, updateContactReplyStatus, updateContactSalutation, updateTaskMessage, updateTemplate } from './outreach.mjs';
 import { AUDIENCES, maskText, MODEL, monthKey } from '../shared.mjs';
 
 const cleanName = value => typeof value === 'string' && /^[a-zA-Z][a-zA-Z0-9_.-]{2,39}$/.test(value);
@@ -152,6 +152,47 @@ export async function api(request, env, dependencies = {}) {
     admin(user);
     await store.rateLimit(`outreach-strategy:${user.id}`, 6, 60);
     return json(await generateStrategies(store, user, await readBody(request), env, dependencies));
+  }
+  if (route === '/api/studio/outreach/templates' && method === 'POST') {
+    admin(user);
+    await store.rateLimit(`outreach-template:${user.id}`, 20, 60);
+    return json(await createTemplate(store, user, await readBody(request)), 201);
+  }
+  const templateMatch = route.match(/^\/api\/studio\/outreach\/templates\/([\w-]+)$/);
+  if (templateMatch && method === 'PUT') {
+    admin(user);
+    await store.rateLimit(`outreach-template:${user.id}`, 20, 60);
+    return json(await updateTemplate(store, user, templateMatch[1], await readBody(request)));
+  }
+  if (templateMatch && method === 'DELETE') {
+    admin(user);
+    return json(await deleteTemplate(store, user, templateMatch[1]));
+  }
+  const templateGenerateMatch = route.match(/^\/api\/studio\/outreach\/templates\/([\w-]+)\/generate$/);
+  if (templateGenerateMatch && method === 'POST') {
+    admin(user);
+    await store.rateLimit(`outreach-template-generate:${user.id}`, 4, 60);
+    return json(await generateTemplateTasks(store, user, { ...(await readBody(request)), template_id: templateGenerateMatch[1] }));
+  }
+  const salutationMatch = route.match(/^\/api\/studio\/outreach\/contacts\/([\w-]+)\/salutation$/);
+  if (salutationMatch && method === 'PUT') {
+    admin(user);
+    return json(await updateContactSalutation(store, salutationMatch[1], await readBody(request)));
+  }
+  const replyStatusMatch = route.match(/^\/api\/studio\/outreach\/contacts\/([\w-]+)\/reply-status$/);
+  if (replyStatusMatch && method === 'PUT') {
+    admin(user);
+    return json(await updateContactReplyStatus(store, replyStatusMatch[1], await readBody(request)));
+  }
+  if (route === '/api/studio/outreach/replies' && method === 'POST') {
+    admin(user);
+    await store.rateLimit(`outreach-reply:${user.id}`, 12, 60);
+    return json(await generateReply(store, user, await readBody(request), env, dependencies), 201);
+  }
+  const taskMessageMatch = route.match(/^\/api\/studio\/outreach\/tasks\/([\w-]+)\/message$/);
+  if (taskMessageMatch && method === 'PUT') {
+    admin(user);
+    return json(await updateTaskMessage(store, user, taskMessageMatch[1], await readBody(request)));
   }
   const queueMatch = route.match(/^\/api\/studio\/outreach\/tasks\/([\w-]+)\/queue$/);
   if (queueMatch && method === 'POST') {

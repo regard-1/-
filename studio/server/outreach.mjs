@@ -17,7 +17,7 @@ function normalizeTimestamp(value) {
 
 export async function outreachSnapshot(store, env) {
   const day = chinaDay();
-  const [bots, contacts, tasks, messages, profileUpdates] = await Promise.all([
+  const [bots, contacts, tasks, messages, profileUpdates, templates, replyStats] = await Promise.all([
     store.all(`SELECT b.*,u.display_name AS owner_name FROM studio_juzi_bots b
       LEFT JOIN studio_users u ON u.id=b.owner_user_id ORDER BY b.bot_name`),
     store.all(`SELECT c.*,l.display_name AS local_customer_name,l.audience AS local_customer_audience,
@@ -26,16 +26,33 @@ export async function outreachSnapshot(store, env) {
       LEFT JOIN studio_customers l ON l.id=c.local_customer_id
       LEFT JOIN studio_users u ON u.id=l.owner_user_id ORDER BY c.display_name LIMIT 500`),
     store.all(`SELECT t.*,c.display_name AS contact_name,l.display_name AS customer_name,
-      b.bot_name,b.im_bot_id FROM studio_outreach_tasks t
+      b.bot_name,b.im_bot_id,tpl.title AS template_title FROM studio_outreach_tasks t
       JOIN studio_juzi_contacts c ON c.id=t.contact_id
       LEFT JOIN studio_customers l ON l.id=t.local_customer_id
       JOIN studio_juzi_bots b ON b.im_bot_id=c.im_bot_id
+      LEFT JOIN studio_outreach_templates tpl ON tpl.id=t.template_id
       ORDER BY CASE t.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,t.created_at DESC LIMIT 200`),
     store.all(`SELECT m.*,c.display_name AS contact_name FROM studio_outreach_messages m
       LEFT JOIN studio_juzi_contacts c ON c.id=m.contact_id ORDER BY m.created_at DESC LIMIT 200`),
     store.all(`SELECT p.*,c.display_name AS contact_name FROM studio_customer_profile_updates p
       LEFT JOIN studio_juzi_contacts c ON c.id=p.contact_id ORDER BY p.created_at DESC LIMIT 100`),
+    store.all('SELECT id,title,content,active,updated_at FROM studio_outreach_templates ORDER BY updated_at DESC'),
+    store.all(`SELECT contact_id,
+      MAX(CASE WHEN direction='inbound' THEN created_at END) AS last_inbound_at,
+      MAX(CASE WHEN direction='outbound' THEN created_at END) AS last_outbound_at
+      FROM studio_outreach_messages GROUP BY contact_id`),
   ]);
+  const replyMap = new Map(replyStats.map(row => [row.contact_id, row]));
+  for (const contact of contacts) {
+    let profile = {};
+    try { profile = JSON.parse(contact.profile_json || '{}') || {}; } catch {}
+    const inbound = Math.max(Number(replyMap.get(contact.id)?.last_inbound_at || 0), Number(profile.last_reply_at || 0));
+    const outbound = Number(replyMap.get(contact.id)?.last_outbound_at || 0);
+    contact.last_reply_at = inbound || null;
+    contact.replied = contact.reply_status_override === 1
+      || (contact.reply_status_override === 0 && inbound > outbound);
+  }
+  contacts.sort((a, b) => Number(b.replied) - Number(a.replied) || String(a.display_name).localeCompare(String(b.display_name), 'zh-Hans-CN'));
   const localCustomers = await store.all(`SELECT c.id,c.display_name,c.audience,c.phone_suffix,u.display_name AS owner_name
     FROM studio_customers c LEFT JOIN studio_users u ON u.id=c.owner_user_id WHERE c.active=1 ORDER BY c.display_name`);
   const counts = {
@@ -47,10 +64,12 @@ export async function outreachSnapshot(store, env) {
     queued: tasks.filter(t => t.status === 'queued').length,
     sentToday: tasks.filter(t => t.status === 'sent' && t.plan_day === day).length,
     today: tasks.filter(t => t.plan_day === day).length,
+    replied: contacts.filter(contact => contact.replied).length,
+    templates: templates.length,
     messages: messages.length,
   };
   return { connected: juziConfigured(env), configured: juziConfigured(env), model_configured: !!(env.STUDIO_LLM_API_KEY && env.STUDIO_LLM_BASE_URL), plan_day: day,
-    bots, contacts, tasks, messages, profile_updates: profileUpdates,
+    bots, contacts, tasks, messages, profile_updates: profileUpdates, templates,
     local_customers: localCustomers, counts };
 }
 
@@ -206,6 +225,223 @@ export async function bindContact(store, id, body) {
   await store.query('UPDATE studio_juzi_contacts SET local_customer_id=?,match_status=? WHERE id=?',
     customerId, customerId ? 'bound' : 'unmatched', id).run();
   return { updated: true };
+}
+
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function contactFullName(contact) {
+  return String(contact.local_customer_name || contact.customer_name || contact.display_name || '').trim();
+}
+
+function familyName(name) {
+  const characters = Array.from(String(name || '').replace(/\s+/g, ''));
+  const common = ['欧阳', '司马', '上官', '诸葛', '皇甫', '令狐'];
+  if (characters.length >= 3 && common.includes(characters.slice(0, 2).join(''))) return characters.slice(0, 2).join('');
+  return characters[0] || '';
+}
+
+function salutationFromText(text, family) {
+  const value = String(text || '');
+  const pattern = family
+    ? new RegExp(`${escapeRegExp(family)}(?:哥|姐|老师|女士|先生|医生|经理|总)`)
+    : /(?:称呼|叫)\s*[:：]?\s*([^\s,，。;；]{1,8})/;
+  const direct = value.match(pattern);
+  if (direct) return family ? direct[0] : direct[1];
+  const labelled = value.match(/(?:称呼|叫)\s*[:：]?\s*([^\s,，。;；]{1,8})/);
+  return labelled ? labelled[1] : '';
+}
+
+function inferSalutation(contact, messages = []) {
+  if (contact.confirmed_salutation) return contact.confirmed_salutation;
+  const name = contactFullName(contact), family = familyName(name);
+  const recent = messages.some(message => salutationFromText(message.content, family));
+  if (recent) return salutationFromText((messages.find(message => salutationFromText(message.content, family)) || {}).content, family);
+  if (contact.salutation) return contact.salutation;
+  const fromRemark = salutationFromText(contact.remark, family);
+  if (fromRemark) return fromRemark;
+  if (/老师|医生/.test(contact.tags || '')) return family ? `${family}${contact.tags.includes('医生') ? '医生' : '老师'}` : name;
+  if (/先生|男士/.test(contact.tags || '') || /先生|男士/.test(name)) return name.includes('先生') ? name : `${family || ''}先生`;
+  if (/女士|小姐|太太/.test(contact.tags || '') || /女士|小姐|太太/.test(name)) return name.match(/女士|小姐|太太/)?.[0] ? name : `${family || ''}女士`;
+  if (contact.gender === 1) return family ? `${family}哥` : name;
+  if (contact.gender === 2) return family ? `${family}姐` : name;
+  return name || '您';
+}
+
+function renderTemplate(template, contact, messages = []) {
+  const salutation = inferSalutation(contact, messages);
+  const name = contactFullName(contact);
+  const nickname = String(contact.display_name || name || '客户').trim();
+  const content = /\{\{\s*(称呼|昵称|姓名)\s*\}\}/.test(template.content)
+    ? template.content
+    : `{{称呼}}，${template.content}`;
+  return maskText(content
+    .replace(/\{\{\s*称呼\s*\}\}/g, salutation)
+    .replace(/\{\{\s*昵称\s*\}\}/g, nickname)
+    .replace(/\{\{\s*姓名\s*\}\}/g, name || nickname)).slice(0, 600);
+}
+
+function validateTemplate(body) {
+  if (/\d{11}/.test(String(body?.content || ''))) fail(400, '模板内容不能包含完整手机号');
+  const title = textValue(body?.title, 40, '模板名称');
+  const content = textValue(body?.content, 600, '模板内容');
+  return { title, content, active: body?.active === false ? 0 : 1 };
+}
+
+export async function createTemplate(store, user, body) {
+  const data = validateTemplate(body), id = crypto.randomUUID(), now = Date.now();
+  await store.query(`INSERT INTO studio_outreach_templates(id,title,content,active,created_by,updated_at)
+    VALUES(?,?,?,?,?,?)`, id, data.title, data.content, data.active, user.id, now).run();
+  return { id, ...data, created_by: user.id, updated_at: now };
+}
+
+export async function updateTemplate(store, user, id, body) {
+  const existing = await store.query('SELECT id FROM studio_outreach_templates WHERE id=?', id).first();
+  if (!existing) fail(404, '触达模板不存在');
+  const data = validateTemplate(body), now = Date.now();
+  await store.query('UPDATE studio_outreach_templates SET title=?,content=?,active=?,updated_at=? WHERE id=?',
+    data.title, data.content, data.active, now, id).run();
+  return { id, ...data, updated: true, updated_at: now };
+}
+
+export async function deleteTemplate(store, user, id) {
+  const now = Date.now();
+  const result = await store.query('UPDATE studio_outreach_templates SET active=0,updated_at=? WHERE id=? AND active=1 RETURNING id', now, id).first();
+  if (!result) fail(404, '模板不存在或已停用');
+  return { deleted: true };
+}
+
+export async function updateContactSalutation(store, id, body) {
+  const salutation = textValue(body?.salutation, 30, '称呼');
+  const result = await store.query('UPDATE studio_juzi_contacts SET confirmed_salutation=? WHERE id=? RETURNING id', salutation, id).first();
+  if (!result) fail(404, '句子互动客户不存在');
+  return { updated: true, salutation };
+}
+
+export async function updateContactReplyStatus(store, id, body) {
+  const status = body?.replied === true ? 1 : body?.replied === false ? 2 : 0;
+  const result = await store.query('UPDATE studio_juzi_contacts SET reply_status_override=? WHERE id=? RETURNING id', status, id).first();
+  if (!result) fail(404, '句子互动客户不存在');
+  return { updated: true, replied: status === 1, automatic: status === 0 };
+}
+
+export async function updateTaskMessage(store, user, id, body) {
+  const message = textValue(body?.message, 600, '触达内容');
+  const result = await store.query("UPDATE studio_outreach_tasks SET recommended_message=? WHERE id=? AND status='draft' RETURNING id", message, id).first();
+  if (!result) fail(404, '触达任务不存在或已不可编辑');
+  return { updated: true, message };
+}
+
+export async function generateTemplateTasks(store, user, body) {
+  const templateId = String(body?.template_id || '');
+  const template = await store.query('SELECT * FROM studio_outreach_templates WHERE id=? AND active=1', templateId).first();
+  if (!template) fail(404, '触达模板不存在或已停用');
+  const requestedIds = Array.isArray(body?.contact_ids) ? body.contact_ids.map(String).slice(0, 200) : null;
+  const contacts = (await store.all(`SELECT c.*,l.display_name AS local_customer_name,l.audience AS local_customer_audience,
+    l.salutation,l.purchased_products,l.interests,l.concerns,l.contraindications,l.notes
+    FROM studio_juzi_contacts c LEFT JOIN studio_customers l ON l.id=c.local_customer_id AND l.active=1
+    JOIN studio_juzi_bots b ON b.im_bot_id=c.im_bot_id ORDER BY c.display_name`)).map(contact => ({ ...contact, profile: (() => {
+      try { return JSON.parse(contact.profile_json || '{}') || {}; } catch { return {}; }
+    })() }));
+  const messages = await store.all(`SELECT contact_id,direction,content,created_at FROM studio_outreach_messages
+    WHERE created_at>? ORDER BY created_at DESC LIMIT 1000`, Date.now() - 2592000000);
+  for (const contact of contacts) {
+    const contactMessages = messages.filter(item => item.contact_id === contact.id);
+    const inbound = Math.max(...contactMessages.filter(item => item.direction === 'inbound').map(item => Number(item.created_at)), Number(contact.profile?.last_reply_at || 0));
+    const outbound = Math.max(0, ...contactMessages.filter(item => item.direction === 'outbound').map(item => Number(item.created_at)));
+    contact.replied = contact.reply_status_override === 1
+      || (contact.reply_status_override === 0 && inbound > 0 && inbound > outbound);
+  }
+  const eligibleContacts = contacts.filter(contact => {
+    if (requestedIds && !requestedIds.includes(contact.id)) return false;
+    if (contact.profile?.should_pause) return false;
+    if (!requestedIds && contact.replied) return false;
+    return true;
+  });
+  const planDay = chinaDay(), now = Date.now();
+  const existing = await store.all(`SELECT contact_id FROM studio_outreach_tasks
+    WHERE template_id=? AND plan_day=? AND status IN('draft','queued','sent')`, template.id, planDay);
+  const existingIds = new Set(existing.map(row => row.contact_id));
+  const candidates = eligibleContacts.filter(contact => !existingIds.has(contact.id));
+  const tasks = [];
+  for (const contact of candidates) {
+    const message = renderTemplate(template, contact, messages.filter(item => item.contact_id === contact.id).slice(0, 20));
+    const id = crypto.randomUUID();
+    await store.query(`INSERT INTO studio_outreach_tasks(id,contact_id,local_customer_id,audience,priority,reason,
+      recommended_message,next_action,stop_rule,status,created_by,created_at,plan_day,strategy_type,profile_snapshot,profile_updates,source,template_id)
+      VALUES(?,?,?,?,?,?,?,?,?,'draft',?,?,?,?,?,?,'template',?)`, id, contact.id, contact.local_customer_id,
+      contact.local_customer_audience || 'daily_nutrition', 'medium', '管理员固定模板批量触达', message,
+      '发送后关注客户回复，回复后可生成推荐回复', '客户明确不需要或要求停止时立即暂停', user.id, now, planDay,
+      'activity', JSON.stringify({ salutation: inferSalutation(contact), tags: contact.tags, remark: contact.remark }).slice(0, 4000),
+      '{}', template.id).run();
+    tasks.push({ id, contact_id: contact.id, contact_name: contact.display_name, recommended_message: message,
+      status: 'draft', source: 'template', template_id: template.id, template_title: template.title, created_at: now });
+  }
+  return { plan_day: planDay, created_count: tasks.length, skipped_count: contacts.length - candidates.length, tasks };
+}
+
+export async function generateReply(store, user, body, env, dependencies = {}) {
+  const contactId = String(body?.contact_id || '');
+  const contact = await store.query(`SELECT c.*,l.display_name AS local_customer_name,l.audience AS local_customer_audience,
+    l.salutation,l.purchased_products,l.interests,l.concerns,l.contraindications,l.notes,
+    u.display_name AS owner_name FROM studio_juzi_contacts c
+    LEFT JOIN studio_customers l ON l.id=c.local_customer_id AND l.active=1
+    LEFT JOIN studio_users u ON u.id=l.owner_user_id WHERE c.id=?`, contactId).first();
+  if (!contact) fail(404, '句子互动客户不存在');
+  let contactProfile = {};
+  try { contactProfile = JSON.parse(contact.profile_json || '{}') || {}; } catch {}
+  contact.profile = contactProfile;
+  if (contact.profile?.should_pause) fail(409, '该客户已要求暂停触达，请先处理服务问题');
+  const messages = (await store.all(`SELECT direction,content,created_at FROM studio_outreach_messages
+    WHERE contact_id=? AND created_at>? ORDER BY created_at DESC LIMIT 20`, contact.id, Date.now() - 2592000000)).reverse();
+  const salutation = inferSalutation(contact, messages);
+  const materials = await store.all(`SELECT title,kind,audience,product,content,valid_from,valid_to
+    FROM studio_materials WHERE active=1 ORDER BY updated_at DESC LIMIT 8`);
+  const base = modelBase(env), fetchModel = dependencies.fetchModel || fetch;
+  const modelBody = {
+    model: MODEL, stream: false, max_tokens: 700, enable_search: false, enable_thinking: false,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: `你是多特倍斯私域跟进回复助手。根据客户最新回复、可用画像和已核对资料，生成一条可直接编辑后发送的回复。先准确回应客户当前问题，再推进一个自然动作；语气亲切自然，可使用已确认称呼。没有资料支持的价格、规格、活动、用法不编造；售后或身体不适优先处理安全和服务。输出 JSON：{"reply":"","next_action":"","reason":""}。` },
+      { role: 'user', content: JSON.stringify({ salutation, contact: {
+        display_name: contact.display_name, tags: contact.tags, remark: contact.remark,
+        salutation: contact.salutation, purchased_products: contact.purchased_products,
+        interests: contact.interests, concerns: contact.concerns,
+        contraindications: contact.contraindications, profile: contact.profile,
+      }, recent_messages: messages, materials }) },
+    ],
+  };
+  let response;
+  try {
+    response = await fetchModel(`${base.href.replace(/\/$/, '')}/chat/completions`, {
+      method: 'POST', signal: AbortSignal.timeout(Math.max(20000, Number(env.STUDIO_OUTREACH_MODEL_TIMEOUT_MS) || 120000)),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.STUDIO_LLM_API_KEY}` },
+      body: JSON.stringify(modelBody),
+    });
+  } catch { fail(502, '推荐回复生成超时或连接异常，请稍后重试', 'MODEL_UNAVAILABLE'); }
+  if (!response.ok) fail(502, '推荐回复生成服务暂时不可用，请稍后重试', 'MODEL_UNAVAILABLE');
+  let payload; try { payload = await response.json(); } catch { fail(502, '推荐回复生成格式异常，请重试', 'MODEL_FORMAT'); }
+  const output = extractJSON(payload.choices?.[0]?.message?.content || '');
+  const reply = textValue(output.reply, 600, '推荐回复');
+  if (/保证|一定有效|包治|替代药物|建议停药/.test(reply)) fail(502, '推荐回复包含不安全表述，请重试', 'UNSAFE_STRATEGY');
+  const id = crypto.randomUUID(), now = Date.now(), planDay = chinaDay();
+  const task = {
+    id, contact_id: contact.id, local_customer_id: contact.local_customer_id,
+    audience: contact.local_customer_audience || 'daily_nutrition', priority: 'medium',
+    reason: maskText(String(output.reason || '客户已回复，需要跟进')).slice(0, 600),
+    recommended_message: reply, next_action: maskText(String(output.next_action || '')).slice(0, 600),
+    stop_rule: '客户明确不需要或要求停止时立即暂停', status: 'draft', created_at: now,
+    plan_day: planDay, strategy_type: 'service', source: 'reply', template_id: null,
+  };
+  await store.query(`INSERT INTO studio_outreach_tasks(id,contact_id,local_customer_id,audience,priority,reason,
+    recommended_message,next_action,stop_rule,status,created_by,created_at,plan_day,strategy_type,profile_snapshot,profile_updates,source,template_id)
+    VALUES(?,?,?,?,?,?,?,?,?,'draft',?,?,?,?,?,?,'reply',NULL)`, id, task.contact_id, task.local_customer_id,
+    task.audience, task.priority, task.reason, task.recommended_message, task.next_action, task.stop_rule,
+    user.id, now, planDay, task.strategy_type,
+    JSON.stringify({ salutation, tags: contact.tags, remark: contact.remark, latest_message: messages.at(-1)?.content || '' }).slice(0, 4000),
+    '{}').run();
+  return task;
 }
 
 function modelBase(env) {
