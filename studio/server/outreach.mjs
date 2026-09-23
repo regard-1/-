@@ -291,8 +291,11 @@ export async function generateStrategies(store, user, body, env, dependencies = 
   if (!candidates.length) {
     return { created_count: 0, existing_count: existing.length, plan_day: planDay, tasks: existing };
   }
-  const materials = await store.all(`SELECT title,kind,audience,product,content,valid_from,valid_to
-    FROM studio_materials WHERE active=1 ORDER BY updated_at DESC LIMIT 12`);
+  const materials = (await store.all(`SELECT title,kind,audience,product,content,valid_from,valid_to
+    FROM studio_materials WHERE active=1 ORDER BY updated_at DESC LIMIT 12`)).map(material => ({
+    ...material,
+    content: String(material.content || '').slice(0, 500),
+  }));
   const base = modelBase(env);
   const batchSize = Math.max(1, Math.min(5, Number(env.STUDIO_OUTREACH_BATCH_SIZE) || 5));
   const batches = [];
@@ -300,7 +303,7 @@ export async function generateStrategies(store, user, body, env, dependencies = 
   const tasks = [];
   for (const batch of batches) {
     const modelBody = {
-      model: MODEL, stream: false, max_tokens: 8192, enable_search: false, enable_thinking: false,
+      model: MODEL, stream: false, max_tokens: 1024, enable_search: false, enable_thinking: false,
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: `你是多特倍斯私域触达策略助手。为输入的每个真实句子互动客户生成一条可执行的主动开口策略，不允许遗漏或新增客户。目标优先解决客户愿意回复，再根据其可用信息选择关怀、复购通知、教育、活动、售后或边界确认，不默认推销。必须一客一策：优先使用近期聊天、句子互动标签、备注和画像；如存在本地档案，再参考称呼、归属顾问、已购产品、关注点、禁忌。档案缺失时不得编造，只能使用对话和标签中的明确信息。不得编造购买历史、剩余数量、价格、活动、功效保证或个体医疗建议；没有资料支持时不写具体产品事实。语气自然亲切，可沿用已确认称呼。输出 JSON：{"tasks":[{"contact_id":"","strategy_type":"care/repurchase_notice/education/activity/service/boundary_check","priority":"high/medium/low","reason":"","recommended_message":"","next_action":"","stop_rule":"","profile_updates":{"observed_signal":"","next_focus":"","should_pause":false}}]}。` },
