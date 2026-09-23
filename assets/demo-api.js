@@ -1104,6 +1104,7 @@
     };
   };
 
+  window.DotbestDemoAuth={set:value=>{loggedIn=Boolean(value)}}
   window.fetch=async(input,options={})=>{
     const url=new URL(typeof input==='string'?input:input.url,location.href);const path=url.pathname;const method=(options.method||'GET').toUpperCase();
     if(url.pathname==='/api/studio'||url.pathname.startsWith('/api/studio/'))return networkFetch(input,options);

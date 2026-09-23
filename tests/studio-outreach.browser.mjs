@@ -72,15 +72,11 @@ const screenshot = async name => {
 try {
   await mkdir('artifacts', { recursive: true });
   await page.goto(runtime.url + '/');
-  await page.locator('#login-form [name=username]').fill('demo_operator');
-  await page.locator('#login-form [name=password]').fill('demo');
+  await page.locator('#login-form [name=username]').fill('outreach-admin');
+  await page.locator('#login-form [name=password]').fill('OutreachPass123!');
   await page.locator('#login-form [type=submit]').click();
   await page.locator('.app-shell').waitFor();
   await page.locator('[data-page="outreach"]').click();
-  await page.locator('#outreach-login-form').waitFor();
-  await page.locator('#outreach-username').fill('outreach-admin');
-  await page.locator('#outreach-password').fill('OutreachPass123!');
-  await page.locator('#outreach-login-form [type=submit]').click();
   await page.locator('.outreach-workspace').waitFor();
   assert.ok((await page.locator('.outreach-workspace').textContent()).includes('句子互动已连接'));
 
@@ -114,17 +110,11 @@ try {
   const salesContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const salesPage = await salesContext.newPage();
   await salesPage.goto(runtime.url + '/');
-  await salesPage.locator('#login-form [name=username]').fill('demo_operator');
-  await salesPage.locator('#login-form [name=password]').fill('demo');
+  await salesPage.locator('#login-form [name=username]').fill('outreach-sales');
+  await salesPage.locator('#login-form [name=password]').fill('OutreachPass123!');
   await salesPage.locator('#login-form [type=submit]').click();
   await salesPage.locator('.app-shell').waitFor();
-  await salesPage.locator('[data-page="outreach"]').click();
-  await salesPage.locator('#outreach-login-form').waitFor();
-  await salesPage.locator('#outreach-username').fill('outreach-sales');
-  await salesPage.locator('#outreach-password').fill('OutreachPass123!');
-  await salesPage.locator('#outreach-login-form [type=submit]').click();
-  await salesPage.locator('.empty-card').waitFor();
-  assert.ok((await salesPage.locator('.empty-card').textContent()).includes('当前账号没有用户触达权限'));
+  assert.ok(await salesPage.locator('[data-page="outreach"]').isHidden());
   await salesPage.close();
   await salesContext.close();
   assert.deepEqual(errors, []);
