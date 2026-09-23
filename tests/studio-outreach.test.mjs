@@ -169,6 +169,21 @@ test('unbound Juzi contacts can generate one-customer strategies from real signa
   assert.equal(generated.data.tasks[0].audience, 'anti_aging');
 });
 
+test('production outreach uses the default model fetch when dependencies are omitted', async t => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const h = await harness(t, { fetchJuzi: async () => listCustomersResponse() });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  const snapshot = await h.call('/api/studio/outreach', 'GET', undefined, admin);
+  const contact = snapshot.data.contacts[0];
+  globalThis.fetch = async () => modelTask(contact.id, contact.local_customer_id);
+  const result = await h.call('/api/studio/outreach/strategies', 'POST', { contact_id: contact.id }, admin);
+  assert.equal(result.status, 200);
+  assert.equal(result.data.created_count, 1);
+  assert.equal(result.data.tasks[0].contact_id, contact.id);
+});
+
 test('conversation history is deduplicated, masked, and updates the profile', async t => {
   const h = await harness(t, {
     fetchJuzi: async request => {

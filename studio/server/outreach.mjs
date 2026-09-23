@@ -254,6 +254,7 @@ function validateTasks(output, candidates) {
 }
 
 export async function generateStrategies(store, user, body, env, dependencies = {}) {
+  const fetchModel = dependencies.fetchModel || fetch;
   const planDay = chinaDay();
   const audience = AUDIENCES[body?.audience] ? body.audience : null;
   if (body?.refresh === true) {
@@ -312,7 +313,7 @@ export async function generateStrategies(store, user, body, env, dependencies = 
     };
     let response;
     try {
-      response = await dependencies.fetchModel(`${base.href.replace(/\/$/, '')}/chat/completions`, {
+      response = await fetchModel(`${base.href.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST', signal: AbortSignal.timeout(Math.max(30000, Number(env.STUDIO_OUTREACH_MODEL_TIMEOUT_MS) || 120000)),
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.STUDIO_LLM_API_KEY}` },
         body: JSON.stringify(modelBody),
