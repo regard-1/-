@@ -45,25 +45,34 @@ async function harness(t) {
 }
 const oauthJson = async response => ({ status: response.status, body: await response.json() });
 
-test('juzi SSO is admin-only and returns a one-use iframe URL', async t => {
+test('juzi SSO requires login and returns a one-use iframe URL', async t => {
   const h = await harness(t);
   assert.equal((await h.call('/api/studio/juzi/sso')).status, 401);
   const sales = await h.login('sales');
-  assert.equal((await h.call('/api/studio/juzi/sso', { session: sales })).status, 403);
-  const admin = await h.login('admin');
-  const response = await h.call('/api/studio/juzi/sso', { session: admin });
+  const response = await h.call('/api/studio/juzi/sso', { session: sales });
   assert.equal(response.status, 200);
   const payload = await response.json();
   const url = new URL(payload.data.iframe_url);
-  assert.equal(url.origin + url.pathname, 'https://sp.example/hub-app/');
-  assert.equal(url.searchParams.get('client_id'), baseEnv.IDP_CLIENT_ID);
-  assert.equal(url.searchParams.get('sso_type'), '1');
   assert.equal(url.searchParams.get('redirectPath'), baseEnv.SP_REDIRECT_PATH);
-  assert.equal(payload.data.sp_origin, 'https://sp.example');
   const code = url.searchParams.get('code');
   assert.match(code, /^[0-9a-f]{64}$/);
   assert.ok(h.db.sqlite.prepare('SELECT 1 FROM studio_idp_codes WHERE code_hash=?').get(await digest(code)));
   assert.ok(!JSON.stringify(h.db.sqlite.prepare('SELECT * FROM studio_idp_codes').all()).includes(code));
+
+  const admin = await h.login('admin');
+  const adminResponse = await h.call('/api/studio/juzi/sso', { session: admin });
+  assert.equal(adminResponse.status, 200);
+  const adminPayload = await adminResponse.json();
+  const adminUrl = new URL(adminPayload.data.iframe_url);
+  assert.equal(adminUrl.origin + adminUrl.pathname, 'https://sp.example/hub-app/');
+  assert.equal(adminUrl.searchParams.get('client_id'), baseEnv.IDP_CLIENT_ID);
+  assert.equal(adminUrl.searchParams.get('sso_type'), '1');
+  assert.equal(adminUrl.searchParams.get('redirectPath'), baseEnv.SP_REDIRECT_PATH);
+  assert.equal(adminPayload.data.sp_origin, 'https://sp.example');
+  const adminCode = adminUrl.searchParams.get('code');
+  assert.match(adminCode, /^[0-9a-f]{64}$/);
+  assert.ok(h.db.sqlite.prepare('SELECT 1 FROM studio_idp_codes WHERE code_hash=?').get(await digest(adminCode)));
+  assert.ok(!JSON.stringify(h.db.sqlite.prepare('SELECT * FROM studio_idp_codes').all()).includes(adminCode));
 });
 
 test('oauth token exchange is one-time and userinfo never stores plaintext tokens', async t => {
