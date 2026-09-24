@@ -2,7 +2,7 @@ import { digest, randomToken } from './security.mjs';
 
 const CODE_TTL_MS = 5 * 60 * 1000;
 const TOKEN_TTL_MS = 60 * 60 * 1000;
-const DEFAULT_REDIRECT_PATH = '/main/:orgId/member-crm/:groupId/contact-list';
+const DEFAULT_REDIRECT_PATH = '/admin-crm/contact-list';
 
 const oauthJson = (data, status = 200) => new Response(JSON.stringify(data), {
   status,
