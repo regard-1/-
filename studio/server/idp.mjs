@@ -105,7 +105,7 @@ export async function handleOauth(request, env, store) {
       login.searchParams.set('return_to', url.pathname + url.search);
       return new Response(null, { status: 302, headers: { Location: login.toString(), 'Cache-Control': 'no-store' } });
     }
-    if (user.role !== 'admin' || user.must_change) return oauthError('invalid_request', 403);
+    // SSO direct mode (6951437m0): any authenticated IDP user can issue code to SP; admin/must_change gate removed
     const code = await issueCode(store, user, config, { redirectUri, state });
     const target = new URL(config.redirect);
     target.searchParams.set('code', code);
