@@ -32,7 +32,7 @@ function idpConfig(env) {
   try { base = new URL(spBase); redirect = new URL(redirectUri); } catch {}
   const configured = !!(base && redirect && base.protocol === 'https:' && redirect.protocol === 'https:'
     && clientId && clientSecret && /^[^@\s]+\.[^@\s]+$/.test(emailDomain) && orgId
-    && spPath.startsWith('/') && redirectPath.startsWith('/main/:orgId/'));
+    && spPath.startsWith('/') && (redirectPath === '/chat' || redirectPath.startsWith('/main/:orgId/')));
   if (!configured) return null;
   return { base, redirect, clientId, clientSecret, emailDomain, orgId, spPath, redirectPath };
 }
