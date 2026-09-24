@@ -521,24 +521,69 @@ function modelBase(env) {
 }
 
 function extractJSON(text) {
-  const fence = String(text || '').match(/```(?:json)?\s*([\s\S]*?)```/);
-  const value = fence ? fence[1].trim() : String(text || '').trim();
-  const start = value.indexOf('{'), end = value.lastIndexOf('}');
-  if (start === -1 || end <= start) fail(502, '模型返回格式异常，请重试', 'MODEL_FORMAT');
-  try { return JSON.parse(value.slice(start, end + 1)); } catch { fail(502, '模型返回格式异常，请重试', 'MODEL_FORMAT'); }
+  const raw = String(text || '').trim();
+  if (!raw) fail(502, '模型未返回正文内容，请重试', 'MODEL_FORMAT');
+  const candidates = [];
+  for (const match of raw.matchAll(/```(?:json)?\s*([\s\S]*?)```/g)) candidates.push(match[1].trim());
+  candidates.push(raw);
+  for (const value of candidates) {
+    try {
+      const direct = JSON.parse(value);
+      if (direct && typeof direct === 'object') return direct;
+    } catch {}
+    for (let start = value.indexOf('{'); start !== -1; start = value.indexOf('{', start + 1)) {
+      const json = balancedJSON(value, start);
+      if (!json) continue;
+      try {
+        const output = JSON.parse(json);
+        if (output && typeof output === 'object') return output;
+      } catch {}
+    }
+  }
+  fail(502, '模型输出不是可解析 JSON，可能被截断，请重试', 'MODEL_FORMAT');
+}
+
+function balancedJSON(text, start) {
+  let depth = 0, inString = false, escaped = false;
+  for (let index = start; index < text.length; index++) {
+    const char = text[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') inString = true;
+    else if (char === '{') depth++;
+    else if (char === '}') {
+      depth--;
+      if (depth === 0) return text.slice(start, index + 1);
+    }
+  }
+  return '';
+}
+
+function modelContent(payload) {
+  if (payload?.error) fail(502, '模型服务返回错误，请稍后重试', 'MODEL_UNAVAILABLE');
+  const message = payload?.choices?.[0]?.message || {};
+  let content = message.content;
+  if (Array.isArray(content)) content = content.filter(part => typeof part?.text === 'string').map(part => part.text).join('\n');
+  if (typeof content === 'string' && content.trim()) return content;
+  fail(502, '模型未返回正文内容，请重试', 'MODEL_FORMAT');
 }
 
 const STRATEGY_TYPES = ['care', 'repurchase_notice', 'education', 'activity', 'service', 'boundary_check'];
 
 function validateTasks(output, candidates) {
   const allowed = new Map(candidates.map(c => [c.id, c]));
-  if (!output || typeof output !== 'object' || !Array.isArray(output.tasks)) fail(502, '模型返回格式异常，请重试', 'MODEL_FORMAT');
-  if (output.tasks.length !== candidates.length || new Set(output.tasks.map(item => String(item?.contact_id || ''))).size !== candidates.length) {
-    fail(502, '模型必须为每个候选客户生成一条策略，请重试', 'MODEL_FORMAT');
+  if (!output || typeof output !== 'object' || !Array.isArray(output.tasks)) fail(502, '模型未返回 tasks 数组，请重试', 'MODEL_FORMAT');
+  const ids = output.tasks.map(item => String(item?.contact_id || ''));
+  if (output.tasks.length !== candidates.length || new Set(ids).size !== candidates.length) {
+    fail(502, `模型返回 ${output.tasks.length} 条策略，本批有 ${candidates.length} 个客户，请重试`, 'MODEL_FORMAT');
   }
   const tasks = output.tasks.map(item => {
     const candidate = allowed.get(String(item?.contact_id || ''));
-    if (!candidate) fail(502, '触达策略包含未提供的客户，请重试', 'MODEL_FORMAT');
+    if (!candidate) fail(502, '模型返回了未提供的客户策略，请重试', 'MODEL_FORMAT');
     const message = textValue(item.recommended_message, 600, '触达话术');
     const confirmedMessage = applyConfirmedSalutation(message, candidate, candidate.recent_messages || []);
     if (/保证|一定有效|包治|替代药物|建议停药|高价值客户|内部评分/.test(message)) fail(502, '触达话术包含不安全表述，请重试', 'UNSAFE_STRATEGY');
@@ -555,6 +600,29 @@ function validateTasks(output, candidates) {
   });
   if (!tasks.length) fail(502, '模型未返回可执行的触达策略，请重试', 'MODEL_FORMAT');
   return tasks;
+}
+
+async function requestStrategyTasks(batch, base, env, fetchModel, materials) {
+  const modelBody = {
+    model: MODEL, stream: false, max_tokens: 2400, enable_search: false, enable_thinking: false,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: `你是多特倍斯私域触达策略助手。为输入的每个真实句子互动客户生成一条可执行的主动开口策略，不允许遗漏或新增客户。目标优先解决客户愿意回复，再根据其可用信息选择关怀、复购通知、教育、活动、售后或边界确认，不默认推销。必须一客一策：优先使用近期聊天、句子互动标签、备注和画像；如存在本地档案，再参考称呼、归属顾问、已购产品、关注点、禁忌。档案缺失时不得编造，只能使用对话和标签中的明确信息。不得编造购买历史、剩余数量、价格、活动、功效保证或个体医疗建议；没有资料支持时不写具体产品事实。语气自然亲切，可沿用已确认称呼。只输出 JSON，不要 markdown 或解释文字。输出 JSON：{"tasks":[{"contact_id":"","strategy_type":"care/repurchase_notice/education/activity/service/boundary_check","priority":"high/medium/low","reason":"","recommended_message":"","next_action":"","stop_rule":"","profile_updates":{"observed_signal":"","next_focus":"","should_pause":false}}]}。` },
+      { role: 'user', content: JSON.stringify({ today: chinaDay(), candidates: batch, materials }) },
+    ],
+  };
+  let response;
+  try {
+    response = await fetchModel(`${base.href.replace(/\/$/, '')}/chat/completions`, {
+      method: 'POST', signal: AbortSignal.timeout(Math.max(30000, Number(env.STUDIO_OUTREACH_MODEL_TIMEOUT_MS) || 120000)),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.STUDIO_LLM_API_KEY}` },
+      body: JSON.stringify(modelBody),
+    });
+  } catch { fail(502, '触达策略生成超时或连接异常，请稍后重试', 'MODEL_UNAVAILABLE'); }
+  if (!response.ok) fail(502, '触达策略生成服务暂时不可用，请稍后重试', 'MODEL_UNAVAILABLE');
+  let payload;
+  try { payload = await response.json(); } catch { fail(502, '触达策略生成格式异常，请重试', 'MODEL_FORMAT'); }
+  return validateTasks(extractJSON(modelContent(payload)), batch);
 }
 
 export async function generateStrategies(store, user, body, env, dependencies = {}) {
@@ -594,66 +662,73 @@ export async function generateStrategies(store, user, body, env, dependencies = 
   const existing = todayTasks.filter(task => selectedContacts.some(contact => contact.id === task.contact_id)
     && ['draft', 'queued', 'sent', 'paused'].includes(task.status));
   if (!candidates.length) {
-    return { created_count: 0, existing_count: existing.length, plan_day: planDay, tasks: existing };
+    return { created_count: 0, existing_count: existing.length, remaining_count: 0, plan_day: planDay, tasks: existing };
   }
   const materials = (await store.all(`SELECT title,kind,audience,product,content,valid_from,valid_to
     FROM studio_materials WHERE active=1 ORDER BY updated_at DESC LIMIT 12`)).map(material => ({
     ...material,
     content: String(material.content || '').slice(0, 500),
   }));
+  const requestedLimit = Number(body?.limit);
+  const requestLimit = Number.isInteger(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, 50) : null;
+  const limitedCandidates = requestLimit ? candidates.slice(0, requestLimit) : candidates;
   const base = modelBase(env);
-  const batchSize = Math.max(1, Math.min(5, Number(env.STUDIO_OUTREACH_BATCH_SIZE) || 5));
+  const batchSize = Math.max(1, Math.min(5, Number(env.STUDIO_OUTREACH_BATCH_SIZE) || 3));
   const batches = [];
-  for (let index = 0; index < candidates.length; index += batchSize) batches.push(candidates.slice(index, index + batchSize));
-  const tasks = [];
+  for (let index = 0; index < limitedCandidates.length; index += batchSize) batches.push(limitedCandidates.slice(index, index + batchSize));
+  const created = [];
+  const candidateMap = new Map(limitedCandidates.map(c => [c.id, c]));
   for (const batch of batches) {
-    const modelBody = {
-      model: MODEL, stream: false, max_tokens: 1024, enable_search: false, enable_thinking: false,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: `你是多特倍斯私域触达策略助手。为输入的每个真实句子互动客户生成一条可执行的主动开口策略，不允许遗漏或新增客户。目标优先解决客户愿意回复，再根据其可用信息选择关怀、复购通知、教育、活动、售后或边界确认，不默认推销。必须一客一策：优先使用近期聊天、句子互动标签、备注和画像；如存在本地档案，再参考称呼、归属顾问、已购产品、关注点、禁忌。档案缺失时不得编造，只能使用对话和标签中的明确信息。不得编造购买历史、剩余数量、价格、活动、功效保证或个体医疗建议；没有资料支持时不写具体产品事实。语气自然亲切，可沿用已确认称呼。输出 JSON：{"tasks":[{"contact_id":"","strategy_type":"care/repurchase_notice/education/activity/service/boundary_check","priority":"high/medium/low","reason":"","recommended_message":"","next_action":"","stop_rule":"","profile_updates":{"observed_signal":"","next_focus":"","should_pause":false}}]}。` },
-        { role: 'user', content: JSON.stringify({ today: planDay, audience, candidates: batch, materials }) },
-      ],
-    };
-    let response;
+    let batchTasks;
     try {
-      response = await fetchModel(`${base.href.replace(/\/$/, '')}/chat/completions`, {
-        method: 'POST', signal: AbortSignal.timeout(Math.max(30000, Number(env.STUDIO_OUTREACH_MODEL_TIMEOUT_MS) || 120000)),
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.STUDIO_LLM_API_KEY}` },
-        body: JSON.stringify(modelBody),
-      });
-    } catch { fail(502, '触达策略生成超时或连接异常，请稍后重试', 'MODEL_UNAVAILABLE'); }
-    if (!response.ok) fail(502, '触达策略生成服务暂时不可用，请稍后重试', 'MODEL_UNAVAILABLE');
-    let payload; try { payload = await response.json(); } catch { fail(502, '触达策略生成格式异常，请重试', 'MODEL_FORMAT'); }
-    tasks.push(...validateTasks(extractJSON(payload.choices?.[0]?.message?.content || ''), batch));
+      batchTasks = await requestStrategyTasks(batch, base, env, fetchModel, materials);
+    } catch (error) {
+      if (batch.length === 1 || error?.code !== 'MODEL_FORMAT') throw error;
+      batchTasks = [];
+      for (const contact of batch) {
+        batchTasks.push(...await requestStrategyTasks([contact], base, env, fetchModel, materials));
+      }
+    }
+    const now = Date.now();
+    for (const task of batchTasks) {
+      const id = crypto.randomUUID();
+      const candidate = candidateMap.get(task.contact_id);
+      const snapshot = JSON.stringify({
+        salutation: candidate?.confirmed_salutation || candidate?.salutation,
+        confirmed_salutation: candidate?.confirmed_salutation, owner_name: candidate?.owner_name,
+        audience: candidate?.audience, purchased_products: candidate?.purchased_products,
+        interests: candidate?.interests, concerns: candidate?.concerns,
+        contraindications: candidate?.contraindications, notes: candidate?.notes,
+        tags: candidate?.tags, remark: candidate?.remark, profile: candidate?.profile || {},
+      }).slice(0, 8000);
+      await store.query(`INSERT INTO studio_outreach_tasks(id,contact_id,local_customer_id,audience,priority,reason,
+        recommended_message,next_action,stop_rule,status,created_by,created_at,plan_day,strategy_type,profile_snapshot,profile_updates)
+        VALUES(?,?,?,?,?,?,?,?,?,'draft',?,?,?,?,?,?)`, id, task.contact_id, task.local_customer_id, task.audience,
+        task.priority, task.reason, task.recommended_message, task.next_action, task.stop_rule, user.id, now,
+        planDay, task.strategy_type, snapshot, task.profile_updates).run();
+      created.push({ id, ...task, status: 'draft', created_at: now });
+    }
   }
-  const now = Date.now(), created = [];
-  const candidateMap = new Map(candidates.map(c => [c.id, c]));
-  for (const task of tasks) {
-    const id = crypto.randomUUID();
-    const candidate = candidateMap.get(task.contact_id);
-    const snapshot = JSON.stringify({
-      salutation: candidate?.confirmed_salutation || candidate?.salutation,
-      confirmed_salutation: candidate?.confirmed_salutation, owner_name: candidate?.owner_name,
-      audience: candidate?.audience, purchased_products: candidate?.purchased_products,
-      interests: candidate?.interests, concerns: candidate?.concerns,
-      contraindications: candidate?.contraindications, notes: candidate?.notes,
-      tags: candidate?.tags, remark: candidate?.remark, profile: candidate?.profile || {},
-    }).slice(0, 8000);
-    await store.query(`INSERT INTO studio_outreach_tasks(id,contact_id,local_customer_id,audience,priority,reason,
-      recommended_message,next_action,stop_rule,status,created_by,created_at,plan_day,strategy_type,profile_snapshot,profile_updates)
-      VALUES(?,?,?,?,?,?,?,?,?,'draft',?,?,?,?,?,?)`, id, task.contact_id, task.local_customer_id, task.audience,
-      task.priority, task.reason, task.recommended_message, task.next_action, task.stop_rule, user.id, now,
-      planDay, task.strategy_type, snapshot, task.profile_updates).run();
-    created.push({ id, ...task, status: 'draft', created_at: now });
-  }
-  return { created_count: created.length, existing_count: existing.length, plan_day: planDay, tasks: [...existing, ...created] };
+  const remainingCount = Math.max(0, candidates.length - limitedCandidates.length);
+  return { created_count: created.length, existing_count: existing.length, remaining_count: remainingCount,
+    plan_day: planDay, tasks: [...existing, ...created] };
 }
 
 export async function queueTask(store, id) {
   const result = await store.query("UPDATE studio_outreach_tasks SET status='queued' WHERE id=? AND status='draft' RETURNING id", id).first();
   if (!result) fail(404, '触达任务不存在或不是待入队状态');
   return { queued: true };
+}
+
+export async function deleteTask(store, id) {
+  const task = await store.query('SELECT id,status FROM studio_outreach_tasks WHERE id=?', id).first();
+  if (!task) fail(404, '触达任务不存在');
+  if (!['draft', 'queued'].includes(task.status)) fail(409, '仅未发送任务可删除，已发送内容保留在 30 天留档');
+  await store.db.batch([
+    store.query("DELETE FROM studio_outreach_messages WHERE task_id=? AND status IN ('pending','failed')", id),
+    store.query("DELETE FROM studio_outreach_tasks WHERE id=? AND status IN ('draft','queued') RETURNING id", id),
+  ]);
+  return { deleted: true };
 }
 
 export async function sendTask(store, env, id, dependencies = {}) {

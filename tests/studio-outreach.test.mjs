@@ -118,6 +118,7 @@ test('outreach is admin-only and sales calls never reach upstream or model', asy
     ['/api/studio/outreach/bots/bot-1', 'PUT', { owner_user_id: 'sales' }],
     ['/api/studio/outreach/contacts/contact-1/bind', 'PUT', { local_customer_id: 'customer-1' }],
     ['/api/studio/outreach/strategies', 'POST', { limit: 1 }],
+    ['/api/studio/outreach/tasks/task-1', 'DELETE', undefined],
     ['/api/studio/outreach/messages/sync', 'POST', {}],
     ['/api/studio/outreach/tasks/task-1/queue', 'POST', {}],
     ['/api/studio/outreach/tasks/task-1/send', 'POST', {}],
@@ -294,6 +295,85 @@ test('strategies require model format, provided customers, and keep credentials 
   const rejected = await invented.call('/api/studio/outreach/strategies', 'POST', { limit: 1 }, await invented.login());
   assert.equal(rejected.status, 502);
   assert.equal(rejected.error.code, 'MODEL_FORMAT');
+});
+
+test('full strategy generation parses wrapped JSON and retries malformed batches one by one', async t => {
+  let modelCalls = 0;
+  const h = await harness(t, {
+    fetchJuzi: async () => listCustomersResponse(),
+    fetchModel: async (_url, options) => {
+      modelCalls++;
+      const body = JSON.parse(options.body);
+      const candidates = JSON.parse(body.messages.at(-1).content).candidates;
+      if (candidates.length > 1) return jsonResponse({ choices: [{ message: { content: '不是 JSON' } }] });
+      const candidate = candidates[0];
+      return jsonResponse({
+        choices: [{
+          message: { content: `模型说明\n\`\`\`json\n${JSON.stringify({ tasks: [{
+            contact_id: candidate.id,
+            priority: 'medium',
+            reason: '按单人重试生成',
+            recommended_message: '陈哥，最近状态还好吗？我先帮您看重点。',
+            next_action: '回复后确认当前关注点',
+            stop_rule: '明确拒绝后暂停',
+          }] })}\n\`\`\`` },
+        }],
+      });
+    },
+  });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  const snapshot = await h.call('/api/studio/outreach', 'GET', undefined, admin);
+  const first = snapshot.data.contacts[0];
+  h.db.sqlite.prepare(`INSERT INTO studio_juzi_bots(im_bot_id,bot_name,owner_user_id,last_synced_at)
+    VALUES('bot-2','合成托管账号二',NULL,?)`).run(Date.now());
+  h.db.sqlite.prepare(`INSERT INTO studio_juzi_contacts(id,im_contact_id,display_name,phone_suffix,gender,im_bot_id,friendship_status,local_customer_id,match_status,last_synced_at,tags,remark)
+    VALUES('contact-2','external-contact-2','李女士','6789',2,'bot-2',1,NULL,'unmatched',?,'日常营养','关注免疫力')`).run(Date.now());
+
+  const result = await h.call('/api/studio/outreach/strategies', 'POST', {}, admin);
+  assert.equal(result.status, 200);
+  assert.equal(result.data.created_count, 2);
+  assert.equal(modelCalls, 3);
+  assert.ok(result.data.tasks.every(task => task.recommended_message));
+
+  const limited = await h.call('/api/studio/outreach/strategies', 'POST', { limit: 1 }, await h.login());
+  assert.equal(limited.status, 200);
+  assert.equal(limited.data.remaining_count, 0);
+});
+
+test('unsent outreach tasks can be deleted while sent archive is preserved', async t => {
+  const h = await harness(t, {
+    fetchJuzi: async (url, init) => {
+      if (new URL(String(url)).pathname.endsWith('/customer/list')) return listCustomersResponse();
+      return jsonResponse({ errcode: 0, requestId: 'delete-test-request' });
+    },
+    fetchModel: async (_url, options) => {
+      const body = JSON.parse(options.body);
+      const candidate = JSON.parse(body.messages.at(-1).content).candidates[0];
+      return modelTask(candidate.id, candidate.local_customer_id);
+    },
+  });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  const snapshot = await h.call('/api/studio/outreach', 'GET', undefined, admin);
+  const contact = snapshot.data.contacts[0];
+  const task = await h.call('/api/studio/outreach/strategies', 'POST', { contact_id: contact.id }, admin);
+  const taskId = task.data.tasks[0].id;
+  await h.call(`/api/studio/outreach/tasks/${taskId}/queue`, 'POST', {}, admin);
+
+  const deleted = await h.call(`/api/studio/outreach/tasks/${taskId}`, 'DELETE', undefined, admin);
+  assert.equal(deleted.status, 200);
+  assert.equal(h.db.sqlite.prepare('SELECT COUNT(*) n FROM studio_outreach_tasks WHERE id=?').get(taskId).n, 0);
+
+  h.db.sqlite.prepare('UPDATE studio_outreach_tasks SET plan_day=? WHERE contact_id=?').run('2000-01-01', contact.id);
+  const second = await h.call('/api/studio/outreach/strategies', 'POST', { contact_id: contact.id }, admin);
+  const sentId = second.data.tasks.find(item => item.status === 'draft')?.id || second.data.tasks[0].id;
+  await h.call(`/api/studio/outreach/tasks/${sentId}/queue`, 'POST', {}, admin);
+  await h.call(`/api/studio/outreach/tasks/${sentId}/send`, 'POST', {}, admin);
+  const preserved = await h.call(`/api/studio/outreach/tasks/${sentId}`, 'DELETE', undefined, admin);
+  assert.equal(preserved.status, 409);
+  assert.equal(h.db.sqlite.prepare('SELECT COUNT(*) n FROM studio_outreach_tasks WHERE id=?').get(sentId).n, 1);
+  assert.equal(h.db.sqlite.prepare('SELECT COUNT(*) n FROM studio_outreach_messages WHERE task_id=?').get(sentId).n, 1);
 });
 
 test('queued messages send with unique external IDs and persist request IDs only', async t => {

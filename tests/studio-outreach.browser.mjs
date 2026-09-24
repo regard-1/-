@@ -86,6 +86,9 @@ try {
   await page.locator('[data-page="outreach"]').click();
   await page.locator('.outreach-workspace').waitFor();
   assert.ok((await page.locator('.outreach-workspace').textContent()).includes('句子互动已连接'));
+  const archive = page.locator('details.outreach-archive');
+  assert.equal(await archive.count(), 1);
+  assert.equal(await archive.getAttribute('open'), null);
 
   const syncResponse = page.waitForResponse(response => response.url().endsWith('/api/studio/outreach/sync'));
   await page.locator('[data-action="outreach-sync"]').click();
