@@ -1,5 +1,6 @@
-const state={user:null,studioRole:null,page:'workbench',categories:[],audience:null,audienceQuery:'',audienceOwner:'',audiencePage:1,customer:null,scripts:[],tasks:[],taskCategory:'all',outreachUser:null,outreachCsrf:'',outreachData:null,outreachUsers:[],outreachPending:false,outreachAutoStarted:false,outreachModelConfigured:false,outreachError:'',outreachNotice:'',outreachBatch:null};
+const state={user:null,studioRole:null,page:'workbench',categories:[],audience:null,audienceQuery:'',audienceOwner:'',audiencePage:1,customer:null,scripts:[],tasks:[],taskCategory:'all',outreachUser:null,outreachCsrf:'',outreachData:null,outreachUsers:[],outreachPending:false,outreachAutoStarted:false,outreachModelConfigured:false,outreachError:'',outreachNotice:'',outreachBatch:null,juziSpOrigin:'',passwordChangeRequired:false,passwordChangeUsername:''};
 let navigationVersion=0;
+let juziBlinkTimer=null,juziOriginalTitle='';
 const $=(selector,root=document)=>root.querySelector(selector);
 const $$=(selector,root=document)=>[...root.querySelectorAll(selector)];
 function esc(value=''){return String(value).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
@@ -14,12 +15,68 @@ function closeDrawer(){$('#drawer').classList.add('hidden');$('#drawer-backdrop'
 function setHeader(title,crumb){$('#page-title').textContent=title;$('#breadcrumb').textContent=`私域运营中台 / ${crumb}`}
 function setNav(page){state.page=page;$$('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.page===page));$('#main-content').classList.toggle('studio-content',page==='scripts');$('.sync-state').textContent='真实账号 · 权限受控'}
 
-async function bootstrap(){try{const data=await studioApi('/me');if(data.user?.must_change){toast('首次登录请先修改临时密码');location.href='/script-studio/';return}applyStudioSession(data);window.DotbestDemoAuth?.set(true);applyUser();showApp();navigate(initialPage(),'replace')}catch{showLogin()}}
+async function bootstrap(){try{const data=await studioApi('/me');applyStudioSession(data);window.DotbestDemoAuth?.set(true);applyUser();showApp();if(data.user?.must_change){renderPasswordChange();return}state.passwordChangeRequired=false;state.passwordChangeUsername='';navigate(initialPage(),'replace')}catch{showLogin()}}
 function applyUser(){$('#user-name').textContent=state.user?.display_name||'未登录';$('#user-role').textContent=state.user?.role==='admin'?'管理员':state.user?.role==='sales'?'销售':'团队账号';$('#user-avatar').textContent=state.user?.display_name?.slice(0,1)||'多'}
-$('#login-form').addEventListener('submit',async e=>{e.preventDefault();const form=new FormData(e.currentTarget);try{const data=await studioApi('/login',{method:'POST',body:JSON.stringify(Object.fromEntries(form))});if(data.user?.must_change){toast('首次登录请先修改临时密码');location.href='/script-studio/';return}const me=await studioApi('/me');applyStudioSession(me);window.DotbestDemoAuth?.set(true);applyUser();showApp();navigate(initialPage())}catch(err){toast(err.message)}});
-$('#logout-button').addEventListener('click',async()=>{navigationVersion++;$('#main-content').replaceChildren();try{await logoutStudio();state.user=null;window.DotbestDemoAuth?.set(false);showLogin()}catch{toast('退出未完成，请重试')}});
-function updateOutreachVisibility(){const button=$('[data-page="outreach"]');if(button)button.classList.toggle('hidden',state.studioRole==='sales')}
+$('#login-form').addEventListener('submit',async e=>{e.preventDefault();const form=new FormData(e.currentTarget);const credentials=Object.fromEntries(form);credentials.username=String(credentials.username||'').trim();try{const data=await studioApi('/login',{method:'POST',body:JSON.stringify(credentials)});applyStudioSession(data);window.DotbestDemoAuth?.set(true);applyUser();showApp();if(data.user?.must_change){state.passwordChangeRequired=true;state.passwordChangeUsername=credentials.username;renderPasswordChange();return}state.passwordChangeRequired=false;state.passwordChangeUsername='';const me=await studioApi('/me');applyStudioSession(me);window.DotbestDemoAuth?.set(true);applyUser();navigate(initialPage())}catch(err){toast(err.message)}});
+$('#logout-button').addEventListener('click',async()=>{navigationVersion++;$('#main-content').replaceChildren();try{await logoutStudio();state.user=null;state.passwordChangeRequired=false;state.passwordChangeUsername='';window.DotbestDemoAuth?.set(false);showLogin()}catch{toast('退出未完成，请重试')}});
+function updateOutreachVisibility(){
+  const outreach=$('[data-page="outreach"]');if(outreach)outreach.classList.toggle('hidden',state.studioRole==='sales');
+  const juzi=$('[data-page="juzi-workbench"]');if(juzi)juzi.classList.toggle('hidden',state.studioRole!=='admin');
+}
 function applyStudioSession(data){if(!data?.user||!['admin','sales'].includes(data.user.role))return;state.user=data.user;state.studioRole=data.user.role;state.outreachUser=data.user;state.outreachCsrf=data.csrf||state.outreachCsrf;state.outreachModelConfigured=!!data.model_configured;updateOutreachVisibility()}
+function renderPasswordChange(){
+  state.passwordChangeRequired=true;
+  state.passwordChangeUsername=state.passwordChangeUsername||state.user?.username||'';
+  setHeader('首次登录安全设置','账号安全');
+  setNav('workbench');
+  $('#main-content').innerHTML=`<section class="outreach-login password-change-card">
+    <header><h3>修改临时密码</h3><p>为了继续使用完整中台，请先完成本次安全设置。修改后会自动回到你进入前的板块。</p></header>
+    <form id="password-change-form">
+      <label class="form-label">当前临时密码<input name="current_password" type="password" autocomplete="current-password" required></label>
+      <label class="form-label">新密码<input name="new_password" type="password" autocomplete="new-password" minlength="12" required></label>
+      <label class="form-label">再次输入新密码<input name="confirm_password" type="password" autocomplete="new-password" minlength="12" required></label>
+      <div class="password-change-error" role="alert"></div>
+      <button class="primary-button full" type="submit">保存并进入中台</button>
+    </form>
+  </section>`;
+  $('#password-change-form').addEventListener('submit',submitPasswordChange);
+}
+async function submitPasswordChange(event){
+  event.preventDefault();
+  const form=event.currentTarget;
+  const values=Object.fromEntries(new FormData(form));
+  const submitButton=form.querySelector('[type=submit]');
+  if(values.new_password!==values.confirm_password){
+    $('.password-change-error').textContent='两次输入的新密码不一致';
+    return;
+  }
+  submitButton.disabled=true;
+  $('.password-change-error').textContent='';
+  try{
+    await studioApi('/password',{method:'POST',body:JSON.stringify({current_password:values.current_password,new_password:values.new_password})});
+    const username=state.passwordChangeUsername||state.user?.username;
+    const data=await studioApi('/login',{method:'POST',body:JSON.stringify({username,password:values.new_password})});
+    const me=await studioApi('/me');
+    applyStudioSession(me);
+    state.passwordChangeRequired=false;
+    state.passwordChangeUsername='';
+    window.DotbestDemoAuth?.set(true);
+    applyUser();
+    toast('密码已更新，已进入完整中台');
+    navigate(initialPage(),'replace');
+  }catch(error){
+    $('.password-change-error').textContent=error.message;
+    if(error.status===401){
+      state.passwordChangeRequired=false;
+      state.passwordChangeUsername='';
+      showLogin();
+      toast('登录已失效，请重新登录');
+    }
+  }finally{
+    const button=$('#password-change-form [type=submit]');
+    if(button)button.disabled=false;
+  }
+}
 async function logoutStudio(){if(!state.outreachCsrf)return;const response=await fetch('/api/studio/logout',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-Studio-CSRF':state.outreachCsrf},body:'{}'});if(response.status===401||response.status===404){state.outreachUser=null;state.outreachCsrf='';state.studioRole=null;state.user=null;updateOutreachVisibility();return}if(!response.ok)throw new Error('退出未完成');state.outreachUser=null;state.outreachCsrf='';state.studioRole=null;state.user=null;updateOutreachVisibility()}
 $$('[data-page]').forEach(button=>button.addEventListener('click',()=>navigate(button.dataset.page)));
 $('#drawer-backdrop').addEventListener('click',closeDrawer);
@@ -30,7 +87,7 @@ document.addEventListener('change',event=>{
   if(contact)bindOutreachContact(contact.dataset.contact,contact.value);
 });
 
-async function navigate(page,historyMode='push'){if(!page)return;const version=++navigationVersion;setNav(page);closeDrawer();loading();if(historyMode!=='none'){const url=new URL(location.href);url.searchParams.set('page',page);if(url.href!==location.href)history[historyMode==='replace'?'replaceState':'pushState']({},'',url)}try{if(page==='workbench')await renderWorkbench();else if(page==='assets')await renderAssets();else if(page==='tasks')await renderTasks();else if(page==='scripts')await renderScripts();else if(page==='outreach')await renderOutreach();else if(page==='script-templates')await renderScriptTemplates();else if(page==='governance')await renderGovernance()}catch(err){if(version!==navigationVersion||err.name==='AbortError')return;$('#main-content').innerHTML=`<div class="empty-card">加载失败：${esc(err.message)}<br><button class="secondary-button" onclick="navigate('${esc(page)}')">重新加载</button></div>`}}
+async function navigate(page,historyMode='push'){if(!page)return;if(state.passwordChangeRequired){toast('请先完成临时密码修改');return}const version=++navigationVersion;setNav(page);closeDrawer();loading();if(historyMode!=='none'){const url=new URL(location.href);url.searchParams.set('page',page);if(url.href!==location.href)history[historyMode==='replace'?'replaceState':'pushState']({},'',url)}try{if(page==='workbench')await renderWorkbench();else if(page==='assets')await renderAssets();else if(page==='tasks')await renderTasks();else if(page==='scripts')await renderScripts();else if(page==='outreach')await renderOutreach();else if(page==='juzi-workbench')await renderJuziWorkbench();else if(page==='script-templates')await renderScriptTemplates();else if(page==='governance')await renderGovernance()}catch(err){if(version!==navigationVersion||err.name==='AbortError')return;$('#main-content').innerHTML=`<div class="empty-card">加载失败：${esc(err.message)}<br><button class="secondary-button" onclick="navigate('${esc(page)}')">重新加载</button></div>`}}
 window.addEventListener('popstate',()=>{if(state.user)navigate(initialPage(),'none')});
 function metric(label,value,note,tone='') {return `<article class="metric-card execution-metric ${tone}"><span>${esc(label)}</span><strong>${esc(value)}</strong><small>${esc(note)}</small></article>`}
 function assetCard(item){return `<button class="asset-card" style="--accent:${esc(item.color)}" onclick="openAudience('${esc(item.code)}')"><div class="asset-icon">${esc(item.name.slice(0,1))}</div><h4>${esc(item.name)}</h4><p>${esc(item.description)}</p><div class="asset-stats"><div><strong>${item.customer_count}</strong><span>归属用户</span></div><div><strong>${item.due_count}</strong><span>待触达</span></div></div><b class="asset-arrow">→</b></button>`}
@@ -86,7 +143,7 @@ async function openTaskDetail(id){const t=await api(`/api/v1/private/tasks/${id}
 async function refreshTouchOptimization(){const data=await api('/api/v1/private/tasks/optimization/refresh',{method:'POST',body:'{}'});toast(`已生成 ${data.version}，将继续结合今日结果优化`);renderTasks()}
 async function completeTask(id){await api(`/api/v1/private/tasks/${id}/status`,{method:'POST',body:JSON.stringify({status:'done'})});toast('任务已完成，并进入下一次复盘');renderTasks()}
 
-function initialPage(){const page=new URLSearchParams(location.search).get('page');return ['workbench','assets','tasks','scripts','outreach','script-templates','governance'].includes(page)?page:/^\/script-studio\/?$/.test(location.pathname)?'scripts':'workbench'}
+function initialPage(){const page=new URLSearchParams(location.search).get('page');return ['workbench','assets','tasks','scripts','outreach','juzi-workbench','script-templates','governance'].includes(page)?page:/^\/script-studio\/?$/.test(location.pathname)?'scripts':'workbench'}
 async function renderOutreach(){
   setHeader('用户触达','用户触达 / 小蟹 AI 与句子互动');
   const version=navigationVersion;
@@ -297,6 +354,43 @@ async function renderScripts(){
     $('#main-content').innerHTML='<div class="empty-card">当前站点尚未接入话术生成服务。<br><button class="secondary-button" onclick="navigate(\'scripts\')">重试</button><a class="text-button" href="https://dotbest-ops-demo.regard1ee.chatgpt.site/script-studio" target="_blank" rel="noopener">打开线上中台</a></div>';
   }
 }
+async function renderJuziWorkbench(){
+  setHeader('句子互动工作台','用户触达 / 句子互动工作台');
+  const version=navigationVersion;
+  if(state.studioRole!=='admin'){
+    $('#main-content').innerHTML='<div class="empty-card">当前账号没有句子互动工作台权限，仅管理员可以使用 SSO 内嵌工作台。</div>';
+    return;
+  }
+  const data=await studioApi('/juzi/sso');
+  if(version!==navigationVersion)return;
+  state.juziSpOrigin=data.sp_origin||'';
+  $('#main-content').innerHTML=`<section class="juzi-workbench">
+    <header><div><span>INTEGRATED WORKBENCH</span><h3>句子互动客户工作台</h3><p>通过中台账号完成 SSO，仅管理员可见；新消息提醒会点亮当前标签页标题。</p></div></header>
+    <iframe id="juzi-frame" class="juzi-frame" src="${esc(data.iframe_url)}" title="句子互动工作台" allow="clipboard-write; fullscreen" referrerpolicy="no-referrer"></iframe>
+  </section>`;
+}
+function stopJuziBlink(){
+  if(juziBlinkTimer)clearInterval(juziBlinkTimer);
+  juziBlinkTimer=null;
+  if(juziOriginalTitle)document.title=juziOriginalTitle;
+}
+function startJuziBlink(){
+  if(juziBlinkTimer)return;
+  juziOriginalTitle=document.title;
+  let on=false;
+  juziBlinkTimer=setInterval(()=>{
+    on=!on;
+    document.title=on?`(●) 有新消息 - ${juziOriginalTitle}`:juziOriginalTitle;
+  },900);
+}
+window.addEventListener('message',event=>{
+  if(!state.juziSpOrigin||event.origin!==state.juziSpOrigin)return;
+  const data=event.data;
+  if(data?.type!=='favicon_blink')return;
+  if(data.payload===true)startJuziBlink();else stopJuziBlink();
+});
+window.addEventListener('focus',stopJuziBlink);
+window.addEventListener('pagehide',stopJuziBlink);
 async function renderScriptTemplates(){setHeader('模板参考','话术中心 / 模板参考');const data=await api('/api/v1/private/scripts');state.scripts=data.items;const h=data.historical_learning,t=h.totals;$('#main-content').innerHTML=`<section class="hero script-hero"><div><p class="hero-kicker">HUMAN-TONE PLAYBOOK</p><h3>先像一个记得上下文的人，再像一个懂产品的顾问</h3><p>基于历史触达结果生成：首条只做一件事，先让用户愿意开口；用户回复后再进入教育、对比、成交或服务。</p></div><button class="primary-button" onclick="navigate(&#39;scripts&#39;)">打开话术中心 →</button></section><section class="history-learning"><header><div><span>已导入历史触达学习</span><h2>${esc(h.source)}</h2><p>${esc(h.scope)}</p></div><div class="history-total"><strong>${Number(t.touches).toLocaleString()}</strong><span>历史触达量 · ${t.records} 条汇总口径记录</span></div></header><div class="history-metrics">${rateMetric('历史回复率',t.reply_rate+'%',Number(t.replies).toLocaleString()+' 人回复')}${rateMetric('回复后转化率',t.reply_to_conversion+'%',Number(t.conversions).toLocaleString()+' 人转化')}${rateMetric('历史意向人数',Number(t.intents).toLocaleString(),'脱敏模拟汇总口径')}${rateMetric('删除人数',Number(t.deletes).toLocaleString(),'用于演示打扰风险')}</div><div class="evidence-grid">${h.evidence.map(x=>`<article class="evidence-card ${x.type==='风险信号'?'risk':''}"><span>${esc(x.type)}</span><h3>${esc(x.title)}</h3><strong>${esc(x.rate)}</strong><p>${esc(x.metric)}</p><small>${esc(x.note)}</small></article>`).join('')}</div><div class="learned-rules"><strong>已写入生成器的规则</strong>${h.rules.map(x=>`<span>✓ ${esc(x)}</span>`).join('')}</div></section><section class="lifecycle-map">${data.lifecycle.map(x=>`<div><strong>${esc(x.customer_type)}</strong>${x.path.map((p,i)=>`<span>${i?'<i>→</i>':''}${esc(p)}</span>`).join('')}</div>`).join('')}</section><div class="script-filter">${data.scenes.map(x=>`<span>${esc(x)}</span>`).join('')}</div><div class="script-grid">${data.items.map((x,i)=>`<article class="script-card"><div class="script-meta"><span>${esc(x.customer_type)}</span><b>${esc(x.stage)}</b></div><h3>${esc(x.title)}</h3><p>${esc(x.scene)} · ${esc(x.purpose)}</p><blockquote>${esc(x.template)}</blockquote><div class="next-turn-mini"><strong>下一回合</strong>${esc(x.next_turn)}</div><div class="script-warning">避免：${esc(x.avoid)}</div><div><button class="secondary-button" onclick="copyScript(${i})">复制模板</button><button class="text-button" onclick="openScript(${i})">查看与编辑 →</button></div></article>`).join('')}</div>`}
 async function copyScript(index){try{await navigator.clipboard.writeText(state.scripts[index].template);toast('模板已复制，使用前请完成个性化编辑')}catch{toast('请手动复制模板')}}
 function openScript(index){const x=state.scripts[index];showDrawer(`<div class="drawer-header"><button class="drawer-close" onclick="closeDrawer()">×</button><p class="hero-kicker">${esc(x.customer_type)} · ${esc(x.stage)}</p><h3>${esc(x.title)}</h3><p>${esc(x.scene)} · ${esc(x.purpose)}</p></div><div class="drawer-body"><label class="form-label">可编辑话术<textarea id="script-editor" rows="9">${esc(x.template)}</textarea></label><section class="detail-section"><h4>用户回复后的下一回合</h4><p>${esc(x.next_turn)}</p></section><div class="caution-box"><strong>发送前检查</strong><p>${esc(x.avoid)}</p></div><button class="primary-button full" onclick="copyEditedScript()">复制编辑后话术</button><button class="secondary-button full" onclick="closeDrawer();navigate(&#39;scripts&#39;)">打开话术中心生成个性化版本</button></div>`)}

@@ -48,6 +48,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     BAILIAN_KB_WORKSPACE_ID: process.env.BAILIAN_KB_WORKSPACE_ID,
     BAILIAN_KB_AGENT_ID: process.env.BAILIAN_KB_AGENT_ID,
     BAILIAN_KB_TOP_K: process.env.BAILIAN_KB_TOP_K,
+    IDP_CLIENT_ID: process.env.IDP_CLIENT_ID,
+    IDP_CLIENT_SECRET: process.env.IDP_CLIENT_SECRET,
+    IDP_REDIRECT_URI: process.env.IDP_REDIRECT_URI,
+    IDP_EMAIL_DOMAIN: process.env.IDP_EMAIL_DOMAIN,
+    IDP_ORG_ID: process.env.IDP_ORG_ID,
+    SP_BASE_URL: process.env.SP_BASE_URL,
+    SP_SSO_PATH: process.env.SP_SSO_PATH,
+    SP_REDIRECT_PATH: process.env.SP_REDIRECT_PATH,
+    SP_ALLOWED_ORIGIN: process.env.SP_ALLOWED_ORIGIN,
   } });
   console.log(`Local: ${runtime.url}/script-studio`);
   console.log('Local-only preview. Create your own administrator; real generation requires server environment credentials.');

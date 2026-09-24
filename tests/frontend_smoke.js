@@ -163,6 +163,9 @@ async function request(url,options){const response=await fetch(url,options);retu
   const appSource=fs.readFileSync(path.join(__dirname,'..','assets','app.js'),'utf8');
   const cssSource=fs.readFileSync(path.join(__dirname,'..','assets','app.css'),'utf8');
   const htmlSource=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
+  assert.ok(appSource.includes('function renderPasswordChange()'),'must-change login should stay in the full operations shell');
+  assert.ok(appSource.includes('state.passwordChangeRequired'),'host shell should block navigation before password change');
+  assert.doesNotMatch(appSource,/location\.href='\/script-studio\/'/,'must-change login must not redirect into the standalone studio');
   assert.doesNotMatch(appSource,/className='strategy-panel'/);
   assert.doesNotMatch(appSource,/openingPlanHtml\(/);
   assert.doesNotMatch(appSource,/projectMaterialsHtml/);
@@ -178,9 +181,8 @@ async function request(url,options){const response=await fetch(url,options);retu
   assert.doesNotMatch(htmlSource,/项目资料/);
   assert.doesNotMatch(htmlSource,/会话工作台/);
   assert.match(htmlSource,/data-page="outreach"/);
-  const juziLink=htmlSource.match(/<a class="nav-item"[^>]*href="([^"]+)"[^>]*>/);
-  assert.ok(juziLink, '句子互动工作台入口应作为左侧独立外链存在');
-  assert.equal(juziLink[1], 'https://stride-bg.dpclouds.com/hub-app/');
+  assert.match(htmlSource,/data-page="juzi-workbench"/);
+  assert.doesNotMatch(htmlSource,/href="https:\/\/stride-bg\.dpclouds\.com\/hub-app\/"/);
   assert.ok(
     htmlSource.indexOf('data-page="scripts"') < htmlSource.indexOf('data-page="outreach"')
     && htmlSource.indexOf('data-page="outreach"') < htmlSource.indexOf('data-page="governance"'),
@@ -196,6 +198,9 @@ async function request(url,options){const response=await fetch(url,options);retu
   const studioSource=fs.readFileSync(path.join(__dirname,'..','studio','public','app.mjs'),'utf8');
   assert.doesNotMatch(studioSource,/page.{0,20}outreach/);
   assert.match(appSource,/function updateOutreachVisibility\(\)/);
+  assert.match(appSource,/async function renderJuziWorkbench\(\)/);
+  assert.match(appSource,/favicon_blink/);
+  assert.match(appSource,/state\.juziSpOrigin/);
   assert.match(cssSource,/\.outreach-workspace/);
   assert.match(cssSource,/\.outreach-task-list/);
   assert.ok(

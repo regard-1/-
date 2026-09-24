@@ -3,6 +3,7 @@ import { checkOrigin, readBody, fail, HttpError, json, checkPassword, passwordHa
 import { generate, validateMaterial } from './generation.mjs';
 import { knowledgeConfigured } from './knowledge.mjs';
 import { recognizeScreenshot } from './ocr.mjs';
+import { createJuziIframe, handleOauth } from './idp.mjs';
 import { assignBot, bindContact, createTemplate, deleteTemplate, generateReply, generateStrategies, generateTemplateTasks, handleJuziCallback, outreachSnapshot, queueTask, sendTask, syncContacts, syncConversations, updateContactReplyStatus, updateContactSalutation, updateTaskMessage, updateTemplate } from './outreach.mjs';
 import { AUDIENCES, maskText, MODEL, monthKey } from '../shared.mjs';
 
@@ -124,6 +125,12 @@ export async function api(request, env, dependencies = {}) {
     return json({ changed: true }, 200, { 'Set-Cookie': cookie('', request, 0) });
   }
   if (user.must_change) fail(403, '首次登录请先修改临时密码', 'PASSWORD_CHANGE_REQUIRED');
+  if (route === '/api/studio/juzi/sso' && method === 'GET') {
+    admin(user);
+    const result = await createJuziIframe(store, user, env);
+    if (!result) fail(503, '请联系管理员配置句子互动 SSO 参数', 'IDP_NOT_CONFIGURED');
+    return json(result);
+  }
   if (route === '/api/studio/outreach' && method === 'GET') {
     admin(user);
     return json(await outreachSnapshot(store, env));
@@ -413,6 +420,11 @@ export async function handle(request, env, dependencies = {}) {
     try { return await handleJuziCallback(request, env, new Store(env.DB)); }
     catch { return callbackOK(); }
   }
+  if (url.pathname.startsWith('/oauth2/')) {
+    if (!env.DB) return oauthUnavailable();
+    try { return await handleOauth(request, env, new Store(env.DB)); }
+    catch { return oauthUnavailable(); }
+  }
   if (url.pathname.startsWith('/api/studio')) {
     try { return await api(request, env, dependencies); }
     catch (error) {
@@ -439,4 +451,8 @@ export async function handle(request, env, dependencies = {}) {
   response.headers.set('Referrer-Policy', 'no-referrer');
   return response;
 }
+
+const oauthUnavailable = () => new Response(JSON.stringify({ error: 'invalid_request' }), {
+  status: 503, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+});
 export default { fetch: handle };

@@ -16,6 +16,15 @@ services:
       WECOM_API_BASE: https://stride-bg.dpclouds.com/hub-api
       WECOM_API_TOKEN: ${WECOM_API_TOKEN}
       WECOM_API_TIMEOUT_MS: "15000"
+      IDP_CLIENT_ID: ${IDP_CLIENT_ID}
+      IDP_CLIENT_SECRET: ${IDP_CLIENT_SECRET}
+      IDP_REDIRECT_URI: ${IDP_REDIRECT_URI}
+      IDP_EMAIL_DOMAIN: ${IDP_EMAIL_DOMAIN}
+      IDP_ORG_ID: ${IDP_ORG_ID}
+      SP_BASE_URL: ${SP_BASE_URL}
+      SP_SSO_PATH: ${SP_SSO_PATH}
+      SP_REDIRECT_PATH: ${SP_REDIRECT_PATH:-/main/:orgId/member-crm/:groupId/contact-list}
+      SP_ALLOWED_ORIGIN: ${SP_ALLOWED_ORIGIN}
       STUDIO_DATA_DIR: /data
       STUDIO_PORT: "3000"
       DATABASE_URL: ${DATABASE_URL}

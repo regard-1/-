@@ -112,3 +112,14 @@ export const customerProfileUpdates = sqliteTable('studio_customer_profile_updat
   updatesJson: text('updates_json').notNull(), createdBy: text('created_by').notNull(),
   createdAt: integer('created_at').notNull(),
 });
+
+export const idpCodes = sqliteTable('studio_idp_codes', {
+  codeHash: text('code_hash').primaryKey(), clientId: text('client_id').notNull(),
+  redirectUri: text('redirect_uri').notNull(), state: text('state').notNull().default(''),
+  userId: text('user_id').notNull(), expiresAt: integer('expires_at').notNull(),
+});
+
+export const idpTokens = sqliteTable('studio_idp_tokens', {
+  tokenHash: text('token_hash').primaryKey(), clientId: text('client_id').notNull(),
+  userId: text('user_id').notNull(), expiresAt: integer('expires_at').notNull(),
+});

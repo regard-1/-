@@ -32,7 +32,7 @@ export function cookie(token, request, age = 43200) {
   // get the Secure flag on HTTPS deployments even though internal traffic is HTTP.
   const proto = request.headers.get('X-Forwarded-Proto') || new URL(request.url).protocol.replace(':', '');
   const secure = proto === 'https' ? '; Secure' : '';
-  return `studio_session=${token}; Path=/api/studio; HttpOnly; SameSite=Lax; Max-Age=${age}${secure}`;
+  return `studio_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${age}${secure}`;
 }
 export function sessionToken(request) {
   return (request.headers.get('Cookie') || '').split(';').map(x => x.trim()).find(x => x.startsWith('studio_session='))?.slice(15) || '';

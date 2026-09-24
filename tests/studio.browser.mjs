@@ -16,7 +16,19 @@ const requests = [];
 let visionRequests = 0;
 let simulateError = false;
 // Model doubles only exist inside tests, passed as a dependency, never in the dev or production Worker.
-const runtime = await startServer({ db, env: { STUDIO_LLM_API_KEY: 'test-only', STUDIO_LLM_BASE_URL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', STUDIO_VISION_MODEL: 'synthetic-vision-model' }, dependencies: {
+const runtime = await startServer({ db, env: {
+  STUDIO_LLM_API_KEY: 'test-only',
+  STUDIO_LLM_BASE_URL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  STUDIO_VISION_MODEL: 'synthetic-vision-model',
+  IDP_CLIENT_ID: 'browser-test-client',
+  IDP_CLIENT_SECRET: 'browser-test-secret',
+  IDP_REDIRECT_URI: 'https://sp.example/oauth/callback',
+  IDP_EMAIL_DOMAIN: 'browser.test',
+  IDP_ORG_ID: 'browser-org',
+  SP_BASE_URL: 'https://sp.example',
+  SP_SSO_PATH: '/hub-app/',
+  SP_REDIRECT_PATH: '/main/:orgId/member-crm/:groupId/contact-list',
+}, dependencies: {
   fetchModel: async (_url, options) => {
     const body = JSON.parse(options.body), { input } = JSON.parse(body.messages[1].content); requests.push(input);
     if (simulateError) return new Response('synthetic upstream failure', { status: 503 });
@@ -40,6 +52,11 @@ const browser = await chromium.launch({ headless: true, ...(process.env.STUDIO_B
 const errors = [];
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, permissions: ['clipboard-read', 'clipboard-write'] });
 const page = await context.newPage(); page.on('pageerror', e => errors.push(e.message));
+await context.route('https://sp.example/hub-app/**', route => route.fulfill({
+  status: 200,
+  contentType: 'text/html; charset=utf-8',
+  body: '<!doctype html><title>synthetic SP</title><script>setTimeout(() => window.parent.postMessage({type:"favicon_blink",payload:true}, "*"), 50)</script>',
+}));
 const generation = async () => {
   const response = page.waitForResponse(r => r.url().endsWith('/api/studio/generations'));
   await page.locator('[data-action="run"]').click(); await response;
@@ -153,24 +170,31 @@ try {
   await page.locator('#composer-text').waitFor(); assert.equal(await page.locator('[data-action="users"]').count(), 0);
   await page.locator('[data-action="materials"]').click(); await page.locator('.material-item').waitFor();
   assert.equal(await page.locator('[data-action="edit-material"]').count(), 0); assert.equal(await page.locator('[data-action="new-material"]').count(), 0);
+  await page.locator('[data-action="logout"]').click(); await page.locator('#login-form').waitFor();
+  await page.locator('#username').fill('qaadmin'); await page.locator('#password').fill('BrowserTest123!');
+  await page.locator('#login-form [type=submit]').click(); await page.locator('#composer-text').waitFor();
   // Exercise the real host navigation and isolated iframe together, not a second application shell.
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(runtime.url + '/?page=scripts');
-  if (await page.locator('#login-view:not(.hidden) #login-form [type=submit]').count()) {
-    await page.locator('#login-view [name=username]').fill('demo_operator');
-    await page.locator('#login-view [name=password]').fill('demo');
-    await page.locator('#login-view #login-form [type=submit]').click();
-  }
+  await page.goto(`${runtime.url}/?page=scripts&ts=${Date.now()}`);
   const studio = page.frameLocator('#studio-frame');
   await screenshot('host-scripts');
   await studio.locator('#composer-text').waitFor();
   assert.equal(await page.locator('.sidebar').count(), 1);
   assert.equal(await studio.locator('.sidebar').count(), 0);
-  const juziLink = page.locator('.nav-item[href="https://stride-bg.dpclouds.com/hub-app/"]');
-  assert.equal(await juziLink.count(), 1);
-  assert.equal(await juziLink.getAttribute('target'), '_blank');
   assert.equal(await page.locator('.nav-item.active').getAttribute('data-page'), 'scripts');
   assert.equal(new URL(page.url()).origin, runtime.url);
+  await page.locator('.nav-item[data-page="juzi-workbench"]').click();
+  await page.locator('#juzi-frame').waitFor();
+  const juziUrl = new URL(await page.locator('#juzi-frame').getAttribute('src'));
+  assert.equal(juziUrl.origin + juziUrl.pathname, 'https://sp.example/hub-app/');
+  assert.equal(juziUrl.searchParams.get('sso_type'), '1');
+  assert.equal(juziUrl.searchParams.get('redirectPath'), '/main/:orgId/member-crm/:groupId/contact-list');
+  assert.match(juziUrl.searchParams.get('code'), /^[0-9a-f]{64}$/);
+  await page.waitForFunction(() => document.title.includes('有新消息'));
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await page.waitForFunction(() => !document.title.includes('有新消息'));
+  await page.locator('.nav-item[data-page="scripts"]').click();
+  await studio.locator('#composer-text').waitFor();
   await studio.locator('#composer-text').fill('仅本次嵌入咨询，不应被用户资产读取。');
   await studio.locator('[data-action="add-message"][data-role="user"]').click();
   const generated = page.waitForResponse(r => r.url().endsWith('/api/studio/generations'));
