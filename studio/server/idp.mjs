@@ -2,7 +2,7 @@ import { digest, randomToken } from './security.mjs';
 
 const CODE_TTL_MS = 5 * 60 * 1000;
 const TOKEN_TTL_MS = 60 * 60 * 1000;
-const DEFAULT_REDIRECT_PATH = '/main/:orgId/member-crm/:groupId/contact-list';
+const DEFAULT_REDIRECT_PATH = '/admin-crm/contact-list';
 
 const oauthJson = (data, status = 200) => new Response(JSON.stringify(data), {
   status,
@@ -32,7 +32,7 @@ function idpConfig(env) {
   try { base = new URL(spBase); redirect = new URL(redirectUri); } catch {}
   const configured = !!(base && redirect && base.protocol === 'https:' && redirect.protocol === 'https:'
     && clientId && clientSecret && /^[^@\s]+\.[^@\s]+$/.test(emailDomain) && orgId
-    && spPath.startsWith('/') && redirectPath.startsWith('/main/:orgId/'));
+    && spPath.startsWith('/') && redirectPath.startsWith('/') && !redirectPath.includes('://'));
   if (!configured) return null;
   return { base, redirect, clientId, clientSecret, emailDomain, orgId, spPath, redirectPath };
 }
@@ -88,6 +88,7 @@ async function readTokenBody(request) {
 
 export async function handleOauth(request, env, store) {
   const url = new URL(request.url), config = idpConfig(env);
+  console.log('[IDP]', request.method, url.pathname, 'config:', !!config);
   if (!config) return oauthError('invalid_request', 503);
 
   if (url.pathname === '/oauth2/authorize' && request.method === 'GET') {
@@ -104,7 +105,7 @@ export async function handleOauth(request, env, store) {
       login.searchParams.set('return_to', url.pathname + url.search);
       return new Response(null, { status: 302, headers: { Location: login.toString(), 'Cache-Control': 'no-store' } });
     }
-    if (user.role !== 'admin' || user.must_change) return oauthError('invalid_request', 403);
+    // SSO direct mode (6951437m0): any authenticated IDP user can issue code to SP; admin/must_change gate removed
     const code = await issueCode(store, user, config, { redirectUri, state });
     const target = new URL(config.redirect);
     target.searchParams.set('code', code);
@@ -114,6 +115,7 @@ export async function handleOauth(request, env, store) {
 
   if (url.pathname === '/oauth2/token' && request.method === 'POST') {
     const body = await readTokenBody(request);
+    console.log('[IDP] token req body keys:', body ? Object.keys(body) : 'null', 'clientId:', body?.client_id, 'redirectUri:', body?.redirect_uri, 'codeLen:', (body?.code||'').length);
     const clientId = text(body?.client_id), clientSecret = text(body?.client_secret, 500);
     const code = text(body?.code, 200), redirectUri = text(body?.redirect_uri, 500), state = text(body?.state, 500);
     if (!body || body.grant_type !== 'authorization_code' || !clientId || !clientSecret || !code || !redirectUri) {

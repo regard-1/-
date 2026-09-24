@@ -75,6 +75,15 @@ const server = createServer(async (req, res) => {
       WECOM_API_BASE: process.env.WECOM_API_BASE,
       WECOM_API_TOKEN: process.env.WECOM_API_TOKEN,
       WECOM_API_TIMEOUT_MS: process.env.WECOM_API_TIMEOUT_MS,
+      IDP_CLIENT_ID: process.env.IDP_CLIENT_ID,
+      IDP_CLIENT_SECRET: process.env.IDP_CLIENT_SECRET,
+      IDP_REDIRECT_URI: process.env.IDP_REDIRECT_URI,
+      IDP_EMAIL_DOMAIN: process.env.IDP_EMAIL_DOMAIN,
+      IDP_ORG_ID: process.env.IDP_ORG_ID,
+      SP_BASE_URL: process.env.SP_BASE_URL,
+      SP_SSO_PATH: process.env.SP_SSO_PATH,
+      SP_REDIRECT_PATH: process.env.SP_REDIRECT_PATH,
+      SP_ALLOWED_ORIGIN: process.env.SP_ALLOWED_ORIGIN,
     };
     const response = await handle(request, env);
     const headers = Object.fromEntries(response.headers);

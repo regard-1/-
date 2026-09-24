@@ -126,7 +126,7 @@ export async function api(request, env, dependencies = {}) {
   }
   if (user.must_change) fail(403, '首次登录请先修改临时密码', 'PASSWORD_CHANGE_REQUIRED');
   if (route === '/api/studio/juzi/sso' && method === 'GET') {
-    admin(user);
+    // iframe SSO (6951438m0): any authenticated user can embed juzi workbench, not admin-only
     const result = await createJuziIframe(store, user, env);
     if (!result) fail(503, '请联系管理员配置句子互动 SSO 参数', 'IDP_NOT_CONFIGURED');
     return json(result);
