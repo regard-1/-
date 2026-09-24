@@ -88,6 +88,7 @@ async function readTokenBody(request) {
 
 export async function handleOauth(request, env, store) {
   const url = new URL(request.url), config = idpConfig(env);
+  console.log('[IDP]', request.method, url.pathname, 'config:', !!config);
   if (!config) return oauthError('invalid_request', 503);
 
   if (url.pathname === '/oauth2/authorize' && request.method === 'GET') {
@@ -114,6 +115,7 @@ export async function handleOauth(request, env, store) {
 
   if (url.pathname === '/oauth2/token' && request.method === 'POST') {
     const body = await readTokenBody(request);
+    console.log('[IDP] token req body keys:', body ? Object.keys(body) : 'null', 'clientId:', body?.client_id, 'redirectUri:', body?.redirect_uri, 'codeLen:', (body?.code||'').length);
     const clientId = text(body?.client_id), clientSecret = text(body?.client_secret, 500);
     const code = text(body?.code, 200), redirectUri = text(body?.redirect_uri, 500), state = text(body?.state, 500);
     if (!body || body.grant_type !== 'authorization_code' || !clientId || !clientSecret || !code || !redirectUri) {
