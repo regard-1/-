@@ -139,8 +139,8 @@ ok "代码上传完成"
 # =============================================================================
 log "构建 Docker 镜像 ..."
 
-# 4.1 docker compose build
-if ! remote_cmd "cd ${REMOTE_DIR} && sudo docker compose -f docker-compose.prod.yml build --no-cache ${SERVICE_NAME}" 2>&1; then
+# 4.1 docker compose build (用层缓存,package.json 不变时跳过 npm install)
+if ! remote_cmd "cd ${REMOTE_DIR} && sudo docker compose -f docker-compose.prod.yml build ${SERVICE_NAME}" 2>&1; then
     err "Docker 构建失败"
     err "如需回滚: bash scripts/ci-rollback.sh"
     exit 1
@@ -149,7 +149,6 @@ ok "Docker 镜像构建完成"
 
 # 4.2 重启容器(先移除旧容器,避免名称冲突)
 log "重启容器 ${SERVICE_NAME} ..."
-# 先移除旧容器(可能是手动创建的,compose 不认识)
 remote_cmd "sudo docker rm -f ${SERVICE_NAME} 2>/dev/null" || true
 if ! remote_cmd "cd ${REMOTE_DIR} && sudo docker compose -f docker-compose.prod.yml up -d ${SERVICE_NAME}" 2>&1; then
     err "容器重启失败"
