@@ -29,8 +29,10 @@ services:
       STUDIO_DATA_DIR: /data
       STUDIO_PORT: "3000"
       DATABASE_URL: ${DATABASE_URL}
+      TZ: Asia/Shanghai
     volumes:
       - dotbest-ops-data:/data
+      - /etc/localtime:/etc/localtime:ro
     ports:
       - "127.0.0.1:8300:3000"
     networks:
