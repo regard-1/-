@@ -25,6 +25,7 @@ services:
       SP_SSO_PATH: ${SP_SSO_PATH}
       SP_REDIRECT_PATH: ${SP_REDIRECT_PATH:-/main/:orgId/member-crm/:groupId/contact-list}
       SP_ALLOWED_ORIGIN: ${SP_ALLOWED_ORIGIN}
+      SP_GROUP_ID: ${SP_GROUP_ID}
       STUDIO_DATA_DIR: /data
       STUDIO_PORT: "3000"
       DATABASE_URL: ${DATABASE_URL}

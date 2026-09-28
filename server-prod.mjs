@@ -84,6 +84,7 @@ const server = createServer(async (req, res) => {
       SP_SSO_PATH: process.env.SP_SSO_PATH,
       SP_REDIRECT_PATH: process.env.SP_REDIRECT_PATH,
       SP_ALLOWED_ORIGIN: process.env.SP_ALLOWED_ORIGIN,
+      SP_GROUP_ID: process.env.SP_GROUP_ID,
     };
     const response = await handle(request, env);
     const headers = Object.fromEntries(response.headers);
