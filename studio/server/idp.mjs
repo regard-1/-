@@ -2,7 +2,7 @@ import { digest, randomToken } from './security.mjs';
 
 const CODE_TTL_MS = 5 * 60 * 1000;
 const TOKEN_TTL_MS = 60 * 60 * 1000;
-const DEFAULT_REDIRECT_PATH = '/admin-crm/contact-list';
+const DEFAULT_REDIRECT_PATH = '/main/:orgId/:groupId/admin-crm/contact-list';
 
 const oauthJson = (data, status = 200) => new Response(JSON.stringify(data), {
   status,
@@ -26,15 +26,16 @@ function idpConfig(env) {
   const spBase = text(env.SP_BASE_URL, 500), redirectUri = text(env.IDP_REDIRECT_URI, 500);
   const clientId = text(env.IDP_CLIENT_ID, 200), clientSecret = text(env.IDP_CLIENT_SECRET, 500);
   const emailDomain = text(env.IDP_EMAIL_DOMAIN, 200), orgId = text(env.IDP_ORG_ID, 200);
+  const groupId = text(env.SP_GROUP_ID, 200);
   const spPath = text(env.SP_SSO_PATH, 500) || '/hub-app/';
   const redirectPath = text(env.SP_REDIRECT_PATH, 500) || DEFAULT_REDIRECT_PATH;
   let base = null, redirect = null;
   try { base = new URL(spBase); redirect = new URL(redirectUri); } catch {}
   const configured = !!(base && redirect && base.protocol === 'https:' && redirect.protocol === 'https:'
-    && clientId && clientSecret && /^[^@\s]+\.[^@\s]+$/.test(emailDomain) && orgId
+    && clientId && clientSecret && /^[^@\s]+\.[^@\s]+$/.test(emailDomain) && orgId && groupId
     && spPath.startsWith('/') && redirectPath.startsWith('/') && !redirectPath.includes('://'));
   if (!configured) return null;
-  return { base, redirect, clientId, clientSecret, emailDomain, orgId, spPath, redirectPath };
+  return { base, redirect, clientId, clientSecret, emailDomain, orgId, groupId, spPath, redirectPath };
 }
 
 export function juziIframeConfigured(env) {
@@ -65,8 +66,11 @@ export async function createJuziIframe(store, user, env) {
   if (!config) return null;
   const code = await issueCode(store, user, config, { redirectUri: config.redirect.toString() });
   const iframe = new URL(config.spPath, config.base);
+  const finalRedirect = config.redirectPath
+    .replaceAll(':orgId', config.orgId)
+    .replaceAll(':groupId', config.groupId);
   iframe.searchParams.set('code', code);
-  iframe.searchParams.set('redirectPath', config.redirectPath);
+  iframe.searchParams.set('redirectPath', finalRedirect);
   iframe.searchParams.set('client_id', config.clientId);
   iframe.searchParams.set('sso_type', '1');
   return { iframe_url: iframe.toString(), sp_origin: config.base.origin };
