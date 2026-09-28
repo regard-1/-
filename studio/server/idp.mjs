@@ -44,7 +44,7 @@ export function juziIframeConfigured(env) {
 
 function identity(user, config) {
   return {
-    sub: user.id,
+    sub: user.user_id || user.id,
     email: `${user.username}@${config.emailDomain}`,
     name: user.display_name,
     preferred_username: user.username,
