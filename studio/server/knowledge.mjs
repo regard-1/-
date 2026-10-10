@@ -1,9 +1,11 @@
 import { AUDIENCES, SCENES, maskText } from '../shared.mjs';
+import { qimoConfigured, retrieveQimoKnowledge } from './qimo-knowledge.mjs';
 
 const DEFAULT_TOP_K = 5;
 
 export function knowledgeConfigured(env) {
-  return !!(env.BAILIAN_KB_API_KEY && (env.BAILIAN_KB_BASE_URL || env.BAILIAN_KB_WORKSPACE_ID) && env.BAILIAN_KB_AGENT_ID);
+  const bailian = !!(env.BAILIAN_KB_API_KEY && (env.BAILIAN_KB_BASE_URL || env.BAILIAN_KB_WORKSPACE_ID) && env.BAILIAN_KB_AGENT_ID);
+  return bailian || qimoConfigured(env);
 }
 
 export function buildKnowledgeQuery(input) {
@@ -55,10 +57,11 @@ function sourceFromNode(node, index) {
   };
 }
 
-export async function retrieveKnowledge(input, env, fetchKnowledge = fetch) {
-  if (!knowledgeConfigured(env)) return { status: 'not_configured', sources: [] };
-  const url = baseUrl(env), query = buildKnowledgeQuery(input);
-  if (!url || !query) {
+async function retrieveBailianKnowledge(query, env, fetchKnowledge) {
+  const bailianConfigured = !!(env.BAILIAN_KB_API_KEY && (env.BAILIAN_KB_BASE_URL || env.BAILIAN_KB_WORKSPACE_ID) && env.BAILIAN_KB_AGENT_ID);
+  if (!bailianConfigured) return { status: 'not_configured', sources: [] };
+  const url = baseUrl(env);
+  if (!url) {
     console.warn(JSON.stringify({ knowledge_error: 'CONFIG' }));
     return { status: 'failed', sources: [] };
   }
@@ -91,4 +94,23 @@ export async function retrieveKnowledge(input, env, fetchKnowledge = fetch) {
     console.warn(JSON.stringify({ knowledge_error: 'NETWORK', name: error?.name || 'UNKNOWN' }));
     return { status: 'failed', sources: [] };
   }
+}
+
+export async function retrieveKnowledge(input, env, fetchKnowledge = fetch) {
+  if (!knowledgeConfigured(env)) return { status: 'not_configured', sources: [] };
+  const query = buildKnowledgeQuery(input);
+  if (!query) return { status: 'failed', sources: [] };
+
+  const messages = input.messages.slice(-6).map(message => ({
+    role: message.role,
+    content: message.content,
+  }));
+  const [bailian, qimo] = await Promise.all([
+    retrieveBailianKnowledge(query, env, fetchKnowledge),
+    retrieveQimoKnowledge({ question: query, messages }, env, fetchKnowledge),
+  ]);
+  const sources = [...bailian.sources, ...qimo.sources];
+  if (sources.length) return { status: 'ready', sources };
+  if (bailian.status === 'empty' || qimo.status === 'empty') return { status: 'empty', sources };
+  return { status: 'failed', sources };
 }
