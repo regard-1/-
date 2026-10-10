@@ -1,6 +1,6 @@
 import { fail } from './security.mjs';
 import { juziConfigured, listCustomers, listHistory, sendText } from './juzi.mjs';
-import { MODEL, maskText, chinaDay, AUDIENCES } from '../shared.mjs';
+import { maskText, chinaDay, AUDIENCES } from '../shared.mjs';
 
 const textValue = (value, maximum, label) => {
   if (typeof value !== 'string' || !value.trim()) fail(400, `请填写${label}`);
@@ -466,7 +466,7 @@ export async function generateReply(store, user, body, env, dependencies = {}) {
     FROM studio_materials WHERE active=1 ORDER BY updated_at DESC LIMIT 8`);
   const base = modelBase(env), fetchModel = dependencies.fetchModel || fetch;
   const modelBody = {
-    model: MODEL, stream: false, max_tokens: 700, enable_search: false, enable_thinking: false,
+    model: outreachModel(env), stream: false, max_tokens: 700, enable_search: false, enable_thinking: false,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: `你是多特倍斯私域跟进回复助手。根据客户最新回复、可用画像和已核对资料，生成一条可直接编辑后发送的回复。先准确回应客户当前问题，再推进一个自然动作；语气亲切自然，可使用已确认称呼。没有资料支持的价格、规格、活动、用法不编造；售后或身体不适优先处理安全和服务。输出 JSON：{"reply":"","next_action":"","reason":""}。` },
@@ -518,6 +518,10 @@ function modelBase(env) {
     if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash) fail(503, '模型服务配置不正确', 'MODEL_NOT_CONFIGURED');
     return base;
   } catch { fail(503, '模型服务配置不正确', 'MODEL_NOT_CONFIGURED'); }
+}
+
+function outreachModel(env) {
+  return env.STUDIO_OUTREACH_MODEL || 'deepseek-v4-pro-0813';
 }
 
 function extractJSON(text) {
@@ -604,7 +608,7 @@ function validateTasks(output, candidates) {
 
 async function requestStrategyTasks(batch, base, env, fetchModel, materials) {
   const modelBody = {
-    model: MODEL, stream: false, max_tokens: 2400, enable_search: false, enable_thinking: false,
+    model: outreachModel(env), stream: false, max_tokens: 2400, enable_search: false, enable_thinking: false,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: `你是多特倍斯私域触达策略助手。为输入的每个真实句子互动客户生成一条可执行的主动开口策略，不允许遗漏或新增客户。目标优先解决客户愿意回复，再根据其可用信息选择关怀、复购通知、教育、活动、售后或边界确认，不默认推销。必须一客一策：优先使用近期聊天、句子互动标签、备注和画像；如存在本地档案，再参考称呼、归属顾问、已购产品、关注点、禁忌。档案缺失时不得编造，只能使用对话和标签中的明确信息。不得编造购买历史、剩余数量、价格、活动、功效保证或个体医疗建议；没有资料支持时不写具体产品事实。语气自然亲切，可沿用已确认称呼。只输出 JSON，不要 markdown 或解释文字。输出 JSON：{"tasks":[{"contact_id":"","strategy_type":"care/repurchase_notice/education/activity/service/boundary_check","priority":"high/medium/low","reason":"","recommended_message":"","next_action":"","stop_rule":"","profile_updates":{"observed_signal":"","next_focus":"","should_pause":false}}]}。` },

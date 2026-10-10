@@ -134,10 +134,12 @@ test('outreach is admin-only and sales calls never reach upstream or model', asy
 });
 
 test('unbound Juzi contacts can generate one-customer strategies from real signals', async t => {
+  let requestedModel;
   const h = await harness(t, {
     fetchJuzi: async () => listCustomersResponse(),
     fetchModel: async (_, options) => {
       const body = JSON.parse(options.body);
+      requestedModel = body.model;
       const candidate = JSON.parse(body.messages.at(-1).content).candidates[0];
       assert.equal(candidate.local_customer_id, null);
       assert.ok(candidate.tags.includes('NMN用户'));
@@ -163,11 +165,32 @@ test('unbound Juzi contacts can generate one-customer strategies from real signa
   assert.equal(contact.local_customer_id, null);
 
   const generated = await h.call('/api/studio/outreach/strategies', 'POST', { contact_id: contact.id }, admin);
+  assert.equal(requestedModel, 'deepseek-v4-pro-0813');
   assert.equal(generated.status, 200);
   assert.equal(generated.data.created_count, 1);
   assert.equal(generated.data.tasks[0].contact_id, contact.id);
   assert.equal(generated.data.tasks[0].local_customer_id, null);
   assert.equal(generated.data.tasks[0].audience, 'anti_aging');
+});
+
+test('outreach model can be configured independently of script generation', async t => {
+  let requestedModel;
+  const h = await harness(t, {
+    fetchJuzi: async () => listCustomersResponse(),
+    fetchModel: async (_, options) => {
+      const body = JSON.parse(options.body);
+      requestedModel = body.model;
+      const candidate = JSON.parse(body.messages.at(-1).content).candidates[0];
+      return modelTask(candidate.id, candidate.local_customer_id);
+    },
+  }, { STUDIO_OUTREACH_MODEL: 'qwen3.8-max' });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  const snapshot = await h.call('/api/studio/outreach', 'GET', undefined, admin);
+  const contact = snapshot.data.contacts[0];
+  const generated = await h.call('/api/studio/outreach/strategies', 'POST', { contact_id: contact.id }, admin);
+  assert.equal(requestedModel, 'qwen3.8-max');
+  assert.equal(generated.status, 200);
 });
 
 test('production outreach uses the default model fetch when dependencies are omitted', async t => {
