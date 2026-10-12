@@ -223,12 +223,12 @@ test('tag filters derive initial profiles and generate only matched audiences', 
   assert.equal(excluded.data.contact_pagination.total, 1);
   assert.ok(excluded.data.contacts.every(contact => !contact.tags.includes('复购')));
 
-  const generated = await h.call('/api/studio/outreach/strategies', 'POST', { tag: 'NMN', limit: 20, direction: 'double_eleven' }, admin);
+  const generated = await h.call('/api/studio/outreach/strategies', 'POST', { tag: 'NMN', limit: 20, direction: '  复购提醒\n' }, admin);
   assert.equal(generated.status, 200);
   assert.equal(generated.data.created_count, 2);
-  assert.equal(generated.data.direction, 'double_eleven');
-  assert.equal(generated.data.direction_label, '双11活动');
-  assert.equal(requestedDirection, 'double_eleven');
+  assert.equal(generated.data.direction, '复购提醒');
+  assert.equal(generated.data.direction_label, '复购提醒');
+  assert.equal(requestedDirection, '复购提醒');
   assert.ok(requestedCandidates.every(candidate => /nmn/i.test(candidate.tags)));
   assert.ok(requestedCandidates.some(candidate => candidate.id === 'tag-contact-2'));
   assert.ok(!requestedCandidates.some(candidate => candidate.id === 'tag-contact-3'));

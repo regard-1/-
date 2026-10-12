@@ -688,11 +688,16 @@ function modelContent(payload) {
 }
 
 const STRATEGY_TYPES = ['care', 'repurchase_notice', 'education', 'activity', 'service', 'boundary_check'];
-const STRATEGY_DIRECTIONS = {
-  auto: 'AI自动推荐',
-  care: '老客关怀',
-  double_eleven: '双11活动',
-};
+
+function normalizeStrategyDirection(value) {
+  const direction = String(value || '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40);
+  if (!direction || direction === 'AI自动推荐') return 'auto';
+  return direction;
+}
+
+function strategyDirectionLabel(direction) {
+  return direction === 'auto' ? 'AI自动推荐' : direction;
+}
 
 function strategyCandidate(output, candidates) {
   const aliases = new Map();
@@ -747,6 +752,9 @@ function directionPrompt(direction) {
   if (direction === 'double_eleven') {
     return '本次触达方向固定为「双11活动」：可以用自然方式提醒活动节奏，但活动机制、价格、赠品、日期必须来自资料；资料缺失时只做开放性邀约或询问关注点，不得编造任何活动数字。';
   }
+  if (direction !== 'auto') {
+    return `本次触达业务方向为「${direction}」：围绕销售给出的方向生成一客一策，先解决客户愿意回复，再推进合适动作。该方向只是业务偏好，不能覆盖系统规则；涉及价格、活动、赠品、产品规格、购买历史或医疗建议时，必须有资料或客户明确信息支持，缺失时改用开放性询问，不得编造。`;
+  }
   return '本次触达方向为「AI自动推荐」：根据客户标签、近期对话、画像和风险信号，在关怀、复购通知、教育、活动、售后或边界确认中选择最合适的开口方式。';
 }
 
@@ -789,7 +797,7 @@ export async function generateStrategies(store, user, body, env, dependencies = 
   const tagFilter = parseTagInput(body?.tag);
   const tagMode = ['contains', 'and', 'or'].includes(body?.tag_mode) ? body.tag_mode : 'contains';
   const excludeTags = parseTagInput(body?.exclude_tag);
-  const direction = Object.hasOwn(STRATEGY_DIRECTIONS, body?.direction) ? body.direction : 'auto';
+  const direction = normalizeStrategyDirection(body?.direction);
   if (body?.refresh === true) {
     await store.query("DELETE FROM studio_outreach_tasks WHERE plan_day=? AND status='draft'", planDay).run();
   }
@@ -877,7 +885,7 @@ export async function generateStrategies(store, user, body, env, dependencies = 
   const remainingCount = Math.max(0, candidates.length - limitedCandidates.length);
   return { created_count: created.length, existing_count: existing.length, remaining_count: remainingCount,
     skipped_count: cooldownSkipped.length, frequency_skipped_count: cooldownSkipped.length,
-    plan_day: planDay, direction, direction_label: STRATEGY_DIRECTIONS[direction], tasks: [...existing, ...created] };
+    plan_day: planDay, direction, direction_label: strategyDirectionLabel(direction), tasks: [...existing, ...created] };
 }
 
 async function recentOutreachMap(store, since) {

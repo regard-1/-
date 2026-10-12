@@ -96,8 +96,8 @@ try {
   await page.waitForSelector('[data-contact]');
   assert.ok((await page.locator('.outreach-workspace').textContent()).includes('5678'));
   assert.ok(!(await page.locator('.outreach-workspace').textContent()).includes('13800135678'));
-  await page.locator('#outreach-strategy-direction').selectOption('double_eleven');
-  assert.equal(await page.locator('#outreach-strategy-direction').inputValue(), 'double_eleven');
+  await page.locator('#outreach-strategy-direction').fill('复购提醒');
+  assert.equal(await page.locator('#outreach-strategy-direction').inputValue(), '复购提醒');
 
   const firstHistory = page.waitForResponse(response => response.url().endsWith('/api/studio/outreach/messages/sync'));
   await page.locator('[data-action="outreach-history"]').click();
@@ -129,7 +129,7 @@ try {
   const generated = page.waitForResponse(response => response.url().endsWith('/api/studio/outreach/strategies'));
   const generatedRequest = page.waitForRequest(request => request.url().endsWith('/api/studio/outreach/strategies'));
   await page.getByRole('button', { name: '生成一客一策' }).click();
-  assert.equal(JSON.parse((await generatedRequest).postData()).direction, 'double_eleven');
+  assert.equal(JSON.parse((await generatedRequest).postData()).direction, '复购提醒');
   await generated;
   await page.waitForSelector('.drawer [data-action="outreach-queue"]');
   assert.ok((await page.locator('.outreach-workspace').textContent()).includes('陈哥'));
