@@ -163,6 +163,9 @@ async function request(url,options){const response=await fetch(url,options);retu
   const appSource=fs.readFileSync(path.join(__dirname,'..','assets','app.js'),'utf8');
   const cssSource=fs.readFileSync(path.join(__dirname,'..','assets','app.css'),'utf8');
   const htmlSource=fs.readFileSync(path.join(__dirname,'..','index.html'),'utf8');
+  assert.match(appSource,/function pageLeftSince\(page\)\{return state\.page!==page\}/);
+  assert.doesNotMatch(appSource,/version!==navigationVersion\)throw new DOMException\('页面已切换'/);
+  assert.match(appSource,/if\(pageLeftSince\(requestedPage\)\)throw new DOMException\('页面已切换','AbortError'\)/);
   assert.ok(appSource.includes('function renderPasswordChange()'),'must-change login should stay in the full operations shell');
   assert.ok(appSource.includes('state.passwordChangeRequired'),'host shell should block navigation before password change');
   assert.doesNotMatch(appSource,/location\.href='\/script-studio\/'/,'must-change login must not redirect into the standalone studio');
