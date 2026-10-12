@@ -5,6 +5,7 @@ import { LocalDB } from '../studio/local-db.mjs';
 import { Store } from '../studio/server/store.mjs';
 import { handle } from '../studio/server/worker.mjs';
 import { passwordHash } from '../studio/server/security.mjs';
+import { chinaDay } from '../studio/shared.mjs';
 
 const origin = 'https://studio.example';
 const password = 'SyntheticPass123!';
@@ -547,6 +548,103 @@ test('partial strategy output ignores invented customers and retries missing cus
   const rows = h.db.sqlite.prepare('SELECT contact_id FROM studio_outreach_tasks ORDER BY contact_id').all();
   assert.deepEqual(rows.map(row => row.contact_id).sort(), providedIds.sort());
   assert.ok(!JSON.stringify(rows).includes('invented-contact'));
+});
+
+test('missing outreach messages are retried without stopping the whole batch', async t => {
+  let modelCalls = 0;
+  const h = await harness(t, {
+    fetchJuzi: async () => listCustomersResponse(),
+    fetchModel: async (_url, options) => {
+      modelCalls++;
+      const candidates = JSON.parse(JSON.parse(options.body).messages.at(-1).content).candidates;
+      const tasks = candidates.length > 1
+        ? [
+            { contact_id: candidates[0].id, priority: 'medium', reason: '正常返回',
+              recommended_message: '陈哥，最近状态还好吗？', next_action: '等待回复', stop_rule: '明确拒绝后暂停' },
+            { contact_id: candidates[1].id, priority: 'high', reason: '本轮缺失话术',
+              recommended_message: '', next_action: '等待回复', stop_rule: '明确拒绝后暂停' },
+          ]
+        : [{ contact_id: candidates[0].id, priority: 'high', reason: '单人补齐话术',
+            recommended_message: '李姐，最近睡眠和精力还好吗？', next_action: '等待回复', stop_rule: '明确拒绝后暂停' }];
+      return jsonResponse({ choices: [{ message: { content: JSON.stringify({ tasks }) } }] });
+    },
+  }, { STUDIO_OUTREACH_BATCH_SIZE: 2 });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  h.db.sqlite.prepare(`INSERT INTO studio_juzi_contacts(id,im_contact_id,display_name,phone_suffix,gender,im_bot_id,friendship_status,match_status,last_synced_at,tags,remark)
+    VALUES('message-retry-2','message-retry-im-2','李女士','6789',2,'bot-1',1,'unmatched',?,'NMN18000','')`).run(Date.now());
+
+  const result = await h.call('/api/studio/outreach/strategies', 'POST', { tag: 'NMN', limit: 20 }, admin);
+  assert.equal(result.status, 200);
+  assert.equal(result.error, undefined);
+  assert.equal(result.data.created_count, 2);
+  assert.equal(modelCalls, 2);
+  assert.ok(result.data.tasks.every(task => task.recommended_message));
+});
+
+test('outreach strategies only receive active activity materials', async t => {
+  let modelMaterials;
+  const h = await harness(t, {
+    fetchJuzi: async () => listCustomersResponse(),
+    fetchModel: async (_url, options) => {
+      const input = JSON.parse(JSON.parse(options.body).messages.at(-1).content);
+      modelMaterials = input.materials;
+      const candidate = input.candidates[0];
+      return modelTask(candidate.id, candidate.local_customer_id);
+    },
+  });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  const insert = h.db.sqlite.prepare(`INSERT INTO studio_materials(id,version,title,kind,audience,product,content,valid_from,valid_to,active,updated_by,updated_at)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`);
+  insert.run('ended-activity', 1, '9月活动机制', 'activity', 'all', '', '9月活动已结束。', '2026-09-01', '2026-09-30', 1, 'admin', Date.now());
+  insert.run('double11-activity', 1, '双11活动机制', 'activity', 'all', '', '双11活动进行中。', '2026-10-08', '2026-11-13', 1, 'admin', Date.now());
+
+  const result = await h.call('/api/studio/outreach/strategies', 'POST', { direction: '双11活动' }, admin);
+  assert.equal(result.status, 200);
+  assert.ok(modelMaterials.some(material => material.title === '双11活动机制' && material.date_status === 'active'));
+  assert.ok(!modelMaterials.some(material => material.title === '9月活动机制'));
+});
+
+test('clearing today outreach strategies is admin-only and preserves sent archive', async t => {
+  const h = await harness(t);
+  const sales = await h.login('sales');
+  const forbidden = await h.call('/api/studio/outreach/tasks', 'DELETE', { scope: 'today', confirm: true }, sales);
+  assert.equal(forbidden.status, 403);
+
+  const admin = await h.login();
+  const invalid = await h.call('/api/studio/outreach/tasks', 'DELETE', { scope: 'today' }, admin);
+  assert.equal(invalid.status, 400);
+
+  const insert = h.db.sqlite.prepare(`INSERT INTO studio_outreach_tasks(id,contact_id,audience,recommended_message,status,created_by,created_at,plan_day)
+    VALUES(?,?,?,?,?,?,?,?)`);
+  const today = chinaDay();
+  insert.run('today-draft', 'contact-1', 'anti_aging', '今日草稿', 'draft', 'admin', Date.now(), today);
+  insert.run('today-queued', 'contact-1', 'anti_aging', '今日队列', 'queued', 'admin', Date.now(), today);
+  insert.run('today-sent', 'contact-1', 'anti_aging', '今日已发送', 'sent', 'admin', Date.now(), today);
+  insert.run('today-paused', 'contact-1', 'anti_aging', '今日暂停', 'paused', 'admin', Date.now(), today);
+  insert.run('old-draft', 'contact-1', 'anti_aging', '历史草稿', 'draft', 'admin', Date.now(), '1999-12-31');
+  h.db.sqlite.prepare(`INSERT INTO studio_outreach_messages(id,task_id,contact_id,direction,content,status,created_at)
+    VALUES(?,?,?,?,?,?,?)`)
+    .run('pending-message', 'today-queued', 'contact-1', 'outbound', '今日队列', 'pending', Date.now());
+  h.db.sqlite.prepare(`INSERT INTO studio_outreach_messages(id,task_id,contact_id,direction,content,status,created_at)
+    VALUES(?,?,?,?,?,?,?)`)
+    .run('sent-message', 'today-sent', 'contact-1', 'outbound', '今日已发送', 'sent', Date.now());
+  h.db.sqlite.prepare(`INSERT INTO studio_outreach_messages(id,contact_id,direction,content,status,created_at)
+    VALUES(?,?,?,?,?,?)`)
+    .run('inbound-message', 'contact-1', 'inbound', '客户回复', 'received', Date.now());
+
+  const result = await h.call('/api/studio/outreach/tasks', 'DELETE', { scope: 'today', confirm: true }, admin);
+  assert.equal(result.status, 200);
+  assert.equal(result.data.deleted_count, 2);
+  assert.deepEqual(
+    h.db.sqlite.prepare('SELECT id FROM studio_outreach_tasks ORDER BY id').all().map(row => row.id),
+    ['old-draft', 'today-paused', 'today-sent']
+  );
+  assert.deepEqual(
+    h.db.sqlite.prepare('SELECT id FROM studio_outreach_messages ORDER BY id').all().map(row => row.id),
+    ['inbound-message', 'sent-message']
+  );
 });
 
 test('unsent outreach tasks can be deleted while sent archive is preserved', async t => {

@@ -1,5 +1,6 @@
 import { fail } from './security.mjs';
 import { juziConfigured, listCustomers, listHistory, sendText } from './juzi.mjs';
+import { retrieveKnowledge } from './knowledge.mjs';
 import { maskText, chinaDay, AUDIENCES } from '../shared.mjs';
 
 const textValue = (value, maximum, label) => {
@@ -699,6 +700,55 @@ function strategyDirectionLabel(direction) {
   return direction === 'auto' ? 'AI自动推荐' : direction;
 }
 
+function materialDateStatus(material, today) {
+  if (!material?.valid_from && !material?.valid_to) return 'open';
+  if (material.valid_from && today < material.valid_from) return 'not_started';
+  if (material.valid_to && today > material.valid_to) return 'ended';
+  return 'active';
+}
+
+function outreachMaterialForPrompt(material, today) {
+  if (!material?.active) return null;
+  const dateStatus = materialDateStatus(material, today);
+  if (material.kind === 'activity' && dateStatus !== 'active') return null;
+  return {
+    title: material.title,
+    kind: material.kind,
+    audience: material.audience,
+    product: material.product || '',
+    content: String(material.content || '').slice(0, 500),
+    valid_from: material.valid_from || '',
+    valid_to: material.valid_to || '',
+    date_status: dateStatus,
+    ...(material.external ? { external: true, source_type: material.source_type } : {}),
+  };
+}
+
+function outreachKnowledgeQuery(direction, contacts) {
+  const tags = [...new Set(contacts.flatMap(contact => contactTags(contact)))].slice(0, 12);
+  return [
+    '多特倍斯 主动触达 一客一策',
+    strategyDirectionLabel(direction),
+    '活动机制 赠品 产品搭配 双11',
+    tags.join('、'),
+  ].filter(Boolean).join('；').replace(/\s+/g, ' ').slice(0, 1200);
+}
+
+async function outreachKnowledgeMaterials(direction, contacts, env, fetchKnowledge) {
+  try {
+    const result = await retrieveKnowledge({
+      scene: 'outreach',
+      audience: 'all',
+      needs: outreachKnowledgeQuery(direction, contacts),
+      goal: '为真实客户主动触达生成可执行话术',
+      messages: [],
+    }, env, fetchKnowledge);
+    return (result.sources || []).slice(0, 5).map(source => outreachMaterialForPrompt(source, chinaDay())).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 function strategyCandidate(output, candidates) {
   const aliases = new Map();
   for (const candidate of candidates) {
@@ -724,7 +774,12 @@ function validateTasks(output, candidates, { partial = false } = {}) {
     }
     if (used.has(candidate.id)) continue;
     used.add(candidate.id);
-    const message = textValue(item.recommended_message, 600, '触达话术');
+    const rawMessage = typeof item.recommended_message === 'string' ? item.recommended_message.trim() : '';
+    if (!rawMessage) {
+      if (!partial) fail(502, '模型未返回触达话术，请重试', 'MODEL_FORMAT');
+      continue;
+    }
+    const message = textValue(rawMessage, 600, '触达话术');
     const confirmedMessage = applyConfirmedSalutation(message, candidate, candidate.recent_messages || []);
     if (/保证|一定有效|包治|替代药物|建议停药|高价值客户|内部评分/.test(message)) fail(502, '触达话术包含不安全表述，请重试', 'UNSAFE_STRATEGY');
     tasks.push({
@@ -758,12 +813,12 @@ function directionPrompt(direction) {
   return '本次触达方向为「AI自动推荐」：根据客户标签、近期对话、画像和风险信号，在关怀、复购通知、教育、活动、售后或边界确认中选择最合适的开口方式。';
 }
 
-async function requestStrategyTasks(batch, base, env, fetchModel, materials, direction = 'auto') {
+async function requestStrategyTasks(batch, base, env, fetchModel, materials, direction = 'auto', attempt = 0) {
   const modelBody = {
     model: outreachModel(env), stream: false, max_tokens: 2400, enable_search: false, enable_thinking: false,
     response_format: { type: 'json_object' },
     messages: [
-      { role: 'system', content: `你是多特倍斯私域触达策略助手。为输入的每个真实句子互动客户生成一条可执行的主动开口策略，不允许遗漏或新增客户。contact_id 必须逐字使用输入 candidates 里的 id。目标优先解决客户愿意回复，再根据其可用信息选择关怀、复购通知、教育、活动、售后或边界确认，不默认推销。${directionPrompt(direction)}必须一客一策：优先使用近期聊天、句子互动标签、备注和画像；如存在本地档案，再参考称呼、归属顾问、已购产品、关注点、禁忌。档案缺失时不得编造，只能使用对话和标签中的明确信息。不得编造购买历史、剩余数量、价格、活动、功效保证或个体医疗建议；没有资料支持时不写具体产品事实。语气自然亲切，可沿用已确认称呼。只输出 JSON，不要 markdown 或解释文字。输出 JSON：{"tasks":[{"contact_id":"","strategy_type":"care/repurchase_notice/education/activity/service/boundary_check","priority":"high/medium/low","reason":"","recommended_message":"","next_action":"","stop_rule":"","profile_updates":{"observed_signal":"","next_focus":"","should_pause":false}}]}。` },
+      { role: 'system', content: `你是多特倍斯私域触达策略助手。为输入的每个真实句子互动客户生成一条可执行的主动开口策略，不允许遗漏或新增客户。contact_id 必须逐字使用输入 candidates 里的 id。目标优先解决客户愿意回复，再根据其可用信息选择关怀、复购通知、教育、活动、售后或边界确认，不默认推销。${directionPrompt(direction)}必须一客一策：优先使用近期聊天、句子互动标签、备注和画像；如存在本地档案，再参考称呼、归属顾问、已购产品、关注点、禁忌。档案缺失时不得编造，只能使用对话和标签中的明确信息。资料中的 today 是系统权威日期；date_status=active 的活动必须视为已经开始，不得因为月份或活动名称说未开始；not_started 或 ended 的活动资料不得引用。活动机制、价格、赠品、日期必须来自资料；资料缺失时只做开放性邀约或询问关注点。不得编造购买历史、剩余数量、价格、活动、功效保证或个体医疗建议；没有资料支持时不写具体产品事实。语气自然亲切，可沿用已确认称呼。只输出 JSON，不要 markdown 或解释文字。输出 JSON：{"tasks":[{"contact_id":"","strategy_type":"care/repurchase_notice/education/activity/service/boundary_check","priority":"high/medium/low","reason":"","recommended_message":"","next_action":"","stop_rule":"","profile_updates":{"observed_signal":"","next_focus":"","should_pause":false}}]}。` },
       { role: 'user', content: JSON.stringify({ today: chinaDay(), direction, candidates: batch, materials }) },
     ],
   };
@@ -780,12 +835,15 @@ async function requestStrategyTasks(batch, base, env, fetchModel, materials, dir
   try { payload = await response.json(); } catch { fail(502, '触达策略生成格式异常，请重试', 'MODEL_FORMAT'); }
   const tasks = validateTasks(extractJSON(modelContent(payload)), batch, { partial: true });
   if (tasks.length === batch.length) return tasks;
-  if (batch.length === 1) fail(502, '模型未能返回该客户的策略，请重试', 'MODEL_FORMAT');
+  if (batch.length === 1) {
+    if (attempt === 0) return requestStrategyTasks(batch, base, env, fetchModel, materials, direction, 1);
+    fail(502, '模型未能返回该客户的触达话术，请重试', 'MODEL_FORMAT');
+  }
   const returnedIds = new Set(tasks.map(task => task.contact_id));
   const missing = batch.filter(candidate => !returnedIds.has(candidate.id));
   const retried = [];
   for (const candidate of missing) {
-    retried.push(...await requestStrategyTasks([candidate], base, env, fetchModel, materials, direction));
+    retried.push(...await requestStrategyTasks([candidate], base, env, fetchModel, materials, direction, attempt));
   }
   return [...tasks, ...retried];
 }
@@ -837,14 +895,16 @@ export async function generateStrategies(store, user, body, env, dependencies = 
     return { created_count: 0, existing_count: existing.length, remaining_count: 0,
       skipped_count: cooldownSkipped.length, frequency_skipped_count: cooldownSkipped.length, plan_day: planDay, tasks: existing };
   }
-  const materials = (await store.all(`SELECT title,kind,audience,product,content,valid_from,valid_to
-    FROM studio_materials WHERE active=1 ORDER BY updated_at DESC LIMIT 12`)).map(material => ({
-    ...material,
-    content: String(material.content || '').slice(0, 500),
-  }));
+  const today = chinaDay();
+  const localMaterials = (await store.all(`SELECT id,version,title,kind,audience,product,content,valid_from,valid_to,active
+    FROM studio_materials WHERE active=1 ORDER BY updated_at DESC LIMIT 20`))
+    .map(material => outreachMaterialForPrompt(material, today)).filter(Boolean).slice(0, 12);
   const requestedLimit = Number(body?.limit);
   const requestLimit = Number.isInteger(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, 50) : null;
   const limitedCandidates = requestLimit ? candidates.slice(0, requestLimit) : candidates;
+  const knowledgeMaterials = await outreachKnowledgeMaterials(direction, limitedCandidates,
+    env, dependencies.fetchKnowledge || dependencies.fetchModel || fetch);
+  const materials = [...localMaterials, ...knowledgeMaterials];
   const base = modelBase(env);
   const batchSize = Math.max(1, Math.min(5, Number(env.STUDIO_OUTREACH_BATCH_SIZE) || 3));
   const batches = [];
@@ -876,8 +936,8 @@ export async function generateStrategies(store, user, body, env, dependencies = 
       }).slice(0, 8000);
       await store.query(`INSERT INTO studio_outreach_tasks(id,contact_id,local_customer_id,audience,priority,reason,
         recommended_message,next_action,stop_rule,status,created_by,created_at,plan_day,strategy_type,profile_snapshot,profile_updates)
-        VALUES(?,?,?,?,?,?,?,?,?,'draft',?,?,?,?,?,?)`, id, task.contact_id, task.local_customer_id, task.audience,
-        task.priority, task.reason, task.recommended_message, task.next_action, task.stop_rule, user.id, now,
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, task.contact_id, task.local_customer_id, task.audience,
+        task.priority, task.reason, task.recommended_message, task.next_action, task.stop_rule, 'draft', user.id, now,
         planDay, task.strategy_type, snapshot, task.profile_updates).run();
       created.push({ id, ...task, status: 'draft', created_at: now });
     }
@@ -917,6 +977,22 @@ export async function deleteTask(store, id) {
     store.query("DELETE FROM studio_outreach_tasks WHERE id=? AND status IN ('draft','queued') RETURNING id", id),
   ]);
   return { deleted: true };
+}
+
+export async function clearTodayTasks(store, user, body = {}) {
+  if (body?.scope !== 'today' || body?.confirm !== true) fail(400, '请确认删除今日未发送的一客一策');
+  const planDay = chinaDay();
+  const unsent = await store.all(`SELECT id,status FROM studio_outreach_tasks
+    WHERE plan_day=? AND status IN('draft','queued')`, planDay);
+  if (!unsent.length) return { deleted_count: 0, plan_day: planDay };
+  const statements = [
+    store.query(`DELETE FROM studio_outreach_messages WHERE task_id IN
+      (SELECT id FROM studio_outreach_tasks WHERE plan_day=? AND status IN('draft','queued'))
+      AND status IN('pending','failed')`, planDay),
+    store.query(`DELETE FROM studio_outreach_tasks WHERE plan_day=? AND status IN('draft','queued') RETURNING id`, planDay),
+  ];
+  await store.db.batch(statements);
+  return { deleted_count: unsent.length, plan_day: planDay };
 }
 
 export async function sendTask(store, env, id, dependencies = {}) {

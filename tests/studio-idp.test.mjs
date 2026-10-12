@@ -11,9 +11,14 @@ const baseEnv = {
   IDP_REDIRECT_URI: 'https://sp.example/oauth/callback',
   IDP_EMAIL_DOMAIN: 'idp.example',
   IDP_ORG_ID: 'test-org',
-  SP_BASE_URL: 'https://sp.example',
-  SP_SSO_PATH: '/hub-app/',
-  SP_REDIRECT_PATH: '/main/:orgId/member-crm/:groupId/contact-list',
+};
+const prodIdp = {
+  spOrigin: 'https://stride-mh.dpclouds.com',
+  ssoPath: '/sso/oidc',
+  orgId: '6a9e30cf88310c4e6d1763e1',
+  groupId: '6a9e30cf88310c4e6d1764e3',
+  redirectPath: `/main/${'6a9e30cf88310c4e6d1763e1'}/${'6a9e30cf88310c4e6d1764e3'}/chat`,
+  email: 'weiss@7moor.com',
 };
 
 async function harness(t) {
@@ -53,7 +58,7 @@ test('juzi SSO requires login and returns a one-use iframe URL', async t => {
   assert.equal(response.status, 200);
   const payload = await response.json();
   const url = new URL(payload.data.iframe_url);
-  assert.equal(url.searchParams.get('redirectPath'), baseEnv.SP_REDIRECT_PATH);
+  assert.equal(url.searchParams.get('redirectPath'), prodIdp.redirectPath);
   const code = url.searchParams.get('code');
   assert.match(code, /^[0-9a-f]{64}$/);
   assert.ok(h.db.sqlite.prepare('SELECT 1 FROM studio_idp_codes WHERE code_hash=?').get(await digest(code)));
@@ -64,11 +69,11 @@ test('juzi SSO requires login and returns a one-use iframe URL', async t => {
   assert.equal(adminResponse.status, 200);
   const adminPayload = await adminResponse.json();
   const adminUrl = new URL(adminPayload.data.iframe_url);
-  assert.equal(adminUrl.origin + adminUrl.pathname, 'https://sp.example/hub-app/');
+  assert.equal(adminUrl.origin + adminUrl.pathname, prodIdp.spOrigin + prodIdp.ssoPath);
   assert.equal(adminUrl.searchParams.get('client_id'), baseEnv.IDP_CLIENT_ID);
   assert.equal(adminUrl.searchParams.get('sso_type'), '1');
-  assert.equal(adminUrl.searchParams.get('redirectPath'), baseEnv.SP_REDIRECT_PATH);
-  assert.equal(adminPayload.data.sp_origin, 'https://sp.example');
+  assert.equal(adminUrl.searchParams.get('redirectPath'), prodIdp.redirectPath);
+  assert.equal(adminPayload.data.sp_origin, prodIdp.spOrigin);
   const adminCode = adminUrl.searchParams.get('code');
   assert.match(adminCode, /^[0-9a-f]{64}$/);
   assert.ok(h.db.sqlite.prepare('SELECT 1 FROM studio_idp_codes WHERE code_hash=?').get(await digest(adminCode)));
@@ -99,8 +104,8 @@ test('oauth token exchange is one-time and userinfo never stores plaintext token
   assert.equal(replay.body.error, 'invalid_grant');
   const info = await oauthJson(await h.call('/oauth2/userinfo', { headers: { Authorization: `Bearer ${token.body.access_token}` } }));
   assert.equal(info.status, 200);
-  assert.equal(info.body.email, 'admin@idp.example');
-  assert.equal(info.body.orgId, baseEnv.IDP_ORG_ID);
+  assert.equal(info.body.email, prodIdp.email);
+  assert.equal(info.body.orgId, prodIdp.orgId);
   assert.equal(info.body.userName, 'admin');
   const invalid = await oauthJson(await h.call('/oauth2/userinfo', { headers: { Authorization: 'Bearer wrong-token' } }));
   assert.equal(invalid.status, 401);

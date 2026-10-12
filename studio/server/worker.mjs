@@ -4,7 +4,7 @@ import { generate, validateMaterial } from './generation.mjs';
 import { knowledgeConfigured } from './knowledge.mjs';
 import { recognizeScreenshot } from './ocr.mjs';
 import { createJuziIframe, handleOauth } from './idp.mjs';
-import { assignBot, bindContact, createTemplate, deleteTask, deleteTemplate, generateReply, generateStrategies, generateTemplateTasks, handleJuziCallback, outreachSnapshot, queueTask, sendTask, syncContacts, syncConversations, updateContactReplyStatus, updateContactSalutation, updateTaskMessage, updateTemplate } from './outreach.mjs';
+import { assignBot, bindContact, clearTodayTasks, createTemplate, deleteTask, deleteTemplate, generateReply, generateStrategies, generateTemplateTasks, handleJuziCallback, outreachSnapshot, queueTask, sendTask, syncContacts, syncConversations, updateContactReplyStatus, updateContactSalutation, updateTaskMessage, updateTemplate } from './outreach.mjs';
 import { AUDIENCES, maskText, MODEL, monthKey } from '../shared.mjs';
 
 const cleanName = value => typeof value === 'string' && /^[a-zA-Z][a-zA-Z0-9_.-]{2,39}$/.test(value);
@@ -205,6 +205,11 @@ export async function api(request, env, dependencies = {}) {
   if (queueMatch && method === 'POST') {
     admin(user);
     return json(await queueTask(store, queueMatch[1]));
+  }
+  if (route === '/api/studio/outreach/tasks' && method === 'DELETE') {
+    admin(user);
+    await store.rateLimit(`outreach-clear-today:${user.id}`, 4, 60);
+    return json(await clearTodayTasks(store, user, await readBody(request)));
   }
   const taskMatch = route.match(/^\/api\/studio\/outreach\/tasks\/([\w-]+)$/);
   if (taskMatch && method === 'DELETE') {
