@@ -15,16 +15,21 @@ function normalizeTimestamp(value) {
   return numeric < 10000000000 ? numeric * 1000 : numeric;
 }
 
-export async function outreachSnapshot(store, env) {
+export async function outreachSnapshot(store, env, searchParams = new URLSearchParams()) {
   const day = chinaDay();
+  const page = Math.max(1, Number(searchParams.get('page')) || 1);
+  const limit = Math.min(200, Math.max(20, Number(searchParams.get('limit')) || 100));
+  const query = maskText(String(searchParams.get('q') || '').trim()).slice(0, 80);
+  const replyFilter = ['all', 'replied', 'unread'].includes(searchParams.get('reply')) ? searchParams.get('reply') : 'all';
   const [bots, contacts, tasks, messages, profileUpdates, templates, replyStats] = await Promise.all([
     store.all(`SELECT b.*,u.display_name AS owner_name FROM studio_juzi_bots b
       LEFT JOIN studio_users u ON u.id=b.owner_user_id ORDER BY b.bot_name`),
     store.all(`SELECT c.*,l.display_name AS local_customer_name,l.audience AS local_customer_audience,
       l.salutation,l.purchased_products,l.interests,l.concerns,l.contraindications,l.notes,
-      u.display_name AS owner_name FROM studio_juzi_contacts c
+      b.bot_name,u.display_name AS owner_name FROM studio_juzi_contacts c
       LEFT JOIN studio_customers l ON l.id=c.local_customer_id
-      LEFT JOIN studio_users u ON u.id=l.owner_user_id ORDER BY c.display_name LIMIT 500`),
+      LEFT JOIN studio_juzi_bots b ON b.im_bot_id=c.im_bot_id
+      LEFT JOIN studio_users u ON u.id=l.owner_user_id ORDER BY c.display_name`),
     store.all(`SELECT t.*,c.display_name AS contact_name,l.display_name AS customer_name,
       b.bot_name,b.im_bot_id,tpl.title AS template_title FROM studio_outreach_tasks t
       JOIN studio_juzi_contacts c ON c.id=t.contact_id
@@ -53,23 +58,42 @@ export async function outreachSnapshot(store, env) {
       || (contact.reply_status_override === 0 && inbound > outbound);
   }
   contacts.sort((a, b) => Number(b.replied) - Number(a.replied) || String(a.display_name).localeCompare(String(b.display_name), 'zh-Hans-CN'));
+  const allContacts = contacts;
+  const totalCount = allContacts.length;
+  const filteredContacts = allContacts.filter(contact => {
+    if (replyFilter === 'replied' && !contact.replied) return false;
+    if (replyFilter === 'unread' && contact.replied) return false;
+    if (!query) return true;
+    return [contact.display_name, contact.phone_suffix, contact.tags, contact.remark,
+      contact.owner_name, contact.bot_name, contact.local_customer_name, contact.profile_json]
+     .some(value => String(value || '').toLowerCase().includes(query.toLowerCase()));
+  });
+  const totalPages = Math.max(1, Math.ceil(filteredContacts.length / limit));
+  const safePage = Math.min(page, totalPages);
+  const start = (safePage - 1) * limit;
+  const pageContacts = filteredContacts.slice(start, start + limit);
   const localCustomers = await store.all(`SELECT c.id,c.display_name,c.audience,c.phone_suffix,u.display_name AS owner_name
     FROM studio_customers c LEFT JOIN studio_users u ON u.id=c.owner_user_id WHERE c.active=1 ORDER BY c.display_name`);
   const counts = {
-    contacts: contacts.length,
-    bound: contacts.filter(c => c.match_status === 'bound').length,
-    suggested: contacts.filter(c => c.match_status === 'suggested').length,
-    ambiguous: contacts.filter(c => c.match_status === 'ambiguous').length,
+    contacts: totalCount,
+    filtered_contacts: filteredContacts.length,
+    bound: allContacts.filter(c => c.match_status === 'bound').length,
+    suggested: allContacts.filter(c => c.match_status === 'suggested').length,
+    ambiguous: allContacts.filter(c => c.match_status === 'ambiguous').length,
     draft: tasks.filter(t => t.status === 'draft').length,
     queued: tasks.filter(t => t.status === 'queued').length,
     sentToday: tasks.filter(t => t.status === 'sent' && t.plan_day === day).length,
     today: tasks.filter(t => t.plan_day === day).length,
-    replied: contacts.filter(contact => contact.replied).length,
+    replied: allContacts.filter(contact => contact.replied).length,
     templates: templates.length,
     messages: messages.length,
   };
   return { connected: juziConfigured(env), configured: juziConfigured(env), model_configured: !!(env.STUDIO_LLM_API_KEY && env.STUDIO_LLM_BASE_URL), plan_day: day,
-    bots, contacts, tasks, messages, profile_updates: profileUpdates, templates,
+    bots, contacts: pageContacts, contact_pagination: {
+      page: safePage, limit, total: filteredContacts.length, total_contacts: totalCount,
+      pages: totalPages, start_index: filteredContacts.length ? start + 1 : 0,
+      end_index: Math.min(start + limit, filteredContacts.length), query, reply_filter: replyFilter,
+    }, tasks, messages, profile_updates: profileUpdates, templates,
     local_customers: localCustomers, counts };
 }
 

@@ -319,6 +319,16 @@ button,input,select,textarea{font:inherit} button{cursor:pointer}.hidden{display
 .outreach-panel{min-width:0;border:1px solid #cddff0;border-radius:16px;background:#fff;overflow:hidden}
 .outreach-panel>header{padding:17px 19px;border-bottom:1px solid #dce9f5;background:#f3f8fd}
 .outreach-panel>header h4{margin:0;color:#1d4d79;font-size:14px}.outreach-panel>header p{margin:6px 0 0;color:#67839e;font-size:10px;line-height:1.6}
+.outreach-panel>header .outreach-count-pill{display:inline-flex;align-items:center;min-height:24px;padding:6px 10px;border-radius:999px;background:#dcebf8;color:#29638f;font-size:10px;font-weight:800;white-space:nowrap}
+.outreach-contact-controls{display:grid;grid-template-columns:minmax(240px,1fr) auto;gap:12px;align-items:center;padding:14px 18px;border-bottom:1px solid #e2edf7;background:#fbfdff}
+.outreach-contact-search{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
+.outreach-contact-search input{min-width:0;padding:10px 12px;border:1px solid #cfe0f0;border-radius:10px;background:#fff;outline:none}
+.outreach-contact-search input:focus{border-color:#3b7cc8;box-shadow:0 0 0 3px #e0ecf8}
+.outreach-contact-filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.outreach-contact-filters .active{border-color:#8bbce4;background:#eaf5fd;color:#246894}
+.outreach-pagination{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 18px 18px;border-top:1px solid #e2edf7;color:#57708a;font-size:11px;font-weight:700}
+.outreach-pagination span{white-space:nowrap}
+.outreach-pagination button:disabled{opacity:.45;cursor:not-allowed}
 .outreach-template-panel>header{display:flex;justify-content:space-between;align-items:center;gap:14px}
 .outreach-template-grid{display:grid;grid-template-columns:minmax(300px,.8fr) minmax(380px,1.2fr);gap:16px;padding:16px 18px 18px}
 .outreach-template-form{display:grid;gap:12px;padding:15px;border:1px solid #cfe0f0;border-radius:14px;background:#f7fbff}
@@ -396,5 +406,5 @@ button,input,select,textarea{font:inherit} button{cursor:pointer}.hidden{display
 .outreach-chat p{margin:0;color:#33495f;font-size:11px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}
 .outreach-chat time{color:#7a90a8;font-size:9px}
 @media(max-width:1250px){.outreach-summary-grid{grid-template-columns:repeat(3,1fr)}.outreach-template-grid{grid-template-columns:1fr}.outreach-contact-list article{grid-template-columns:1fr 1fr}.outreach-contact-list small{grid-column:auto}.outreach-contact-list article>div:last-child{grid-column:1/-1}}
-@media(max-width:900px){.outreach-workspace>header{align-items:flex-start;flex-direction:column}.outreach-workspace>header>div:last-child{width:100%;flex-wrap:wrap}.outreach-template-panel>header{align-items:flex-start;flex-direction:column}.outreach-bot-list article,.outreach-contact-list article,.outreach-drawer-grid{grid-template-columns:1fr}.outreach-contact-list article>div:last-child{grid-column:auto;flex-direction:column;align-items:stretch}.outreach-contact-actions select{width:100%}.outreach-chat article{max-width:100%}}
+@media(max-width:900px){.outreach-workspace>header{align-items:flex-start;flex-direction:column}.outreach-workspace>header>div:last-child{width:100%;flex-wrap:wrap}.outreach-template-panel>header{align-items:flex-start;flex-direction:column}.outreach-contact-controls,.outreach-contact-search{grid-template-columns:1fr}.outreach-contact-search button{width:100%}.outreach-contact-filters{width:100%}.outreach-contact-filters button{flex:1}.outreach-pagination{flex-wrap:wrap}.outreach-pagination button{flex:1}.outreach-bot-list article,.outreach-contact-list article,.outreach-drawer-grid{grid-template-columns:1fr}.outreach-contact-list article>div:last-child{grid-column:auto;flex-direction:column;align-items:stretch}.outreach-contact-actions select{width:100%}.outreach-chat article{max-width:100%}}
 @media(max-width:700px){.outreach-summary-grid{grid-template-columns:repeat(2,1fr)}.outreach-task-card dl{grid-template-columns:1fr}.outreach-login{padding:24px}.outreach-contact-reply,.outreach-salutation-form,.outreach-batch-bar{grid-template-columns:1fr;align-items:stretch}.outreach-batch-bar{display:grid}.outreach-inline-actions{flex-direction:column}.outreach-inline-actions button{width:100%}.outreach-workspace>header>div:last-child button{flex:1}}

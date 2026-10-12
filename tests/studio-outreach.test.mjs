@@ -133,6 +133,39 @@ test('outreach is admin-only and sales calls never reach upstream or model', asy
   assert.equal(modelCalls, 0);
 });
 
+test('outreach snapshot reports the full count and returns searchable pages', async t => {
+  const h = await harness(t, { fetchJuzi: async () => listCustomersResponse() });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  const insert = h.db.sqlite.prepare(`INSERT INTO studio_juzi_contacts(id,im_contact_id,display_name,phone_suffix,im_bot_id,friendship_status,match_status,last_synced_at,tags,remark)
+    VALUES(?,?,?,?,?,0,'unmatched',?,?,'')`);
+  for (let index = 0; index < 52; index++) {
+    insert.run(`page-contact-${index}`, `page-im-${index}`, `分页客户${String(index + 1).padStart(2, '0')}`,
+      String(1000 + index).slice(-4), 'bot-1', Date.now(), index % 2 ? '高意向' : '普通客户');
+  }
+
+  const first = await h.call('/api/studio/outreach?page=1&limit=20', 'GET', undefined, admin);
+  assert.equal(first.status, 200);
+  assert.equal(first.data.counts.contacts, 53);
+  assert.equal(first.data.contacts.length, 20);
+  assert.equal(first.data.contact_pagination.page, 1);
+  assert.equal(first.data.contact_pagination.pages, 3);
+  assert.equal(first.data.contact_pagination.total_contacts, 53);
+
+  const second = await h.call('/api/studio/outreach?page=2&limit=20', 'GET', undefined, admin);
+  assert.equal(second.data.contacts.length, 20);
+  assert.equal(second.data.contact_pagination.page, 2);
+  assert.equal(second.data.contact_pagination.start_index, 21);
+  assert.equal(second.data.contact_pagination.end_index, 40);
+
+  const searched = await h.call('/api/studio/outreach?page=1&limit=20&q=%E9%AB%98%E6%84%8F%E5%90%91', 'GET', undefined, admin);
+  assert.equal(searched.data.contact_pagination.total, 26);
+  assert.ok(searched.data.contacts.every(contact => contact.tags.includes('高意向')));
+
+  const unread = await h.call('/api/studio/outreach?page=1&limit=20&reply=unread', 'GET', undefined, admin);
+  assert.ok(unread.data.contacts.every(contact => !contact.replied));
+});
+
 test('unbound Juzi contacts can generate one-customer strategies from real signals', async t => {
   let requestedModel;
   const h = await harness(t, {
