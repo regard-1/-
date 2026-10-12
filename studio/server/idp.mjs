@@ -29,14 +29,14 @@ function equalSecret(a, b) {
 }
 
 function idpConfig(env) {
-  const spBase = text(env.SP_BASE_URL, 500) || PROD_SP_BASE_URL;
+  const spBase = PROD_SP_BASE_URL;
   const redirectUri = text(env.IDP_REDIRECT_URI, 500);
   const clientId = text(env.IDP_CLIENT_ID, 200), clientSecret = text(env.IDP_CLIENT_SECRET, 500);
   const emailDomain = text(env.IDP_EMAIL_DOMAIN, 200);
-  const orgId = text(env.IDP_ORG_ID, 200) || PROD_ORG_ID;
-  const groupId = text(env.SP_GROUP_ID, 200) || PROD_GROUP_ID;
-  const spPath = text(env.SP_SSO_PATH, 500) || PROD_SP_SSO_PATH;
-  const redirectPath = text(env.SP_REDIRECT_PATH, 500) || DEFAULT_REDIRECT_PATH;
+  const orgId = PROD_ORG_ID;
+  const groupId = PROD_GROUP_ID;
+  const spPath = PROD_SP_SSO_PATH;
+  const redirectPath = DEFAULT_REDIRECT_PATH;
   let base = null, redirect = null;
   try { base = new URL(spBase); redirect = new URL(redirectUri); } catch {}
   const configured = !!(base && redirect && base.protocol === 'https:' && redirect.protocol === 'https:'
