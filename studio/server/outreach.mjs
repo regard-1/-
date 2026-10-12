@@ -107,11 +107,24 @@ function phoneSuffix(values = []) {
 
 function normalizeTags(...groups) {
   const values = [];
+  const tagText = value => {
+    if (value == null) return '';
+    if (typeof value === 'string') return value.trim();
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    if (Array.isArray(value)) return value.map(tagText).filter(Boolean).join('、');
+    if (typeof value === 'object') {
+      const direct = value.tagName ?? value.name ?? value.title ?? value.label;
+      if (direct != null && ['string', 'number', 'boolean'].includes(typeof direct)) return String(direct).trim();
+      if (Array.isArray(value.tags)) return value.tags.map(tagText).filter(Boolean).join('、');
+    }
+    return '';
+  };
   for (const group of groups) {
-    if (Array.isArray(group)) values.push(...group);
-    else if (group) values.push(...String(group).split(/[,，、;；\s]+/));
+    if (Array.isArray(group)) group.forEach(item => values.push(tagText(item)));
+    else if (group) values.push(tagText(group));
   }
-  return [...new Set(values.map(value => maskText(String(value || '')).trim()).filter(Boolean))].slice(0, 50).join('、');
+  return [...new Set(values.flatMap(value => String(value || '').split(/[,，、;；\s]+/))
+    .map(value => maskText(value).trim()).filter(Boolean))].slice(0, 50).join('、');
 }
 
 export async function syncContacts(store, env, user, dependencies = {}) {
