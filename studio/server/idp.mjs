@@ -4,6 +4,12 @@ const CODE_TTL_MS = 5 * 60 * 1000;
 const TOKEN_TTL_MS = 60 * 60 * 1000;
 const DEFAULT_REDIRECT_PATH = '/main/:orgId/:groupId/chat';
 
+// 生产固定配置（非敏感，代码写死）
+const PROD_SP_BASE_URL = 'https://stride-mh.dpclouds.com';
+const PROD_SP_SSO_PATH = '/sso/oidc';
+const PROD_ORG_ID = '6a9e30cf88310c4e6d1763e1';
+const PROD_GROUP_ID = '6a9e30cf88310c4e6d1764e3';
+
 const oauthJson = (data, status = 200) => new Response(JSON.stringify(data), {
   status,
   headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
@@ -23,11 +29,13 @@ function equalSecret(a, b) {
 }
 
 function idpConfig(env) {
-  const spBase = text(env.SP_BASE_URL, 500), redirectUri = text(env.IDP_REDIRECT_URI, 500);
+  const spBase = text(env.SP_BASE_URL, 500) || PROD_SP_BASE_URL;
+  const redirectUri = text(env.IDP_REDIRECT_URI, 500);
   const clientId = text(env.IDP_CLIENT_ID, 200), clientSecret = text(env.IDP_CLIENT_SECRET, 500);
-  const emailDomain = text(env.IDP_EMAIL_DOMAIN, 200), orgId = text(env.IDP_ORG_ID, 200);
-  const groupId = text(env.SP_GROUP_ID, 200);
-  const spPath = text(env.SP_SSO_PATH, 500) || '/hub-app/';
+  const emailDomain = text(env.IDP_EMAIL_DOMAIN, 200);
+  const orgId = text(env.IDP_ORG_ID, 200) || PROD_ORG_ID;
+  const groupId = text(env.SP_GROUP_ID, 200) || PROD_GROUP_ID;
+  const spPath = text(env.SP_SSO_PATH, 500) || PROD_SP_SSO_PATH;
   const redirectPath = text(env.SP_REDIRECT_PATH, 500) || DEFAULT_REDIRECT_PATH;
   let base = null, redirect = null;
   try { base = new URL(spBase); redirect = new URL(redirectUri); } catch {}
