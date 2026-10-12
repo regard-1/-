@@ -18,9 +18,12 @@ function normalizeTimestamp(value) {
 export async function outreachSnapshot(store, env, searchParams = new URLSearchParams()) {
   const day = chinaDay();
   const page = Math.max(1, Number(searchParams.get('page')) || 1);
-  const limit = Math.min(200, Math.max(20, Number(searchParams.get('limit')) || 100));
+  const limit = Math.min(200, Math.max(1, Number(searchParams.get('limit')) || 10));
   const query = maskText(String(searchParams.get('q') || '').trim()).slice(0, 80);
   const replyFilter = ['all', 'replied', 'unread'].includes(searchParams.get('reply')) ? searchParams.get('reply') : 'all';
+  const tagFilter = parseTagInput(searchParams.get('tag'));
+  const tagMode = ['contains', 'and', 'or'].includes(searchParams.get('tag_mode')) ? searchParams.get('tag_mode') : 'contains';
+  const excludeTags = parseTagInput(searchParams.get('exclude_tag'));
   const [bots, contacts, tasks, messages, profileUpdates, templates, replyStats] = await Promise.all([
     store.all(`SELECT b.*,u.display_name AS owner_name FROM studio_juzi_bots b
       LEFT JOIN studio_users u ON u.id=b.owner_user_id ORDER BY b.bot_name`),
@@ -56,6 +59,7 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
     contact.last_reply_at = inbound || null;
     contact.replied = contact.reply_status_override === 1
       || (contact.reply_status_override === 0 && inbound > outbound);
+    contact.initial_profile = buildInitialProfile(contact);
   }
   contacts.sort((a, b) => Number(b.replied) - Number(a.replied) || String(a.display_name).localeCompare(String(b.display_name), 'zh-Hans-CN'));
   const allContacts = contacts;
@@ -63,6 +67,7 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
   const filteredContacts = allContacts.filter(contact => {
     if (replyFilter === 'replied' && !contact.replied) return false;
     if (replyFilter === 'unread' && contact.replied) return false;
+    if (!matchTags(contactTags(contact), tagFilter, tagMode, excludeTags)) return false;
     if (!query) return true;
     return [contact.display_name, contact.phone_suffix, contact.tags, contact.remark,
       contact.owner_name, contact.bot_name, contact.local_customer_name, contact.profile_json]
@@ -88,13 +93,82 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
     templates: templates.length,
     messages: messages.length,
   };
+  const tagCounts = new Map();
+  for (const contact of allContacts) {
+    for (const tag of contactTags(contact)) tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+  }
+  const tagSummary = {
+    distinct_tags: tagCounts.size,
+    top: [...tagCounts.entries()].map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh-Hans-CN')).slice(0, 40),
+    related: [...tagCounts.entries()].filter(([name]) => tagFilter.some(term => name.toLowerCase().includes(term.toLowerCase())))
+      .sort((a, b) => b[1] - a[1]).slice(0, 20).map(([name, count]) => ({ name, count })),
+  };
   return { connected: juziConfigured(env), configured: juziConfigured(env), model_configured: !!(env.STUDIO_LLM_API_KEY && env.STUDIO_LLM_BASE_URL), plan_day: day,
     bots, contacts: pageContacts, contact_pagination: {
       page: safePage, limit, total: filteredContacts.length, total_contacts: totalCount,
       pages: totalPages, start_index: filteredContacts.length ? start + 1 : 0,
       end_index: Math.min(start + limit, filteredContacts.length), query, reply_filter: replyFilter,
-    }, tasks, messages, profile_updates: profileUpdates, templates,
+      tag: tagFilter.join('、'), tag_mode: tagMode, exclude_tag: excludeTags.join('、'),
+    }, tag_summary: tagSummary, tasks, messages, profile_updates: profileUpdates, templates,
     local_customers: localCustomers, counts };
+}
+
+function contactTags(contact) {
+  return String(contact?.tags || '').split(/[,，、;；\s]+/).map(value => value.trim()).filter(Boolean);
+}
+
+function parseTagInput(value) {
+  return maskText(String(value || '').slice(0, 200)).split(/[,，、;；\s]+/).map(value => value.trim()).filter(Boolean).slice(0, 10);
+}
+
+function matchTags(tags, required, mode, excluded = []) {
+  if (!required.length && !excluded.length) return true;
+  const lowerTags = tags.map(tag => tag.toLowerCase());
+  if (excluded.some(term => lowerTags.some(tag => tag.includes(term.toLowerCase())))) return false;
+  if (!required.length) return true;
+  const termMatched = term => lowerTags.some(tag => tag.includes(term.toLowerCase()));
+  if (mode === 'and') return required.every(termMatched);
+  return required.some(termMatched);
+}
+
+function buildInitialProfile(contact) {
+  const profile = parseSnapshot(contact.profile_json);
+  const tags = contactTags(contact);
+  const text = `${tags.join('、')} ${contact.remark || ''} ${(profile.conversation_signals || []).join('、')}`;
+  const lower = text.toLowerCase();
+  const audience = /nmn|麦角硫因|抗衰/i.test(lower) ? 'anti_aging' : 'daily_nutrition';
+  const shouldPause = !!profile.should_pause;
+  const signals = Array.isArray(profile.conversation_signals) ? profile.conversation_signals : [];
+  const lifecycle = shouldPause ? '暂停触达'
+    : /复购|已购|老客/.test(lower) ? '已购复购阶段'
+    : contact.replied ? '互动中'
+    : /新客|意向|咨询/.test(lower) ? '新客或意向培育'
+    : '待唤醒';
+  const intent = shouldPause || /不需要|拒绝|退订/.test(lower) ? 'low'
+    : /高意向|意向|复购|活动|价格|购买/.test(lower) ? 'high'
+    : contact.replied || /高互动|互动/.test(lower) ? 'medium' : 'low';
+  const activitySensitivity = /活动|优惠|价格|双11|赠品/.test(lower) ? 'high' : /老客|复购/.test(lower) ? 'medium' : 'low';
+  const risk = shouldPause || /不适|过敏|投诉|退订|不需要/.test(lower) ? 'high' : 'normal';
+  const evidence = [
+    tags.length ? `标签：${tags.slice(0, 8).join('、')}` : '',
+    contact.remark ? `备注：${contact.remark.slice(0, 120)}` : '',
+    signals.length ? `近期回复信号：${signals.slice(-4).join('、')}` : '',
+    contact.local_customer_id ? '已绑定本地客户档案' : '未绑定本地客户档案',
+  ].filter(Boolean);
+  const summary = shouldPause ? '客户已明确暂停或拒绝，当前只保留必要服务响应。'
+    : `${audience === 'anti_aging' ? '抗衰人群' : '日常营养补充人群'} · ${lifecycle} · 意向${intent === 'high' ? '较高' : intent === 'medium' ? '中等' : '待确认'}${activitySensitivity !== 'low' ? ` · 对活动${activitySensitivity === 'high' ? '较敏感' : '可能关注'}` : ''}${risk === 'high' ? ' · 存在需要先处理的沟通或服务风险' : ''}`;
+  return {
+    audience,
+    audience_label: audience === 'anti_aging' ? '抗衰人群' : '日常营养补充人群',
+    lifecycle,
+    intent,
+    activity_sensitivity: activitySensitivity,
+    risk,
+    summary,
+    evidence,
+    generated_at: Number(contact.last_profile_updated_at) || Date.now(),
+  };
 }
 
 function phoneSuffix(values = []) {
@@ -670,6 +744,9 @@ export async function generateStrategies(store, user, body, env, dependencies = 
   const fetchModel = dependencies.fetchModel || fetch;
   const planDay = chinaDay();
   const audience = AUDIENCES[body?.audience] ? body.audience : null;
+  const tagFilter = parseTagInput(body?.tag);
+  const tagMode = ['contains', 'and', 'or'].includes(body?.tag_mode) ? body.tag_mode : 'contains';
+  const excludeTags = parseTagInput(body?.exclude_tag);
   if (body?.refresh === true) {
     await store.query("DELETE FROM studio_outreach_tasks WHERE plan_day=? AND status='draft'", planDay).run();
   }
@@ -688,6 +765,7 @@ export async function generateStrategies(store, user, body, env, dependencies = 
   const selectedContacts = contacts.filter(contact => {
     if (body?.contact_id && contact.id !== String(body.contact_id)) return false;
     if (audience && contact.audience !== audience) return false;
+    if (!matchTags(contactTags(contact), tagFilter, tagMode, excludeTags)) return false;
     return !contact.profile?.should_pause;
   });
   const todayTasks = await store.all(`SELECT t.*,c.display_name AS contact_name,l.display_name AS customer_name
@@ -695,15 +773,18 @@ export async function generateStrategies(store, user, body, env, dependencies = 
     LEFT JOIN studio_customers l ON l.id=t.local_customer_id
     WHERE t.plan_day=? ORDER BY CASE t.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,t.created_at`, planDay);
   const taskContactIds = new Set(todayTasks.map(task => task.contact_id));
-  const candidates = selectedContacts.filter(contact => !taskContactIds.has(contact.id));
+  const cooldownMap = await recentOutreachMap(store, Date.now() - 259200000);
+  const candidates = selectedContacts.filter(contact => !taskContactIds.has(contact.id) && !cooldownMap.has(contact.id));
   if (!selectedContacts.length) fail(400, '暂无可生成策略的真实客户，请先同步句子互动客户');
   const recent = await store.all(`SELECT contact_id,direction,content,created_at FROM studio_outreach_messages
     WHERE created_at>? ORDER BY created_at DESC LIMIT 500`, Date.now() - 2592000000);
   for (const candidate of candidates) candidate.recent_messages = recent.filter(m => m.contact_id === candidate.id).slice(0, 5).reverse();
   const existing = todayTasks.filter(task => selectedContacts.some(contact => contact.id === task.contact_id)
     && ['draft', 'queued', 'sent', 'paused'].includes(task.status));
+  const cooldownSkipped = selectedContacts.filter(contact => cooldownMap.has(contact.id));
   if (!candidates.length) {
-    return { created_count: 0, existing_count: existing.length, remaining_count: 0, plan_day: planDay, tasks: existing };
+    return { created_count: 0, existing_count: existing.length, remaining_count: 0,
+      skipped_count: cooldownSkipped.length, frequency_skipped_count: cooldownSkipped.length, plan_day: planDay, tasks: existing };
   }
   const materials = (await store.all(`SELECT title,kind,audience,product,content,valid_from,valid_to
     FROM studio_materials WHERE active=1 ORDER BY updated_at DESC LIMIT 12`)).map(material => ({
@@ -752,7 +833,22 @@ export async function generateStrategies(store, user, body, env, dependencies = 
   }
   const remainingCount = Math.max(0, candidates.length - limitedCandidates.length);
   return { created_count: created.length, existing_count: existing.length, remaining_count: remainingCount,
+    skipped_count: cooldownSkipped.length, frequency_skipped_count: cooldownSkipped.length,
     plan_day: planDay, tasks: [...existing, ...created] };
+}
+
+async function recentOutreachMap(store, since) {
+  const rows = await store.all(`SELECT t.id,t.contact_id,t.status,t.created_at,m.created_at AS message_created_at
+    FROM studio_outreach_tasks t
+    LEFT JOIN studio_outreach_messages m ON m.task_id=t.id AND m.direction='outbound'
+    WHERE t.status IN('queued','sent')
+      AND (t.created_at>? OR m.created_at>?)`, since, since);
+  const map = new Map();
+  for (const row of rows) {
+    const at = Math.max(Number(row.created_at || 0), Number(row.message_created_at || 0));
+    if (at >= since) map.set(row.contact_id, at);
+  }
+  return map;
 }
 
 export async function queueTask(store, id) {

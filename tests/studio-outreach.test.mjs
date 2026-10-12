@@ -166,6 +166,117 @@ test('outreach snapshot reports the full count and returns searchable pages', as
   assert.ok(unread.data.contacts.every(contact => !contact.replied));
 });
 
+test('tag filters derive initial profiles and generate only matched audiences', async t => {
+  let requestedCandidates;
+  const h = await harness(t, {
+    fetchJuzi: async () => listCustomersResponse(),
+    fetchModel: async (_url, options) => {
+      const body = JSON.parse(options.body);
+      requestedCandidates = JSON.parse(body.messages.at(-1).content).candidates;
+      return jsonResponse({
+        choices: [{
+          message: { content: JSON.stringify({ tasks: requestedCandidates.map(candidate => ({
+            contact_id: candidate.id,
+            priority: 'medium',
+            reason: `${candidate.display_name} 匹配标签人群`,
+            recommended_message: '陈哥，最近状态还好吗？我先帮您看重点。',
+            next_action: '回复后确认当前关注点',
+            stop_rule: '明确拒绝后暂停',
+          })) }) },
+        }],
+      });
+    },
+  });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  const insert = h.db.sqlite.prepare(`INSERT INTO studio_juzi_contacts(id,im_contact_id,display_name,phone_suffix,im_bot_id,friendship_status,match_status,last_synced_at,tags,remark)
+    VALUES(?,?,?,?,?,0,'unmatched',?,?,'')`);
+  insert.run('tag-contact-2', 'tag-im-2', '张先生', '2345', 'bot-1', Date.now(), 'NMN18000、复购');
+  insert.run('tag-contact-3', 'tag-im-3', '徐女士', '6789', 'bot-1', Date.now(), '日常营养、免疫力');
+  for (let index = 0; index < 9; index++) {
+    insert.run(`tag-page-${index}`, `tag-page-im-${index}`, `分页客户${index}`, String(1000 + index).slice(-4), 'bot-1', Date.now(), '普通客户');
+  }
+
+  const page = await h.call('/api/studio/outreach?page=1&limit=10', 'GET', undefined, admin);
+  assert.equal(page.status, 200);
+  assert.equal(page.data.contacts.length, 10);
+  assert.equal(page.data.contact_pagination.pages, 2);
+
+  const filtered = await h.call('/api/studio/outreach?page=1&limit=10&tag=NMN', 'GET', undefined, admin);
+  assert.equal(filtered.data.contact_pagination.total, 2);
+  assert.ok(filtered.data.contacts.every(contact => /nmn/i.test(contact.tags)));
+  assert.ok(filtered.data.tag_summary.related.some(item => item.name === 'NMN用户'));
+  assert.ok(filtered.data.tag_summary.related.some(item => item.name === 'NMN18000'));
+  assert.equal(filtered.data.contacts.find(item => item.id === 'tag-contact-2').initial_profile.audience, 'anti_aging');
+  assert.equal(filtered.data.contacts.find(item => item.id === 'tag-contact-3')?.initial_profile?.audience, undefined);
+  assert.equal(filtered.data.contacts.find(item => item.id === 'tag-contact-2').initial_profile.lifecycle, '已购复购阶段');
+  assert.ok(filtered.data.contacts.find(item => item.id === 'tag-contact-2').initial_profile.evidence.includes('标签：NMN18000、复购'));
+
+  const exact = await h.call('/api/studio/outreach?tag=NMN、复购&tag_mode=and', 'GET', undefined, admin);
+  assert.equal(exact.data.contact_pagination.total, 1);
+  assert.equal(exact.data.contacts[0].id, 'tag-contact-2');
+
+  const excluded = await h.call('/api/studio/outreach?tag=NMN&exclude_tag=复购', 'GET', undefined, admin);
+  assert.equal(excluded.data.contact_pagination.total, 1);
+  assert.ok(excluded.data.contacts.every(contact => !contact.tags.includes('复购')));
+
+  const generated = await h.call('/api/studio/outreach/strategies', 'POST', { tag: 'NMN', limit: 20 }, admin);
+  assert.equal(generated.status, 200);
+  assert.equal(generated.data.created_count, 2);
+  assert.ok(requestedCandidates.every(candidate => /nmn/i.test(candidate.tags)));
+  assert.ok(requestedCandidates.some(candidate => candidate.id === 'tag-contact-2'));
+  assert.ok(!requestedCandidates.some(candidate => candidate.id === 'tag-contact-3'));
+});
+
+test('tag strategy generation respects a three-day outreach cooldown', async t => {
+  const h = await harness(t, {
+    fetchJuzi: async () => listCustomersResponse(),
+    fetchModel: async (_url, options) => {
+      const body = JSON.parse(options.body);
+      const candidates = JSON.parse(body.messages.at(-1).content).candidates;
+      return jsonResponse({
+        choices: [{
+          message: { content: JSON.stringify({ tasks: candidates.map(candidate => ({
+            contact_id: candidate.id,
+            priority: 'medium',
+            reason: '频控测试',
+            recommended_message: '陈哥，最近状态还好吗？',
+            next_action: '等待回复',
+            stop_rule: '明确拒绝后暂停',
+          })) }) },
+        }],
+      });
+    },
+  });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  const snapshot = await h.call('/api/studio/outreach', 'GET', undefined, admin);
+  const contact = snapshot.data.contacts[0];
+  h.db.sqlite.prepare(`INSERT INTO studio_juzi_contacts(id,im_contact_id,display_name,phone_suffix,im_bot_id,friendship_status,match_status,last_synced_at,tags,remark)
+    VALUES('cooldown-contact','cooldown-im','张先生','2345','bot-1',0,'unmatched',?,'NMN18000','')`).run(Date.now());
+  h.db.sqlite.prepare(`INSERT INTO studio_outreach_tasks(id,contact_id,audience,recommended_message,status,created_by,created_at)
+    VALUES('cooldown-task','cooldown-contact','anti_aging','上次触达','queued','admin',?)`).run(Date.now());
+
+  const skipped = await h.call('/api/studio/outreach/strategies', 'POST', { tag: 'NMN', limit: 20 }, admin);
+  assert.equal(skipped.status, 200);
+  assert.equal(skipped.data.created_count, 1);
+  assert.equal(skipped.data.frequency_skipped_count, 1);
+  assert.ok(skipped.data.tasks.every(task => task.contact_id !== 'cooldown-contact'));
+
+  h.db.sqlite.prepare('UPDATE studio_outreach_tasks SET created_at=?,plan_day=? WHERE id=?')
+    .run(Date.now() - 345600000, '2000-01-01', 'cooldown-task');
+  const allowed = await h.call('/api/studio/outreach/strategies', 'POST', { contact_id: 'cooldown-contact' }, admin);
+  assert.equal(allowed.status, 200);
+  assert.equal(allowed.data.created_count, 1);
+
+  h.db.sqlite.prepare('DELETE FROM studio_outreach_tasks WHERE contact_id=?').run('cooldown-contact');
+  h.db.sqlite.prepare(`INSERT INTO studio_outreach_tasks(id,contact_id,audience,recommended_message,status,created_by,created_at)
+    VALUES('draft-task','cooldown-contact','anti_aging','草稿','draft','admin',?)`).run(Date.now());
+  const draftAllowed = await h.call('/api/studio/outreach/strategies', 'POST', { contact_id: 'cooldown-contact' }, admin);
+  assert.equal(draftAllowed.status, 200);
+  assert.equal(draftAllowed.data.frequency_skipped_count, 0);
+});
+
 test('unbound Juzi contacts can generate one-customer strategies from real signals', async t => {
   let requestedModel;
   const h = await harness(t, {

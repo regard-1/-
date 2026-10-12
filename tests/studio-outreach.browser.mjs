@@ -113,7 +113,7 @@ try {
   };
   page.on('request', refreshListener);
   for (let i = 0; i < 3; i++) {
-    const cacheRead = page.waitForResponse(response => response.url().endsWith('/api/studio/outreach'));
+    const cacheRead = page.waitForResponse(response => new URL(response.url()).pathname === '/api/studio/outreach');
     await page.locator('[data-action="outreach-refresh"]').click();
     await cacheRead;
   }
