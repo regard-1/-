@@ -168,11 +168,14 @@ test('outreach snapshot reports the full count and returns searchable pages', as
 
 test('tag filters derive initial profiles and generate only matched audiences', async t => {
   let requestedCandidates;
+  let requestedDirection;
   const h = await harness(t, {
     fetchJuzi: async () => listCustomersResponse(),
     fetchModel: async (_url, options) => {
       const body = JSON.parse(options.body);
-      requestedCandidates = JSON.parse(body.messages.at(-1).content).candidates;
+      const modelInput = JSON.parse(body.messages.at(-1).content);
+      requestedCandidates = modelInput.candidates;
+      requestedDirection = modelInput.direction;
       return jsonResponse({
         choices: [{
           message: { content: JSON.stringify({ tasks: requestedCandidates.map(candidate => ({
@@ -220,9 +223,12 @@ test('tag filters derive initial profiles and generate only matched audiences', 
   assert.equal(excluded.data.contact_pagination.total, 1);
   assert.ok(excluded.data.contacts.every(contact => !contact.tags.includes('复购')));
 
-  const generated = await h.call('/api/studio/outreach/strategies', 'POST', { tag: 'NMN', limit: 20 }, admin);
+  const generated = await h.call('/api/studio/outreach/strategies', 'POST', { tag: 'NMN', limit: 20, direction: 'double_eleven' }, admin);
   assert.equal(generated.status, 200);
   assert.equal(generated.data.created_count, 2);
+  assert.equal(generated.data.direction, 'double_eleven');
+  assert.equal(generated.data.direction_label, '双11活动');
+  assert.equal(requestedDirection, 'double_eleven');
   assert.ok(requestedCandidates.every(candidate => /nmn/i.test(candidate.tags)));
   assert.ok(requestedCandidates.some(candidate => candidate.id === 'tag-contact-2'));
   assert.ok(!requestedCandidates.some(candidate => candidate.id === 'tag-contact-3'));
@@ -506,6 +512,41 @@ test('full strategy generation parses wrapped JSON and retries malformed batches
   const limited = await h.call('/api/studio/outreach/strategies', 'POST', { limit: 1 }, await h.login());
   assert.equal(limited.status, 200);
   assert.equal(limited.data.remaining_count, 0);
+});
+
+test('partial strategy output ignores invented customers and retries missing customers', async t => {
+  let modelCalls = 0;
+  const h = await harness(t, {
+    fetchJuzi: async () => listCustomersResponse(),
+    fetchModel: async (_url, options) => {
+      modelCalls++;
+      const candidates = JSON.parse(JSON.parse(options.body).messages.at(-1).content).candidates;
+      const tasks = candidates.length > 1
+        ? [
+            { contact_id: candidates[0].id, priority: 'medium', reason: '批量返回的有效客户',
+              recommended_message: '陈哥，最近状态还好吗？', next_action: '等待回复', stop_rule: '明确拒绝后暂停' },
+            { contact_id: 'invented-contact', priority: 'high', reason: '模型编造的客户',
+              recommended_message: '张哥，最近状态还好吗？', next_action: '不应生成', stop_rule: '不应生成' },
+          ]
+        : [{ contact_id: candidates[0].id, priority: 'high', reason: '缺失客户单人重试',
+            recommended_message: '李姐，最近状态还好吗？', next_action: '等待回复', stop_rule: '明确拒绝后暂停' }];
+      return jsonResponse({ choices: [{ message: { content: JSON.stringify({ tasks }) } }] });
+    },
+  }, { STUDIO_OUTREACH_BATCH_SIZE: 2 });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  const snapshot = await h.call('/api/studio/outreach', 'GET', undefined, admin);
+  const providedIds = [snapshot.data.contacts[0].id, 'partial-contact-2'];
+  h.db.sqlite.prepare(`INSERT INTO studio_juzi_contacts(id,im_contact_id,display_name,phone_suffix,gender,im_bot_id,friendship_status,match_status,last_synced_at,tags,remark)
+    VALUES('partial-contact-2','partial-im-2','李女士','6789',2,'bot-1',1,'unmatched',?,'NMN18000','')`).run(Date.now());
+
+  const result = await h.call('/api/studio/outreach/strategies', 'POST', { tag: 'NMN', limit: 20 }, admin);
+  assert.equal(result.status, 200);
+  assert.equal(result.data.created_count, 2);
+  assert.equal(modelCalls, 2);
+  const rows = h.db.sqlite.prepare('SELECT contact_id FROM studio_outreach_tasks ORDER BY contact_id').all();
+  assert.deepEqual(rows.map(row => row.contact_id).sort(), providedIds.sort());
+  assert.ok(!JSON.stringify(rows).includes('invented-contact'));
 });
 
 test('unsent outreach tasks can be deleted while sent archive is preserved', async t => {

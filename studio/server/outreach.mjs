@@ -688,21 +688,41 @@ function modelContent(payload) {
 }
 
 const STRATEGY_TYPES = ['care', 'repurchase_notice', 'education', 'activity', 'service', 'boundary_check'];
+const STRATEGY_DIRECTIONS = {
+  auto: 'AI自动推荐',
+  care: '老客关怀',
+  double_eleven: '双11活动',
+};
 
-function validateTasks(output, candidates) {
-  const allowed = new Map(candidates.map(c => [c.id, c]));
-  if (!output || typeof output !== 'object' || !Array.isArray(output.tasks)) fail(502, '模型未返回 tasks 数组，请重试', 'MODEL_FORMAT');
-  const ids = output.tasks.map(item => String(item?.contact_id || ''));
-  if (output.tasks.length !== candidates.length || new Set(ids).size !== candidates.length) {
-    fail(502, `模型返回 ${output.tasks.length} 条策略，本批有 ${candidates.length} 个客户，请重试`, 'MODEL_FORMAT');
+function strategyCandidate(output, candidates) {
+  const aliases = new Map();
+  for (const candidate of candidates) {
+    for (const key of [candidate.id, candidate.im_contact_id, candidate.local_customer_id]) {
+      const value = String(key || '').trim().replace(/^["']|["']$/g, '');
+      if (value && !aliases.has(value)) aliases.set(value, candidate);
+    }
   }
-  const tasks = output.tasks.map(item => {
-    const candidate = allowed.get(String(item?.contact_id || ''));
-    if (!candidate) fail(502, '模型返回了未提供的客户策略，请重试', 'MODEL_FORMAT');
+  if (!output || typeof output !== 'object' || !Array.isArray(output.tasks)) fail(502, '模型未返回 tasks 数组，请重试', 'MODEL_FORMAT');
+  return { aliases };
+}
+
+function validateTasks(output, candidates, { partial = false } = {}) {
+  const { aliases } = strategyCandidate(output, candidates);
+  const tasks = [];
+  const used = new Set();
+  for (const item of output.tasks) {
+    const rawId = String(item?.contact_id || '').trim().replace(/^["']|["']$/g, '');
+    const candidate = aliases.get(rawId);
+    if (!candidate) {
+      if (!partial) fail(502, '模型返回了未提供的客户策略，请重试', 'MODEL_FORMAT');
+      continue;
+    }
+    if (used.has(candidate.id)) continue;
+    used.add(candidate.id);
     const message = textValue(item.recommended_message, 600, '触达话术');
     const confirmedMessage = applyConfirmedSalutation(message, candidate, candidate.recent_messages || []);
     if (/保证|一定有效|包治|替代药物|建议停药|高价值客户|内部评分/.test(message)) fail(502, '触达话术包含不安全表述，请重试', 'UNSAFE_STRATEGY');
-    return {
+    tasks.push({
       contact_id: candidate.id, local_customer_id: candidate.local_customer_id, audience: candidate.audience,
       priority: ['high', 'medium', 'low'].includes(item.priority) ? item.priority : 'medium',
       strategy_type: STRATEGY_TYPES.includes(item.strategy_type) ? item.strategy_type : 'care',
@@ -711,19 +731,32 @@ function validateTasks(output, candidates) {
       stop_rule: maskText(String(item.stop_rule || '')).slice(0, 600),
       profile_updates: JSON.stringify(item.profile_updates && typeof item.profile_updates === 'object' ? item.profile_updates : {})
         .slice(0, 4000),
-    };
-  });
+    });
+  }
   if (!tasks.length) fail(502, '模型未返回可执行的触达策略，请重试', 'MODEL_FORMAT');
+  if (!partial && tasks.length !== candidates.length) {
+    fail(502, `模型返回 ${tasks.length} 条策略，本批有 ${candidates.length} 个客户，请重试`, 'MODEL_FORMAT');
+  }
   return tasks;
 }
 
-async function requestStrategyTasks(batch, base, env, fetchModel, materials) {
+function directionPrompt(direction) {
+  if (direction === 'care') {
+    return '本次触达方向固定为「老客关怀」：优先问候近期状态、服用感受、生活场景或服务需求，先让客户愿意回复；不要主动推销，不要默认提双11活动。';
+  }
+  if (direction === 'double_eleven') {
+    return '本次触达方向固定为「双11活动」：可以用自然方式提醒活动节奏，但活动机制、价格、赠品、日期必须来自资料；资料缺失时只做开放性邀约或询问关注点，不得编造任何活动数字。';
+  }
+  return '本次触达方向为「AI自动推荐」：根据客户标签、近期对话、画像和风险信号，在关怀、复购通知、教育、活动、售后或边界确认中选择最合适的开口方式。';
+}
+
+async function requestStrategyTasks(batch, base, env, fetchModel, materials, direction = 'auto') {
   const modelBody = {
     model: outreachModel(env), stream: false, max_tokens: 2400, enable_search: false, enable_thinking: false,
     response_format: { type: 'json_object' },
     messages: [
-      { role: 'system', content: `你是多特倍斯私域触达策略助手。为输入的每个真实句子互动客户生成一条可执行的主动开口策略，不允许遗漏或新增客户。目标优先解决客户愿意回复，再根据其可用信息选择关怀、复购通知、教育、活动、售后或边界确认，不默认推销。必须一客一策：优先使用近期聊天、句子互动标签、备注和画像；如存在本地档案，再参考称呼、归属顾问、已购产品、关注点、禁忌。档案缺失时不得编造，只能使用对话和标签中的明确信息。不得编造购买历史、剩余数量、价格、活动、功效保证或个体医疗建议；没有资料支持时不写具体产品事实。语气自然亲切，可沿用已确认称呼。只输出 JSON，不要 markdown 或解释文字。输出 JSON：{"tasks":[{"contact_id":"","strategy_type":"care/repurchase_notice/education/activity/service/boundary_check","priority":"high/medium/low","reason":"","recommended_message":"","next_action":"","stop_rule":"","profile_updates":{"observed_signal":"","next_focus":"","should_pause":false}}]}。` },
-      { role: 'user', content: JSON.stringify({ today: chinaDay(), candidates: batch, materials }) },
+      { role: 'system', content: `你是多特倍斯私域触达策略助手。为输入的每个真实句子互动客户生成一条可执行的主动开口策略，不允许遗漏或新增客户。contact_id 必须逐字使用输入 candidates 里的 id。目标优先解决客户愿意回复，再根据其可用信息选择关怀、复购通知、教育、活动、售后或边界确认，不默认推销。${directionPrompt(direction)}必须一客一策：优先使用近期聊天、句子互动标签、备注和画像；如存在本地档案，再参考称呼、归属顾问、已购产品、关注点、禁忌。档案缺失时不得编造，只能使用对话和标签中的明确信息。不得编造购买历史、剩余数量、价格、活动、功效保证或个体医疗建议；没有资料支持时不写具体产品事实。语气自然亲切，可沿用已确认称呼。只输出 JSON，不要 markdown 或解释文字。输出 JSON：{"tasks":[{"contact_id":"","strategy_type":"care/repurchase_notice/education/activity/service/boundary_check","priority":"high/medium/low","reason":"","recommended_message":"","next_action":"","stop_rule":"","profile_updates":{"observed_signal":"","next_focus":"","should_pause":false}}]}。` },
+      { role: 'user', content: JSON.stringify({ today: chinaDay(), direction, candidates: batch, materials }) },
     ],
   };
   let response;
@@ -737,7 +770,16 @@ async function requestStrategyTasks(batch, base, env, fetchModel, materials) {
   if (!response.ok) fail(502, '触达策略生成服务暂时不可用，请稍后重试', 'MODEL_UNAVAILABLE');
   let payload;
   try { payload = await response.json(); } catch { fail(502, '触达策略生成格式异常，请重试', 'MODEL_FORMAT'); }
-  return validateTasks(extractJSON(modelContent(payload)), batch);
+  const tasks = validateTasks(extractJSON(modelContent(payload)), batch, { partial: true });
+  if (tasks.length === batch.length) return tasks;
+  if (batch.length === 1) fail(502, '模型未能返回该客户的策略，请重试', 'MODEL_FORMAT');
+  const returnedIds = new Set(tasks.map(task => task.contact_id));
+  const missing = batch.filter(candidate => !returnedIds.has(candidate.id));
+  const retried = [];
+  for (const candidate of missing) {
+    retried.push(...await requestStrategyTasks([candidate], base, env, fetchModel, materials, direction));
+  }
+  return [...tasks, ...retried];
 }
 
 export async function generateStrategies(store, user, body, env, dependencies = {}) {
@@ -747,6 +789,7 @@ export async function generateStrategies(store, user, body, env, dependencies = 
   const tagFilter = parseTagInput(body?.tag);
   const tagMode = ['contains', 'and', 'or'].includes(body?.tag_mode) ? body.tag_mode : 'contains';
   const excludeTags = parseTagInput(body?.exclude_tag);
+  const direction = Object.hasOwn(STRATEGY_DIRECTIONS, body?.direction) ? body.direction : 'auto';
   if (body?.refresh === true) {
     await store.query("DELETE FROM studio_outreach_tasks WHERE plan_day=? AND status='draft'", planDay).run();
   }
@@ -803,12 +846,12 @@ export async function generateStrategies(store, user, body, env, dependencies = 
   for (const batch of batches) {
     let batchTasks;
     try {
-      batchTasks = await requestStrategyTasks(batch, base, env, fetchModel, materials);
+      batchTasks = await requestStrategyTasks(batch, base, env, fetchModel, materials, direction);
     } catch (error) {
       if (batch.length === 1 || error?.code !== 'MODEL_FORMAT') throw error;
       batchTasks = [];
       for (const contact of batch) {
-        batchTasks.push(...await requestStrategyTasks([contact], base, env, fetchModel, materials));
+        batchTasks.push(...await requestStrategyTasks([contact], base, env, fetchModel, materials, direction));
       }
     }
     const now = Date.now();
@@ -834,7 +877,7 @@ export async function generateStrategies(store, user, body, env, dependencies = 
   const remainingCount = Math.max(0, candidates.length - limitedCandidates.length);
   return { created_count: created.length, existing_count: existing.length, remaining_count: remainingCount,
     skipped_count: cooldownSkipped.length, frequency_skipped_count: cooldownSkipped.length,
-    plan_day: planDay, tasks: [...existing, ...created] };
+    plan_day: planDay, direction, direction_label: STRATEGY_DIRECTIONS[direction], tasks: [...existing, ...created] };
 }
 
 async function recentOutreachMap(store, since) {
