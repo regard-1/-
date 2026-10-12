@@ -7,7 +7,7 @@ function esc(value=''){return String(value).replace(/[&<>'"]/g,c=>({'&':'&amp;',
 function fmtDate(value){if(!value)return '—';try{return new Intl.DateTimeFormat('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}).format(new Date(value))}catch{return value}}
 function toast(message){const node=$('#toast');node.textContent=message;node.classList.remove('hidden');setTimeout(()=>node.classList.add('hidden'),2300)}
 function loading(text='正在加载…'){$('#main-content').innerHTML=`<div class="loading-card">${esc(text)}</div>`}
-async function api(path,options={}){const version=navigationVersion;const response=await fetch(path,{...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});const result=await response.json().catch(()=>({success:false,error:{message:'响应格式错误'}}));if(version!==navigationVersion)throw new DOMException('页面已切换','AbortError');if(response.status===401){showLogin();throw new Error('请先登录')}if(!response.ok||!result.success)throw new Error(result.error?.message||'请求失败');return result.data}
+async function api(path,options={}){const version=navigationVersion;const response=await fetch(path,{...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});const result=await response.json().catch(()=>({success:false,error:{message:response.status===504?'请求超时，请稍后重试':response.status===502?'服务暂时异常，请稍后重试':'响应格式错误'}}));if(version!==navigationVersion)throw new DOMException('页面已切换','AbortError');if(response.status===401){showLogin();throw new Error('请先登录')}if(!response.ok||!result.success)throw new Error(result.error?.message||'请求失败');return result.data}
 function showLogin(){$('#app').classList.add('hidden');$('#login-view').classList.remove('hidden')}
 function showApp(){$('#login-view').classList.add('hidden');$('#app').classList.remove('hidden')}
 function showDrawer(html){$('#drawer-content').innerHTML=html;$('#drawer').classList.remove('hidden');$('#drawer-backdrop').classList.remove('hidden')}
@@ -175,7 +175,7 @@ async function renderOutreach(){
 async function studioApi(path,options={}){
   const version=navigationVersion;
   const response=await fetch('/api/studio'+path,{credentials:'same-origin',...options,headers:{'Content-Type':'application/json',...(state.outreachCsrf?{'X-Studio-CSRF':state.outreachCsrf}:{}) ,...(options.headers||{})}});
-  const result=await response.json().catch(()=>({success:false,error:{message:'响应格式错误'}}));
+  const result=await response.json().catch(()=>({success:false,error:{message:response.status===504?'请求超时，请稍后重试':response.status===502?'服务暂时异常，请稍后重试':'响应格式错误'}}));
   if(version!==navigationVersion)throw new DOMException('页面已切换','AbortError');
   if(!response.ok||!result.success){
     const error=new Error(result.error?.message||'请求失败');
