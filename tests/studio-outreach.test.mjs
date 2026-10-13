@@ -218,14 +218,14 @@ test('outreach snapshot reports the full count and returns searchable pages', as
 });
 
 test('tag filters derive initial profiles and generate only matched audiences', async t => {
-  let requestedCandidates;
+  const requestedCandidates = [];
   let requestedDirection;
   const h = await harness(t, {
     fetchJuzi: async () => listCustomersResponse(),
     fetchModel: async (_url, options) => {
       const body = JSON.parse(options.body);
       const modelInput = JSON.parse(body.messages.at(-1).content);
-      requestedCandidates = modelInput.candidates;
+      requestedCandidates.push(...modelInput.candidates);
       requestedDirection = modelInput.direction;
       return jsonResponse({
         choices: [{
@@ -616,7 +616,7 @@ test('full strategy generation parses wrapped JSON and retries malformed batches
         }],
       });
     },
-  });
+  }, { STUDIO_OUTREACH_BATCH_SIZE: 2 });
   const admin = await h.login();
   await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
   const snapshot = await h.call('/api/studio/outreach', 'GET', undefined, admin);
@@ -651,7 +651,7 @@ test('connection timeouts in a batch fall back to single-customer requests', asy
       }
       return modelTask(candidates[0].id, candidates[0].local_customer_id || 'customer-1');
     },
-  });
+  }, { STUDIO_OUTREACH_BATCH_SIZE: 2 });
   const admin = await h.login();
   await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
   h.db.sqlite.prepare(`INSERT INTO studio_juzi_contacts(id,im_contact_id,display_name,phone_suffix,gender,im_bot_id,friendship_status,local_customer_id,match_status,last_synced_at,tags,remark)

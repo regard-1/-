@@ -1103,7 +1103,7 @@ export async function generateStrategies(store, user, body, env, dependencies = 
     env, dependencies.fetchKnowledge || dependencies.fetchModel || fetch);
   const materials = [...localMaterials, ...knowledgeMaterials];
   const base = modelBase(env);
-  const batchSize = Math.max(1, Math.min(5, Number(env.STUDIO_OUTREACH_BATCH_SIZE) || 2));
+  const batchSize = Math.max(1, Math.min(5, Number(env.STUDIO_OUTREACH_BATCH_SIZE) || 1));
   const batches = [];
   for (let index = 0; index < limitedCandidates.length; index += batchSize) batches.push(limitedCandidates.slice(index, index + batchSize));
   const created = [];
