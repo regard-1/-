@@ -140,7 +140,9 @@ try {
   await page.getByRole('heading', { name: '今天需要跟进的用户' }).waitFor();
   await page.locator('[data-page="outreach"]').click();
   await page.locator('.outreach-job-progress').waitFor();
-  assert.ok((await page.locator('.outreach-job-progress').textContent()).includes('切换页面不会中断'));
+  const progressText = await page.locator('.outreach-job-progress').textContent();
+  assert.ok(progressText.includes('切换页面不会中断'));
+  assert.ok(progressText.includes('大批量会分批返回'));
   releaseBrowserModel();
   await page.waitForSelector('.drawer [data-action="outreach-queue"]', { timeout: 10000 });
   assert.ok((await page.locator('.outreach-workspace').textContent()).includes('陈哥'));

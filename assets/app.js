@@ -349,10 +349,13 @@ function outreachJobProgressHtml(job){
   const total=Number(job.total_count||0),done=Number(job.created_count||0);
   const percent=total?Math.max(2,Math.round(done/total*100)):8;
   const batchText=Number(job.batches_total||0)?`第 ${job.batches_completed||0}/${job.batches_total} 批`:null;
+  const startedAt=Number(job.started_at||job.created_at||0);
+  const elapsedMinutes=startedAt?Math.max(0,Math.floor((Date.now()-startedAt)/60000)):0;
+  const elapsedText=elapsedMinutes?` · 已运行 ${elapsedMinutes} 分钟`:'';
   return `<section class="outreach-job-progress" id="outreach-job-progress" aria-live="polite">
     <header><strong>后台生成${job.tag?' · '+esc(job.tag):''}</strong><span>${esc(batchText||'正在准备批次')}</span></header>
     <div class="outreach-job-progress-track"><i style="width:${percent}%"></i></div>
-    <p>已生成 ${done}/${total||'—'} 条${Number(job.failed_count||0)?` · 失败 ${job.failed_count}`:''} · 切换页面不会中断，回到本板块自动恢复进度。</p>
+    <p>已生成 ${done}/${total||'—'} 条${Number(job.failed_count||0)?` · 失败 ${job.failed_count}`:''}${esc(elapsedText)} · 大批量会分批返回，切换页面不会中断，回到本板块自动恢复进度。</p>
   </section>`;
 }
 function updateOutreachJobProgress(){

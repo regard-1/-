@@ -713,7 +713,7 @@ test('fifty outreach strategies run batches concurrently and keep partial result
         }],
       });
     },
-  });
+  }, { STUDIO_OUTREACH_BATCH_SIZE: 10, STUDIO_OUTREACH_BATCH_CONCURRENCY: 5 });
   const admin = await h.login();
   await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
   const insert = h.db.sqlite.prepare(`INSERT INTO studio_juzi_contacts
@@ -727,8 +727,8 @@ test('fifty outreach strategies run batches concurrently and keep partial result
   const result = await h.call('/api/studio/outreach/strategies', 'POST', { limit: 50 }, admin);
   assert.equal(result.status, 200);
   assert.equal(result.data.created_count, 50);
-  assert.equal(modelCalls, 1);
-  assert.ok(maxActive <= 1, `expected at most one concurrent batch, got ${maxActive}`);
+  assert.equal(modelCalls, 5);
+  assert.ok(maxActive <= 5, `expected at most five concurrent batches, got ${maxActive}`);
   assert.equal(result.data.partial, false);
 });
 
@@ -1373,6 +1373,11 @@ test('migrations and production configuration keep the token server-side', () =>
   const compose = readFileSync(new URL('../docker-compose.prod.yml', import.meta.url), 'utf8');
   assert.match(compose, /WECOM_API_TOKEN:\s*\$\{WECOM_API_TOKEN\}/);
   assert.match(compose, /STUDIO_LLM_BASE_URL:\s*\$\{STUDIO_LLM_BASE_URL:-https:\/\/dashscope\.aliyuncs\.com\/compatible-mode\/v1\}/);
+  assert.match(compose, /STUDIO_OUTREACH_BATCH_SIZE:\s*\$\{STUDIO_OUTREACH_BATCH_SIZE:-10\}/);
+  assert.match(compose, /STUDIO_OUTREACH_BATCH_CONCURRENCY:\s*\$\{STUDIO_OUTREACH_BATCH_CONCURRENCY:-5\}/);
+  assert.match(compose, /STUDIO_OUTREACH_MODEL_TIMEOUT_MS:\s*\$\{STUDIO_OUTREACH_MODEL_TIMEOUT_MS:-300000\}/);
+  const prodServer = readFileSync(new URL('../server-prod.mjs', import.meta.url), 'utf8');
+  assert.match(prodServer, /STUDIO_OUTREACH_MODEL_TIMEOUT_MS:\s*process\.env\.STUDIO_OUTREACH_MODEL_TIMEOUT_MS/);
   assert.ok(!compose.includes(juziToken));
   const deployScript = readFileSync(new URL('../scripts/ci-deploy.sh', import.meta.url), 'utf8');
   assert.ok(!/--exclude\s+['"]docker-compose\.prod\.yml['"]/.test(deployScript));

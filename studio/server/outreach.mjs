@@ -15,6 +15,8 @@ const textValue = (value, maximum, label) => {
 const OUTREACH_BATCH_MAX_TOKENS = 30000;
 const OUTREACH_REPLY_MAX_TOKENS = 1500;
 const OUTREACH_BATCH_CONCURRENCY = 3;
+const OUTREACH_DEFAULT_BATCH_SIZE = 10;
+const OUTREACH_BATCH_MODEL_TIMEOUT_MS = 300000;
 
 function normalizeTimestamp(value) {
   const numeric = Number(value);
@@ -1006,7 +1008,7 @@ async function requestStrategyTasks(batch, base, env, fetchModel, materials, dir
   const startedAt = Date.now();
   try {
     response = await fetchModel(`${base.href.replace(/\/$/, '')}/chat/completions`, {
-      method: 'POST', signal: AbortSignal.timeout(Math.max(30000, Number(env.STUDIO_OUTREACH_MODEL_TIMEOUT_MS) || 120000)),
+      method: 'POST', signal: AbortSignal.timeout(Math.max(30000, Number(env.STUDIO_OUTREACH_MODEL_TIMEOUT_MS) || OUTREACH_BATCH_MODEL_TIMEOUT_MS)),
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.STUDIO_LLM_API_KEY}` },
       body: JSON.stringify(modelBody),
     });
@@ -1123,7 +1125,7 @@ export async function generateStrategies(store, user, body, env, dependencies = 
     env, dependencies.fetchKnowledge || dependencies.fetchModel || fetch);
   const materials = [...localMaterials, ...knowledgeMaterials];
   const base = modelBase(env);
-  const batchSize = Math.max(1, Math.min(50, Number(env.STUDIO_OUTREACH_BATCH_SIZE) || 50));
+  const batchSize = Math.max(1, Math.min(50, Number(env.STUDIO_OUTREACH_BATCH_SIZE) || OUTREACH_DEFAULT_BATCH_SIZE));
   const batchConcurrency = Math.max(1, Math.min(5,
     Number(env.STUDIO_OUTREACH_BATCH_CONCURRENCY) || OUTREACH_BATCH_CONCURRENCY));
   const batches = [];
@@ -1135,14 +1137,22 @@ export async function generateStrategies(store, user, body, env, dependencies = 
     remaining_count: remainingCountFor(limitedCandidates, candidates),
     batches_total: batches.length,
   });
-  const batchResults = [];
-  for (let index = 0; index < batches.length; index += batchConcurrency) {
-    const wave = batches.slice(index, index + batchConcurrency);
-    const settled = await Promise.allSettled(wave.map(batch =>
-      generateBatchTasks(batch, base, env, fetchModel, materials, direction)));
-    batchResults.push(...settled.map((result, waveIndex) => ({ batch: wave[waveIndex], result })));
-    await dependencies.onWave?.(batchResults);
-  }
+  const batchResults = Array.from({ length: batches.length });
+  let nextBatchIndex = 0;
+  let progressQueue = Promise.resolve();
+  const runBatchWorker = async () => {
+    while (nextBatchIndex < batches.length) {
+      const index = nextBatchIndex++;
+      const batch = batches[index];
+      const settled = await Promise.allSettled([
+        generateBatchTasks(batch, base, env, fetchModel, materials, direction),
+      ]);
+      batchResults[index] = { batch, result: settled[0] };
+      progressQueue = progressQueue.then(() => dependencies.onWave?.(batchResults.filter(Boolean)));
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(batchConcurrency, batches.length) }, runBatchWorker));
+  await progressQueue;
   const failures = batchResults.filter(item => item.result.status === 'rejected').map(item => item.result.reason);
   if (failures.length && !batchResults.some(item => item.result.status === 'fulfilled' && item.result.value.length)) {
     throw failures[0];
