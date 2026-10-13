@@ -685,6 +685,91 @@ test('connection timeouts in a batch fall back to single-customer requests', asy
   assert.ok(result.data.tasks.every(task => task.recommended_message));
 });
 
+test('fifty outreach strategies run batches concurrently and keep partial results', async t => {
+  let active = 0;
+  let maxActive = 0;
+  let modelCalls = 0;
+  const h = await harness(t, {
+    fetchJuzi: async () => listCustomersResponse(),
+    fetchModel: async (_url, options) => {
+      modelCalls++;
+      active++;
+      maxActive = Math.max(maxActive, active);
+      await new Promise(resolve => setTimeout(resolve, 25));
+      const candidates = JSON.parse(JSON.parse(options.body).messages.at(-1).content).candidates;
+      active--;
+      return jsonResponse({
+        choices: [{
+          message: { content: JSON.stringify({ tasks: candidates.map(candidate => ({
+            contact_id: candidate.id,
+            priority: 'medium',
+            reason: '并发批量生成',
+            recommended_message: `${candidate.display_name}，最近状态还好吗？`,
+            next_action: '等待回复',
+            stop_rule: '明确拒绝后暂停',
+          })) }) },
+        }],
+      });
+    },
+  }, { STUDIO_OUTREACH_BATCH_SIZE: 10, STUDIO_OUTREACH_BATCH_CONCURRENCY: 3 });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  const insert = h.db.sqlite.prepare(`INSERT INTO studio_juzi_contacts
+    (id,im_contact_id,display_name,phone_suffix,gender,im_bot_id,friendship_status,match_status,last_synced_at,tags,remark)
+    VALUES(?,?,?,?,?,'bot-1',1,'unmatched',?,'日常营养','并发测试')`);
+  for (let index = 0; index < 49; index++) {
+    insert.run(`concurrent-contact-${index}`, `concurrent-im-${index}`, `并发客户${String(index + 1).padStart(2, '0')}`,
+      String(2000 + index).slice(-4), index % 2, Date.now());
+  }
+
+  const result = await h.call('/api/studio/outreach/strategies', 'POST', { limit: 50 }, admin);
+  assert.equal(result.status, 200);
+  assert.equal(result.data.created_count, 50);
+  assert.equal(modelCalls, 5);
+  assert.ok(maxActive <= 3, `expected at most three concurrent batches, got ${maxActive}`);
+  assert.equal(result.data.partial, false);
+});
+
+test('one failed outreach batch does not discard successful batches', async t => {
+  const h = await harness(t, {
+    fetchJuzi: async () => listCustomersResponse(),
+    fetchModel: async (_url, options) => {
+      const candidates = JSON.parse(JSON.parse(options.body).messages.at(-1).content).candidates;
+      if (candidates.some(candidate => candidate.id === 'failing-contact')) {
+        const error = new Error('触达策略生成服务暂时不可用，请稍后重试');
+        error.code = 'MODEL_UNAVAILABLE';
+        throw error;
+      }
+      return jsonResponse({
+        choices: [{
+          message: { content: JSON.stringify({ tasks: candidates.map(candidate => ({
+            contact_id: candidate.id,
+            priority: 'high',
+            reason: '成功批次',
+            recommended_message: `${candidate.display_name}，最近状态还好吗？`,
+            next_action: '等待回复',
+            stop_rule: '明确拒绝后暂停',
+          })) }) },
+        }],
+      });
+    },
+  }, { STUDIO_OUTREACH_BATCH_SIZE: 1, STUDIO_OUTREACH_BATCH_CONCURRENCY: 2 });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  h.db.sqlite.prepare(`INSERT INTO studio_juzi_contacts
+    (id,im_contact_id,display_name,phone_suffix,gender,im_bot_id,friendship_status,match_status,last_synced_at,tags,remark)
+    VALUES('failing-contact','failing-im','失败客户','6789',2,'bot-1',1,'unmatched',?,'日常营养','失败批次')`)
+    .run(Date.now());
+
+  const result = await h.call('/api/studio/outreach/strategies', 'POST', { limit: 2 }, admin);
+  assert.equal(result.status, 200);
+  assert.equal(result.data.created_count, 1);
+  assert.equal(result.data.partial, true);
+  assert.equal(result.data.failed_count, 1);
+  assert.equal(result.data.generation_errors.length, 1);
+  assert.equal(result.data.generation_errors[0].code, 'MODEL_UNAVAILABLE');
+});
+
 test('partial strategy output ignores invented customers and retries missing customers', async t => {
   let modelCalls = 0;
   const h = await harness(t, {

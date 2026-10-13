@@ -14,6 +14,7 @@ const textValue = (value, maximum, label) => {
 // A bounded ceiling avoids pathological long generations and request timeouts.
 const OUTREACH_BATCH_MAX_TOKENS = 12000;
 const OUTREACH_REPLY_MAX_TOKENS = 1500;
+const OUTREACH_BATCH_CONCURRENCY = 3;
 
 function normalizeTimestamp(value) {
   const numeric = Number(value);
@@ -1051,6 +1052,19 @@ async function requestStrategyTasks(batch, base, env, fetchModel, materials, dir
   return [...tasks, ...retried];
 }
 
+async function generateBatchTasks(batch, base, env, fetchModel, materials, direction) {
+  try {
+    return await requestStrategyTasks(batch, base, env, fetchModel, materials, direction);
+  } catch (error) {
+    if (batch.length === 1 || error?.code !== 'MODEL_FORMAT') throw error;
+    const tasks = [];
+    for (const contact of batch) {
+      tasks.push(...await requestStrategyTasks([contact], base, env, fetchModel, materials, direction));
+    }
+    return tasks;
+  }
+}
+
 export async function generateStrategies(store, user, body, env, dependencies = {}) {
   const fetchModel = dependencies.fetchModel || fetch;
   const planDay = chinaDay();
@@ -1110,23 +1124,27 @@ export async function generateStrategies(store, user, body, env, dependencies = 
   const materials = [...localMaterials, ...knowledgeMaterials];
   const base = modelBase(env);
   const batchSize = Math.max(1, Math.min(10, Number(env.STUDIO_OUTREACH_BATCH_SIZE) || 10));
+  const batchConcurrency = Math.max(1, Math.min(5,
+    Number(env.STUDIO_OUTREACH_BATCH_CONCURRENCY) || OUTREACH_BATCH_CONCURRENCY));
   const batches = [];
   for (let index = 0; index < limitedCandidates.length; index += batchSize) batches.push(limitedCandidates.slice(index, index + batchSize));
+  const batchResults = [];
+  for (let index = 0; index < batches.length; index += batchConcurrency) {
+    const wave = batches.slice(index, index + batchConcurrency);
+    const settled = await Promise.allSettled(wave.map(batch =>
+      generateBatchTasks(batch, base, env, fetchModel, materials, direction)));
+    batchResults.push(...settled.map((result, waveIndex) => ({ batch: wave[waveIndex], result })));
+  }
+  const failures = batchResults.filter(item => item.result.status === 'rejected').map(item => item.result.reason);
+  if (failures.length && !batchResults.some(item => item.result.status === 'fulfilled' && item.result.value.length)) {
+    throw failures[0];
+  }
   const created = [];
   const candidateMap = new Map(limitedCandidates.map(c => [c.id, c]));
-  for (const batch of batches) {
-    let batchTasks;
-    try {
-      batchTasks = await requestStrategyTasks(batch, base, env, fetchModel, materials, direction);
-    } catch (error) {
-      if (batch.length === 1 || error?.code !== 'MODEL_FORMAT') throw error;
-      batchTasks = [];
-      for (const contact of batch) {
-        batchTasks.push(...await requestStrategyTasks([contact], base, env, fetchModel, materials, direction));
-      }
-    }
+  for (const { result } of batchResults) {
+    if (result.status !== 'fulfilled') continue;
     const now = Date.now();
-    for (const task of batchTasks) {
+    for (const task of result.value) {
       const id = crypto.randomUUID();
       const candidate = candidateMap.get(task.contact_id);
       const snapshot = JSON.stringify({
@@ -1146,9 +1164,14 @@ export async function generateStrategies(store, user, body, env, dependencies = 
     }
   }
   const remainingCount = Math.max(0, candidates.length - limitedCandidates.length);
+  const failedCount = batchResults.reduce((total, item) =>
+    item.result.status === 'rejected' ? total + item.batch.length : total, 0);
   return { created_count: created.length, existing_count: existing.length, remaining_count: remainingCount,
     skipped_count: cooldownSkipped.length, frequency_skipped_count: cooldownSkipped.length,
-    plan_day: planDay, direction, direction_label: strategyDirectionLabel(direction), tasks: [...existing, ...created] };
+    plan_day: planDay, direction, direction_label: strategyDirectionLabel(direction),
+    partial: failures.length > 0, failed_count: failedCount,
+    generation_errors: failures.map(error => ({ message: error?.message || '触达策略生成失败', code: error?.code || 'MODEL_ERROR' })),
+    tasks: [...existing, ...created] };
 }
 
 async function recentOutreachMap(store, since) {
