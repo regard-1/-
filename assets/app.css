@@ -324,7 +324,7 @@ button,input,select,textarea{font:inherit} button{cursor:pointer}.hidden{display
 .outreach-contact-search{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
 .outreach-contact-search input{min-width:0;padding:10px 12px;border:1px solid #cfe0f0;border-radius:10px;background:#fff;outline:none}
 .outreach-contact-search input:focus{border-color:#3b7cc8;box-shadow:0 0 0 3px #e0ecf8}
-.outreach-task-controls{display:grid;grid-template-columns:minmax(240px,1fr);gap:12px;align-items:center;padding:14px 18px;border-bottom:1px solid #e2edf7;background:#fbfdff}
+.outreach-task-controls{display:grid;grid-template-columns:minmax(240px,1fr) auto;gap:12px;align-items:center;padding:14px 18px;border-bottom:1px solid #e2edf7;background:#fbfdff}
 .outreach-contact-filters{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .outreach-contact-filters .active{border-color:#8bbce4;background:#eaf5fd;color:#246894}
 .outreach-tag-filter{display:grid;grid-template-columns:minmax(320px,1fr) minmax(280px,.85fr);gap:14px;padding:15px 18px;border-bottom:1px solid #e2edf7;background:#f8fbff}

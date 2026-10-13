@@ -184,6 +184,21 @@ test('outreach snapshot reports the full count and returns searchable pages', as
 
   const unread = await h.call('/api/studio/outreach?page=1&limit=20&reply=unread', 'GET', undefined, admin);
   assert.ok(unread.data.contacts.every(contact => !contact.replied));
+
+  h.db.sqlite.prepare("UPDATE studio_outreach_tasks SET status='sent' WHERE id='today-task-0'").run();
+  const sentOnly = await h.call('/api/studio/outreach?page=1&limit=20&task_page=1&task_limit=5&task_status=sent', 'GET', undefined, admin);
+  assert.equal(sentOnly.data.task_pagination.status_filter, 'sent');
+  assert.equal(sentOnly.data.task_pagination.total, 1);
+  assert.ok(sentOnly.data.today_tasks.every(task => task.status === 'sent'));
+
+  const unsentOnly = await h.call('/api/studio/outreach?page=1&limit=20&task_page=1&task_limit=5&task_status=unsent', 'GET', undefined, admin);
+  assert.equal(unsentOnly.data.task_pagination.status_filter, 'unsent');
+  assert.equal(unsentOnly.data.task_pagination.total, 6);
+  assert.ok(unsentOnly.data.today_tasks.every(task => ['draft', 'queued'].includes(task.status)));
+
+  const allTasks = await h.call('/api/studio/outreach?page=1&limit=20&task_page=1&task_limit=5&task_status=all', 'GET', undefined, admin);
+  assert.equal(allTasks.data.task_pagination.status_filter, 'all');
+  assert.equal(allTasks.data.task_pagination.total, 7);
 });
 
 test('tag filters derive initial profiles and generate only matched audiences', async t => {
@@ -479,15 +494,50 @@ test('strategies require model format, provided customers, and keep credentials 
 
   const invented = await harness(t, {
     fetchJuzi: async () => listCustomersResponse(),
-    fetchModel: async () => modelTask('not-provided', 'customer-1'),
+    fetchModel: async (_url, options) => {
+      const candidates = JSON.parse(JSON.parse(options.body).messages.at(-1).content).candidates;
+      if (candidates.length === 1) return jsonResponse({ choices: [{ message: { content: JSON.stringify({ tasks: [] }) } }] });
+      return modelTask('not-provided', 'customer-1');
+    },
   });
   await invented.call('/api/studio/outreach/sync', 'POST', {}, await invented.login());
+  invented.db.sqlite.prepare(`INSERT INTO studio_juzi_contacts(id,im_contact_id,display_name,phone_suffix,im_bot_id,friendship_status,match_status,last_synced_at,tags,remark)
+    VALUES('format-contact-2','format-im-2','李女士','6789','bot-1',1,'unmatched',?,'日常营养','')`).run(Date.now());
   const inventedSnapshot = await invented.call('/api/studio/outreach', 'GET', undefined, await invented.login());
   const inventedContact = inventedSnapshot.data.contacts[0];
   await invented.call(`/api/studio/outreach/contacts/${inventedContact.id}/bind`, 'PUT', { local_customer_id: 'customer-1' }, await invented.login());
-  const rejected = await invented.call('/api/studio/outreach/strategies', 'POST', { limit: 1 }, await invented.login());
+  const rejected = await invented.call('/api/studio/outreach/strategies', 'POST', { limit: 2 }, await invented.login());
   assert.equal(rejected.status, 502);
   assert.equal(rejected.error.code, 'MODEL_FORMAT');
+});
+
+test('single customer output can use task objects without a matching reference', async t => {
+  const h = await harness(t, {
+    fetchJuzi: async () => listCustomersResponse(),
+    fetchModel: async () => jsonResponse({
+      choices: [{
+        message: {
+          content: JSON.stringify({ tasks: {
+            model_invented_reference: {
+              priority: 'medium',
+              reason: '单人请求可安全绑定唯一候选',
+              recommended_message: '陈哥，最近整体状态还好吗？',
+              next_action: '等待回复',
+              stop_rule: '明确拒绝后暂停',
+            },
+          } }),
+        },
+      }],
+    }),
+  });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  const snapshot = await h.call('/api/studio/outreach', 'GET', undefined, admin);
+  const contact = snapshot.data.contacts[0];
+  const result = await h.call('/api/studio/outreach/strategies', 'POST', { contact_id: contact.id }, admin);
+  assert.equal(result.status, 200);
+  assert.equal(result.data.created_count, 1);
+  assert.equal(result.data.tasks[0].contact_id, contact.id);
 });
 
 test('full strategy generation parses wrapped JSON and retries malformed batches one by one', async t => {

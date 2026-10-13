@@ -24,6 +24,8 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
   const taskPage = Math.max(1, Number(searchParams.get('task_page')) || 1);
   const taskLimit = Math.min(50, Math.max(1, Number(searchParams.get('task_limit')) || 5));
   const taskQuery = maskText(String(searchParams.get('task_q') || '').trim()).slice(0, 80);
+  const taskStatus = ['all', 'sent', 'unsent'].includes(searchParams.get('task_status'))
+    ? searchParams.get('task_status') : 'all';
   const replyFilter = ['all', 'replied', 'unread'].includes(searchParams.get('reply')) ? searchParams.get('reply') : 'all';
   const tagFilter = parseTagInput(searchParams.get('tag'));
   const tagMode = ['contains', 'and', 'or'].includes(searchParams.get('tag_mode')) ? searchParams.get('tag_mode') : 'contains';
@@ -111,6 +113,11 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
       OR t.strategy_type LIKE ? OR b.bot_name LIKE ? OR tpl.title LIKE ?)`);
     taskParameters.push(pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern);
   }
+  if (taskStatus === 'sent') {
+    taskConditions.push("t.status = 'sent'");
+  } else if (taskStatus === 'unsent') {
+    taskConditions.push("t.status IN ('draft', 'queued')");
+  }
   const taskWhereSql = taskConditions.join(' AND ');
   const [taskStats] = await store.all(`SELECT COUNT(*) AS total,
     SUM(CASE WHEN t.status = 'sent' THEN 1 ELSE 0 END) AS sent,
@@ -136,8 +143,10 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
   const [globalTaskStats] = await store.all(`SELECT COUNT(*) AS total,
     SUM(CASE WHEN status='draft' THEN 1 ELSE 0 END) AS draft,
     SUM(CASE WHEN status='queued' THEN 1 ELSE 0 END) AS queued,
-    SUM(CASE WHEN status='sent' AND plan_day=? THEN 1 ELSE 0 END) AS sent_today
-    FROM studio_outreach_tasks`, day);
+    SUM(CASE WHEN status='sent' AND plan_day=? THEN 1 ELSE 0 END) AS sent_today,
+    SUM(CASE WHEN plan_day=? THEN 1 ELSE 0 END) AS today_total,
+    SUM(CASE WHEN plan_day=? AND status IN ('draft','queued') THEN 1 ELSE 0 END) AS unsent_today
+    FROM studio_outreach_tasks`, day, day, day);
   const counts = {
     contacts: totalCount,
     filtered_contacts: filteredContacts.length,
@@ -147,7 +156,8 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
     draft: Number(globalTaskStats?.draft || 0),
     queued: Number(globalTaskStats?.queued || 0),
     sentToday: Number(globalTaskStats?.sent_today || 0),
-    today: taskTotal,
+    today: Number(globalTaskStats?.today_total || 0),
+    unsentToday: Number(globalTaskStats?.unsent_today || 0),
     replied: allContacts.filter(contact => contact.replied).length,
     templates: templates.length,
     messages: messages.length,
@@ -173,6 +183,7 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
       page: safeTaskPage, limit: taskLimit, total: taskTotal, pages: taskTotalPages,
       start_index: taskTotal ? taskStart + 1 : 0,
       end_index: Math.min(taskStart + taskLimit, taskTotal), query: taskQuery,
+      status_filter: taskStatus,
       unsent: Number(taskStats?.unsent || 0),
     }, queued_tasks: queuedTasks, contact_tasks: contactTasks, messages, profile_updates: profileUpdates, templates,
     local_customers: localCustomers, counts };
@@ -812,7 +823,7 @@ async function outreachKnowledgeMaterials(direction, contacts, env, fetchKnowled
   }
 }
 
-function strategyCandidate(output, candidates) {
+function candidateAliases(candidates) {
   const aliases = new Map();
   const normalizeReference = value => String(value || '')
     .trim()
@@ -844,8 +855,33 @@ function strategyCandidate(output, candidates) {
       if (value && nameCounts.get(value) === 1 && !aliases.has(value)) aliases.set(value, candidate);
     }
   }
-  if (!output || typeof output !== 'object' || !Array.isArray(output.tasks)) fail(502, '模型未返回 tasks 数组，请重试', 'MODEL_FORMAT');
-  return { aliases };
+  return aliases;
+}
+
+function normalizeModelTasks(output) {
+  if (!output || typeof output !== 'object') {
+    fail(502, '模型未返回任务对象，请重试', 'MODEL_FORMAT');
+  }
+  let rawTasks = Array.isArray(output) ? output : output.tasks;
+  if (rawTasks === undefined && typeof output.recommended_message === 'string') rawTasks = [output];
+  if (rawTasks === undefined || rawTasks === null) {
+    fail(502, '模型未返回 tasks 字段，请重试', 'MODEL_FORMAT');
+  }
+  if (Array.isArray(rawTasks)) {
+    return rawTasks.map(item => item?.task && typeof item.task === 'object' ? { ...item, ...item.task } : item)
+      .filter(item => item && typeof item === 'object');
+  }
+  if (typeof rawTasks !== 'object') fail(502, '模型 tasks 字段格式不正确，请重试', 'MODEL_FORMAT');
+  const entries = Object.entries(rawTasks)
+    .filter(([, value]) => value && typeof value === 'object');
+  if (entries.length) {
+    return entries.map(([key, value]) => ({
+      ...value,
+      contact_id: value.contact_id ?? value.contactId ?? key,
+    }));
+  }
+  if (typeof rawTasks.recommended_message === 'string') return [rawTasks];
+  return [];
 }
 
 function taskContactReference(item) {
@@ -858,25 +894,33 @@ function taskContactReference(item) {
 }
 
 function validateTasks(output, candidates, { partial = false } = {}) {
-  const { aliases } = strategyCandidate(output, candidates);
+  const rawItems = normalizeModelTasks(output);
+  const aliases = candidateAliases(candidates);
   const tasks = [];
   const used = new Set();
-  for (const item of output.tasks) {
+  let unmatchedCount = 0, missingMessageCount = 0;
+  for (const item of rawItems) {
     const rawId = taskContactReference(item);
     const normalizedId = String(rawId || '').trim()
       .replace(/^["'`]+|["'`]+$/g, '')
       .replace(/\s+/g, ' ')
       .toLowerCase();
-    const candidate = aliases.get(normalizedId);
+    let candidate = aliases.get(normalizedId);
     if (!candidate) {
-      if (!partial) fail(502, '模型返回了未提供的客户策略，请重试', 'MODEL_FORMAT');
-      continue;
+      if (candidates.length === 1) {
+        candidate = candidates[0];
+      } else {
+        if (!partial) fail(502, '模型返回了未提供的客户策略，请重试', 'MODEL_FORMAT');
+        unmatchedCount++;
+        continue;
+      }
     }
     if (used.has(candidate.id)) continue;
     used.add(candidate.id);
     const rawMessage = typeof item.recommended_message === 'string' ? item.recommended_message.trim() : '';
     if (!rawMessage) {
       if (!partial) fail(502, '模型未返回触达话术，请重试', 'MODEL_FORMAT');
+      missingMessageCount++;
       continue;
     }
     const message = textValue(rawMessage, 600, '触达话术');
@@ -893,7 +937,12 @@ function validateTasks(output, candidates, { partial = false } = {}) {
         .slice(0, 4000),
     });
   }
-  if (!tasks.length) fail(502, '模型未返回可执行的触达策略，请重试', 'MODEL_FORMAT');
+  if (!tasks.length) {
+    if (!rawItems.length) fail(502, '模型未返回触达任务，请重试', 'MODEL_FORMAT');
+    if (unmatchedCount) fail(502, '模型返回的客户编号与本批客户不匹配，请重试', 'MODEL_FORMAT');
+    if (missingMessageCount) fail(502, '模型未返回可发送话术，请重试', 'MODEL_FORMAT');
+    fail(502, '模型未返回可执行的触达策略，请重试', 'MODEL_FORMAT');
+  }
   if (!partial && tasks.length !== candidates.length) {
     fail(502, `模型返回 ${tasks.length} 条策略，本批有 ${candidates.length} 个客户，请重试`, 'MODEL_FORMAT');
   }
