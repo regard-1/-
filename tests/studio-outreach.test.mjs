@@ -144,20 +144,39 @@ test('outreach snapshot reports the full count and returns searchable pages', as
     insert.run(`page-contact-${index}`, `page-im-${index}`, `分页客户${String(index + 1).padStart(2, '0')}`,
       String(1000 + index).slice(-4), 'bot-1', Date.now(), index % 2 ? '高意向' : '普通客户');
   }
+  const contactId = h.db.sqlite.prepare('SELECT id FROM studio_juzi_contacts ORDER BY id LIMIT 1').get().id;
+  const taskInsert = h.db.sqlite.prepare(`INSERT INTO studio_outreach_tasks(id,contact_id,audience,recommended_message,status,created_by,created_at,plan_day)
+    VALUES(?,?,?,?,?,?,?,?)`);
+  for (let index = 0; index < 7; index++) {
+    taskInsert.run(`today-task-${index}`, contactId, 'anti_aging', `今日策略 ${index}：睡眠关怀`,
+      index === 0 ? 'queued' : 'draft', 'admin', Date.now() - index * 1000, chinaDay());
+  }
 
-  const first = await h.call('/api/studio/outreach?page=1&limit=20', 'GET', undefined, admin);
+  const first = await h.call('/api/studio/outreach?page=1&limit=20&task_page=1&task_limit=5', 'GET', undefined, admin);
   assert.equal(first.status, 200);
   assert.equal(first.data.counts.contacts, 53);
   assert.equal(first.data.contacts.length, 20);
   assert.equal(first.data.contact_pagination.page, 1);
   assert.equal(first.data.contact_pagination.pages, 3);
   assert.equal(first.data.contact_pagination.total_contacts, 53);
+  assert.equal(first.data.counts.today, 7);
+  assert.equal(first.data.today_tasks.length, 5);
+  assert.equal(first.data.task_pagination.total, 7);
+  assert.equal(first.data.task_pagination.pages, 2);
+  assert.equal(first.data.task_pagination.unsent, 7);
+  assert.equal(first.data.queued_tasks.length, 1);
 
-  const second = await h.call('/api/studio/outreach?page=2&limit=20', 'GET', undefined, admin);
+  const second = await h.call('/api/studio/outreach?page=2&limit=20&task_page=2&task_limit=5', 'GET', undefined, admin);
   assert.equal(second.data.contacts.length, 20);
   assert.equal(second.data.contact_pagination.page, 2);
   assert.equal(second.data.contact_pagination.start_index, 21);
   assert.equal(second.data.contact_pagination.end_index, 40);
+  assert.equal(second.data.today_tasks.length, 2);
+  assert.equal(second.data.task_pagination.page, 2);
+
+  const searchedTask = await h.call('/api/studio/outreach?page=1&limit=20&task_page=1&task_limit=5&task_q=%E4%BB%8A%E6%97%A5%E7%AD%96%E7%95%A5%206', 'GET', undefined, admin);
+  assert.equal(searchedTask.data.task_pagination.total, 1);
+  assert.equal(searchedTask.data.today_tasks[0].id, 'today-task-6');
 
   const searched = await h.call('/api/studio/outreach?page=1&limit=20&q=%E9%AB%98%E6%84%8F%E5%90%91', 'GET', undefined, admin);
   assert.equal(searched.data.contact_pagination.total, 26);

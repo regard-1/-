@@ -87,8 +87,10 @@ try {
   await page.locator('.outreach-workspace').waitFor();
   assert.ok((await page.locator('.outreach-workspace').textContent()).includes('句子互动已连接'));
   const archive = page.locator('details.outreach-archive');
-  assert.equal(await archive.count(), 1);
-  assert.equal(await archive.getAttribute('open'), null);
+  assert.equal(await archive.count(), 2);
+  assert.equal(await archive.locator('summary').filter({ hasText: '30 天真实消息留档' }).count(), 1);
+  assert.equal(await archive.locator('summary').filter({ hasText: '画像更新建议' }).count(), 1);
+  for (const item of await archive.all()) assert.equal(await item.getAttribute('open'), null);
 
   const syncResponse = page.waitForResponse(response => response.url().endsWith('/api/studio/outreach/sync'));
   await page.locator('[data-action="outreach-sync"]').click();

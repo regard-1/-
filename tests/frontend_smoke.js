@@ -193,7 +193,12 @@ async function request(url,options){const response=await fetch(url,options);retu
   );
   assert.match(appSource,/async function renderOutreach\(\)/);
   assert.doesNotMatch(appSource,/src="\/script-studio\/index.html\?page=outreach"/);
-  assert.match(appSource,/studioApi\('\/outreach'\)/);
+  assert.match(appSource,/function loadOutreachSnapshot\(\)/);
+  assert.match(appSource,/task_page:state\.outreachTaskPage/);
+  assert.match(appSource,/id="outreach-task-query"/);
+  assert.match(appSource,/function submitOutreachTaskSearch\(/);
+  assert.match(appSource,/function changeOutreachTaskPage\(/);
+  assert.match(appSource,/<details class="outreach-panel outreach-archive"><summary><span>画像更新建议<\/span>/);
   assert.match(appSource,/function refreshOutreachStrategies\(/);
   assert.match(appSource,/function bindOutreachContact\(/);
   assert.match(appSource,/function confirmOutreachSend\(/);
@@ -206,6 +211,7 @@ async function request(url,options){const response=await fetch(url,options);retu
   assert.match(appSource,/state\.juziSpOrigin/);
   assert.match(cssSource,/\.outreach-workspace/);
   assert.match(cssSource,/\.outreach-task-list/);
+  assert.match(cssSource,/\.outreach-task-controls/);
   assert.ok(
     htmlSource.indexOf('data-page="assets"') < htmlSource.indexOf('data-page="scripts"')
       && htmlSource.indexOf('data-page="scripts"') < htmlSource.indexOf('data-page="outreach"'),

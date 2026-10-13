@@ -21,6 +21,9 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
   const page = Math.max(1, Number(searchParams.get('page')) || 1);
   const limit = Math.min(200, Math.max(1, Number(searchParams.get('limit')) || 10));
   const query = maskText(String(searchParams.get('q') || '').trim()).slice(0, 80);
+  const taskPage = Math.max(1, Number(searchParams.get('task_page')) || 1);
+  const taskLimit = Math.min(50, Math.max(1, Number(searchParams.get('task_limit')) || 5));
+  const taskQuery = maskText(String(searchParams.get('task_q') || '').trim()).slice(0, 80);
   const replyFilter = ['all', 'replied', 'unread'].includes(searchParams.get('reply')) ? searchParams.get('reply') : 'all';
   const tagFilter = parseTagInput(searchParams.get('tag'));
   const tagMode = ['contains', 'and', 'or'].includes(searchParams.get('tag_mode')) ? searchParams.get('tag_mode') : 'contains';
@@ -78,18 +81,73 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
   const safePage = Math.min(page, totalPages);
   const start = (safePage - 1) * limit;
   const pageContacts = filteredContacts.slice(start, start + limit);
+  const contactPlaceholders = pageContacts.map(() => '?').join(',');
+  const contactTasks = pageContacts.length ? await store.all(`SELECT t.*,c.display_name AS contact_name,
+      c.phone_suffix,l.display_name AS customer_name,b.bot_name,b.im_bot_id,tpl.title AS template_title
+    FROM studio_outreach_tasks t
+    JOIN studio_juzi_contacts c ON c.id=t.contact_id
+    LEFT JOIN studio_customers l ON l.id=t.local_customer_id
+    JOIN studio_juzi_bots b ON b.im_bot_id=c.im_bot_id
+    LEFT JOIN studio_outreach_templates tpl ON tpl.id=t.template_id
+    WHERE t.plan_day=? AND t.contact_id IN (${contactPlaceholders})
+    ORDER BY t.created_at DESC`, day, ...pageContacts.map(contact => contact.id)) : [];
+  const queuedTasks = await store.all(`SELECT t.*,c.display_name AS contact_name,c.phone_suffix,
+      l.display_name AS customer_name,b.bot_name,b.im_bot_id,tpl.title AS template_title
+    FROM studio_outreach_tasks t
+    JOIN studio_juzi_contacts c ON c.id=t.contact_id
+    LEFT JOIN studio_customers l ON l.id=t.local_customer_id
+    JOIN studio_juzi_bots b ON b.im_bot_id=c.im_bot_id
+    LEFT JOIN studio_outreach_templates tpl ON tpl.id=t.template_id
+    WHERE t.status='queued'
+    ORDER BY CASE t.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,t.created_at DESC`);
   const localCustomers = await store.all(`SELECT c.id,c.display_name,c.audience,c.phone_suffix,u.display_name AS owner_name
     FROM studio_customers c LEFT JOIN studio_users u ON u.id=c.owner_user_id WHERE c.active=1 ORDER BY c.display_name`);
+  const taskConditions = ['t.plan_day = ?'];
+  const taskParameters = [day];
+  if (taskQuery) {
+    const pattern = `%${taskQuery}%`;
+    taskConditions.push(`(c.display_name LIKE ? OR l.display_name LIKE ? OR t.recommended_message LIKE ?
+      OR t.reason LIKE ? OR t.next_action LIKE ? OR t.stop_rule LIKE ? OR t.audience LIKE ? OR t.status LIKE ?
+      OR t.strategy_type LIKE ? OR b.bot_name LIKE ? OR tpl.title LIKE ?)`);
+    taskParameters.push(pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern);
+  }
+  const taskWhereSql = taskConditions.join(' AND ');
+  const [taskStats] = await store.all(`SELECT COUNT(*) AS total,
+    SUM(CASE WHEN t.status = 'sent' THEN 1 ELSE 0 END) AS sent,
+    SUM(CASE WHEN t.status IN ('draft','queued') THEN 1 ELSE 0 END) AS unsent
+    FROM studio_outreach_tasks t ${taskQuery ? `JOIN studio_juzi_contacts c ON c.id=t.contact_id
+      LEFT JOIN studio_customers l ON l.id=t.local_customer_id
+      JOIN studio_juzi_bots b ON b.im_bot_id=c.im_bot_id
+      LEFT JOIN studio_outreach_templates tpl ON tpl.id=t.template_id` : ''}
+    WHERE ${taskWhereSql}`, ...taskParameters);
+  const taskTotal = Number(taskStats?.total || 0);
+  const taskTotalPages = Math.max(1, Math.ceil(taskTotal / taskLimit));
+  const safeTaskPage = Math.min(taskPage, taskTotalPages);
+  const taskStart = (safeTaskPage - 1) * taskLimit;
+  const todayTasks = await store.all(`SELECT t.*,c.display_name AS contact_name,c.phone_suffix,l.display_name AS customer_name,
+      b.bot_name,b.im_bot_id,tpl.title AS template_title FROM studio_outreach_tasks t
+    JOIN studio_juzi_contacts c ON c.id=t.contact_id
+    LEFT JOIN studio_customers l ON l.id=t.local_customer_id
+    JOIN studio_juzi_bots b ON b.im_bot_id=c.im_bot_id
+    LEFT JOIN studio_outreach_templates tpl ON tpl.id=t.template_id
+    WHERE ${taskWhereSql}
+    ORDER BY CASE t.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,t.created_at DESC
+    LIMIT ? OFFSET ?`, ...taskParameters, taskLimit, taskStart);
+  const [globalTaskStats] = await store.all(`SELECT COUNT(*) AS total,
+    SUM(CASE WHEN status='draft' THEN 1 ELSE 0 END) AS draft,
+    SUM(CASE WHEN status='queued' THEN 1 ELSE 0 END) AS queued,
+    SUM(CASE WHEN status='sent' AND plan_day=? THEN 1 ELSE 0 END) AS sent_today
+    FROM studio_outreach_tasks`, day);
   const counts = {
     contacts: totalCount,
     filtered_contacts: filteredContacts.length,
     bound: allContacts.filter(c => c.match_status === 'bound').length,
     suggested: allContacts.filter(c => c.match_status === 'suggested').length,
     ambiguous: allContacts.filter(c => c.match_status === 'ambiguous').length,
-    draft: tasks.filter(t => t.status === 'draft').length,
-    queued: tasks.filter(t => t.status === 'queued').length,
-    sentToday: tasks.filter(t => t.status === 'sent' && t.plan_day === day).length,
-    today: tasks.filter(t => t.plan_day === day).length,
+    draft: Number(globalTaskStats?.draft || 0),
+    queued: Number(globalTaskStats?.queued || 0),
+    sentToday: Number(globalTaskStats?.sent_today || 0),
+    today: taskTotal,
     replied: allContacts.filter(contact => contact.replied).length,
     templates: templates.length,
     messages: messages.length,
@@ -111,7 +169,12 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
       pages: totalPages, start_index: filteredContacts.length ? start + 1 : 0,
       end_index: Math.min(start + limit, filteredContacts.length), query, reply_filter: replyFilter,
       tag: tagFilter.join('、'), tag_mode: tagMode, exclude_tag: excludeTags.join('、'),
-    }, tag_summary: tagSummary, tasks, messages, profile_updates: profileUpdates, templates,
+    }, tag_summary: tagSummary, tasks, today_tasks: todayTasks, task_pagination: {
+      page: safeTaskPage, limit: taskLimit, total: taskTotal, pages: taskTotalPages,
+      start_index: taskTotal ? taskStart + 1 : 0,
+      end_index: Math.min(taskStart + taskLimit, taskTotal), query: taskQuery,
+      unsent: Number(taskStats?.unsent || 0),
+    }, queued_tasks: queuedTasks, contact_tasks: contactTasks, messages, profile_updates: profileUpdates, templates,
     local_customers: localCustomers, counts };
 }
 
