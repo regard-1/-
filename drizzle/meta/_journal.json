@@ -1,5 +1,5 @@
 {
-  "version": "7",
+  "version": "8",
   "dialect": "sqlite",
   "entries": [
     {
@@ -49,6 +49,13 @@
       "version": "6",
       "when": 1790300000000,
       "tag": "0007_idp_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1790400000000,
+      "tag": "0008_outreach_jobs",
       "breakpoints": true
     }
   ]

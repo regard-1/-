@@ -4,7 +4,7 @@ import { generate, validateMaterial } from './generation.mjs';
 import { knowledgeConfigured } from './knowledge.mjs';
 import { recognizeScreenshot } from './ocr.mjs';
 import { createJuziIframe, handleOauth } from './idp.mjs';
-import { assignBot, bindContact, clearTodayTasks, createTemplate, deleteTask, deleteTemplate, generateReply, generateStrategies, generateTemplateTasks, handleJuziCallback, outreachSnapshot, queueTask, queueTodayTasks, sendTask, syncContacts, syncConversations, updateContactReplyStatus, updateContactSalutation, updateTaskMessage, updateTemplate } from './outreach.mjs';
+import { assignBot, bindContact, clearTodayTasks, createOutreachStrategyJob, createTemplate, deleteTask, deleteTemplate, generateReply, generateStrategies, generateTemplateTasks, handleJuziCallback, outreachJobStatus, outreachSnapshot, queueTask, queueTodayTasks, sendTask, syncContacts, syncConversations, updateContactReplyStatus, updateContactSalutation, updateTaskMessage, updateTemplate } from './outreach.mjs';
 import { AUDIENCES, maskText, MODEL, monthKey } from '../shared.mjs';
 
 const cleanName = value => typeof value === 'string' && /^[a-zA-Z][a-zA-Z0-9_.-]{2,39}$/.test(value);
@@ -159,6 +159,16 @@ export async function api(request, env, dependencies = {}) {
     admin(user);
     await store.rateLimit(`outreach-strategy:${user.id}`, 30, 60);
     return json(await generateStrategies(store, user, await readBody(request), env, dependencies));
+  }
+  if (route === '/api/studio/outreach/strategies/jobs' && method === 'POST') {
+    admin(user);
+    await store.rateLimit(`outreach-strategy-job:${user.id}`, 6, 60);
+    return json(await createOutreachStrategyJob(store, user, await readBody(request), env, dependencies), 202);
+  }
+  const strategyJobMatch = route.match(/^\/api\/studio\/outreach\/strategies\/jobs\/([\w-]+)$/);
+  if (strategyJobMatch && method === 'GET') {
+    admin(user);
+    return json(await outreachJobStatus(store, strategyJobMatch[1]));
   }
   if (route === '/api/studio/outreach/templates' && method === 'POST') {
     admin(user);

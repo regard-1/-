@@ -128,12 +128,12 @@ try {
 
   await page.locator('[data-contact]').selectOption('customer-1');
   await page.waitForFunction(() => document.querySelector('[data-contact]')?.value === 'customer-1');
-  const generated = page.waitForResponse(response => response.url().endsWith('/api/studio/outreach/strategies'));
-  const generatedRequest = page.waitForRequest(request => request.url().endsWith('/api/studio/outreach/strategies'));
+  const generated = page.waitForResponse(response => response.url().endsWith('/api/studio/outreach/strategies/jobs'));
+  const generatedRequest = page.waitForRequest(request => request.url().endsWith('/api/studio/outreach/strategies/jobs'));
   await page.getByRole('button', { name: '生成一客一策' }).click();
   assert.equal(JSON.parse((await generatedRequest).postData()).direction, '复购提醒');
   await generated;
-  await page.waitForSelector('.drawer [data-action="outreach-queue"]');
+  await page.waitForSelector('.drawer [data-action="outreach-queue"]', { timeout: 10000 });
   assert.ok((await page.locator('.outreach-workspace').textContent()).includes('陈哥'));
 
   assert.equal(await page.locator('.drawer [data-task-select]').count(), 0);

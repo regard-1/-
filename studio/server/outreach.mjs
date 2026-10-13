@@ -1128,12 +1128,20 @@ export async function generateStrategies(store, user, body, env, dependencies = 
     Number(env.STUDIO_OUTREACH_BATCH_CONCURRENCY) || OUTREACH_BATCH_CONCURRENCY));
   const batches = [];
   for (let index = 0; index < limitedCandidates.length; index += batchSize) batches.push(limitedCandidates.slice(index, index + batchSize));
+  await dependencies.onPlan?.({
+    total_count: limitedCandidates.length,
+    existing_count: existing.length,
+    skipped_count: cooldownSkipped.length,
+    remaining_count: remainingCountFor(limitedCandidates, candidates),
+    batches_total: batches.length,
+  });
   const batchResults = [];
   for (let index = 0; index < batches.length; index += batchConcurrency) {
     const wave = batches.slice(index, index + batchConcurrency);
     const settled = await Promise.allSettled(wave.map(batch =>
       generateBatchTasks(batch, base, env, fetchModel, materials, direction)));
     batchResults.push(...settled.map((result, waveIndex) => ({ batch: wave[waveIndex], result })));
+    await dependencies.onWave?.(batchResults);
   }
   const failures = batchResults.filter(item => item.result.status === 'rejected').map(item => item.result.reason);
   if (failures.length && !batchResults.some(item => item.result.status === 'fulfilled' && item.result.value.length)) {
@@ -1172,6 +1180,112 @@ export async function generateStrategies(store, user, body, env, dependencies = 
     partial: failures.length > 0, failed_count: failedCount,
     generation_errors: failures.map(error => ({ message: error?.message || '触达策略生成失败', code: error?.code || 'MODEL_ERROR' })),
     tasks: [...existing, ...created] };
+}
+
+function remainingCountFor(limitedCandidates, candidates) {
+  return Math.max(0, candidates.length - limitedCandidates.length);
+}
+
+function jobProgress(row) {
+  return {
+    job_id: row.id, status: row.status, direction: row.direction, tag: row.tag, audience: row.audience,
+    contact_id: row.contact_id || null, total_count: Number(row.total_count || 0),
+    created_count: Number(row.created_count || 0), existing_count: Number(row.existing_count || 0),
+    skipped_count: Number(row.skipped_count || 0), failed_count: Number(row.failed_count || 0),
+    remaining_count: Number(row.remaining_count || 0), batches_total: Number(row.batches_total || 0),
+    batches_completed: Number(row.batches_completed || 0), errors: safeJobErrors(row.error_json),
+    created_at: row.created_at, started_at: row.started_at, updated_at: row.updated_at, finished_at: row.finished_at,
+  };
+}
+
+function safeJobErrors(value) {
+  try {
+    const parsed = JSON.parse(value || '[]');
+    return Array.isArray(parsed) ? parsed.slice(0, 10).map(error => ({
+      message: maskText(String(error?.message || '触达策略生成失败')).slice(0, 300),
+      code: String(error?.code || 'MODEL_ERROR').slice(0, 40),
+    })) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function updateOutreachJobProgress(store, id, fields) {
+  const entries = Object.entries(fields).filter(([, value]) => value !== undefined);
+  if (!entries.length) return;
+  const assignments = entries.map(([key]) => `${key}=?`).join(',');
+  await store.query(`UPDATE studio_outreach_jobs SET ${assignments},updated_at=? WHERE id=?`,
+    ...entries.map(([, value]) => value), Date.now(), id).run();
+}
+
+export async function createOutreachStrategyJob(store, user, body, env, dependencies = {}) {
+  const active = await store.query(`SELECT id FROM studio_outreach_jobs
+    WHERE created_by=? AND status IN ('pending','running') LIMIT 1`, user.id).first();
+  if (active) fail(409, '已有触达策略任务正在生成，请等待完成后再发起', 'OUTREACH_JOB_RUNNING');
+  const audience = AUDIENCES[body?.audience] ? body.audience : '';
+  const tagFilter = parseTagInput(body?.tag);
+  const tagMode = ['contains', 'and', 'or'].includes(body?.tag_mode) ? body.tag_mode : 'contains';
+  const excludeTags = parseTagInput(body?.exclude_tag);
+  const direction = normalizeStrategyDirection(body?.direction);
+  const contactId = body?.contact_id ? String(body.contact_id).slice(0, 100) : '';
+  const requestedLimit = Number(body?.limit);
+  const limit = Number.isInteger(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, 50) : null;
+  const request = {
+    audience, tag: tagFilter.join('、'), tag_mode: tagMode, exclude_tag: excludeTags.join('、'),
+    direction, contact_id: contactId, refresh: body?.refresh === true, ...(limit ? { limit } : {}),
+  };
+  const id = crypto.randomUUID(), now = Date.now();
+  await store.query(`INSERT INTO studio_outreach_jobs(id,created_by,status,request_json,direction,tag,audience,contact_id,
+    total_count,created_count,existing_count,skipped_count,failed_count,remaining_count,batches_total,batches_completed,
+    created_at,started_at,updated_at)
+    VALUES(?,?,?,?,?,?,?,?,0,0,0,0,0,0,0,0,?,?,?)`, id, user.id, 'pending', JSON.stringify(request),
+    direction, request.tag, audience, contactId, now, now, now).run();
+  void Promise.resolve().then(() => runOutreachJob(store, id, user, request, env, dependencies));
+  return jobProgress(await store.query('SELECT * FROM studio_outreach_jobs WHERE id=?', id).first());
+}
+
+export async function outreachJobStatus(store, id) {
+  const row = await store.query('SELECT * FROM studio_outreach_jobs WHERE id=?', id).first();
+  if (!row) fail(404, '触达策略任务不存在', 'NOT_FOUND');
+  return jobProgress(row);
+}
+
+async function runOutreachJob(store, id, user, request, env, dependencies = {}) {
+  let batchResults = [];
+  try {
+    await updateOutreachJobProgress(store, id, { status: 'running', started_at: Date.now() });
+    const result = await generateStrategies(store, user, request, env, {
+      ...dependencies,
+      onPlan: async progress => updateOutreachJobProgress(store, id, {
+        total_count: progress.total_count, existing_count: progress.existing_count,
+        skipped_count: progress.skipped_count, remaining_count: progress.remaining_count,
+        batches_total: progress.batches_total,
+      }),
+      onWave: async results => {
+        batchResults = results;
+        const failedCount = results.reduce((total, item) =>
+          item.result.status === 'rejected' ? total + item.batch.length : total, 0);
+        const createdCount = results.reduce((total, item) =>
+          item.result.status === 'fulfilled' ? total + item.result.value.length : total, 0);
+        await updateOutreachJobProgress(store, id, {
+          batches_completed: results.length, created_count: createdCount, failed_count: failedCount,
+        });
+      },
+    });
+    const failedCount = batchResults.reduce((total, item) =>
+      item.result.status === 'rejected' ? total + item.batch.length : total, 0);
+    await updateOutreachJobProgress(store, id, {
+      status: result.partial ? 'partial' : 'completed',
+      created_count: result.created_count, existing_count: result.existing_count,
+      skipped_count: result.frequency_skipped_count, failed_count: failedCount,
+      remaining_count: result.remaining_count, batches_completed: batchResults.length,
+      error_json: JSON.stringify(result.generation_errors || []),
+      finished_at: Date.now(),
+    });
+  } catch (error) {
+    const errors = [{ message: maskText(error?.message || '触达策略生成失败').slice(0, 300), code: error?.code || 'MODEL_ERROR' }];
+    await updateOutreachJobProgress(store, id, { status: 'failed', error_json: JSON.stringify(errors), finished_at: Date.now() });
+  }
 }
 
 async function recentOutreachMap(store, since) {

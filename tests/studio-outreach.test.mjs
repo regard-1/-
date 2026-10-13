@@ -119,6 +119,8 @@ test('outreach is admin-only and sales calls never reach upstream or model', asy
     ['/api/studio/outreach/bots/bot-1', 'PUT', { owner_user_id: 'sales' }],
     ['/api/studio/outreach/contacts/contact-1/bind', 'PUT', { local_customer_id: 'customer-1' }],
     ['/api/studio/outreach/strategies', 'POST', { limit: 1 }],
+    ['/api/studio/outreach/strategies/jobs', 'POST', { limit: 1 }],
+    ['/api/studio/outreach/strategies/jobs/job-1', 'GET', undefined],
     ['/api/studio/outreach/tasks/task-1', 'DELETE', undefined],
     ['/api/studio/outreach/messages/sync', 'POST', {}],
     ['/api/studio/outreach/tasks/task-1/queue', 'POST', {}],
@@ -728,6 +730,100 @@ test('fifty outreach strategies run batches concurrently and keep partial result
   assert.equal(modelCalls, 5);
   assert.ok(maxActive <= 3, `expected at most three concurrent batches, got ${maxActive}`);
   assert.equal(result.data.partial, false);
+});
+
+test('outreach strategy jobs return immediately and persist completed tasks', async t => {
+  let releaseModel;
+  const modelGate = new Promise(resolve => { releaseModel = resolve; });
+  const h = await harness(t, {
+    fetchJuzi: async () => listCustomersResponse(),
+    fetchModel: async (_url, options) => {
+      await modelGate;
+      const candidates = JSON.parse(JSON.parse(options.body).messages.at(-1).content).candidates;
+      return jsonResponse({
+        choices: [{ message: { content: JSON.stringify({ tasks: candidates.map(candidate => ({
+          contact_id: candidate.id,
+          priority: 'medium',
+          reason: '后台任务生成',
+          recommended_message: `${candidate.display_name}，最近状态还好吗？`,
+          next_action: '等待回复',
+          stop_rule: '明确拒绝后暂停',
+        })) }) },
+      }],
+      });
+    },
+  }, { STUDIO_OUTREACH_BATCH_SIZE: 1, STUDIO_OUTREACH_BATCH_CONCURRENCY: 1 });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  h.db.sqlite.prepare(`INSERT INTO studio_juzi_contacts
+    (id,im_contact_id,display_name,phone_suffix,gender,im_bot_id,friendship_status,match_status,last_synced_at,tags,remark)
+    VALUES('job-contact-1','job-im-1','后台客户一','6789',2,'bot-1',1,'unmatched',?,'日常营养','后台任务')`)
+    .run(Date.now());
+
+  const created = await h.call('/api/studio/outreach/strategies/jobs', 'POST', { limit: 2 }, admin);
+  assert.equal(created.status, 202);
+  assert.ok(created.data.job_id);
+  assert.ok(['pending', 'running'].includes(created.data.status));
+  assert.equal(h.db.sqlite.prepare("SELECT COUNT(*) AS n FROM studio_outreach_tasks WHERE contact_id LIKE 'job-contact-%'").get().n, 0);
+
+  releaseModel();
+  let job = created.data;
+  for (let attempt = 0; attempt < 30 && ['pending', 'running'].includes(job.status); attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+    job = (await h.call(`/api/studio/outreach/strategies/jobs/${created.data.job_id}`, 'GET', undefined, admin)).data;
+  }
+  assert.equal(job.status, 'completed');
+  assert.equal(job.total_count, 2);
+  assert.equal(job.created_count, 2);
+  assert.equal(job.batches_total, 2);
+  assert.equal(job.batches_completed, 2);
+  const rows = h.db.sqlite.prepare('SELECT contact_id,recommended_message FROM studio_outreach_tasks ORDER BY contact_id').all();
+  assert.equal(rows.length, 2);
+  assert.ok(rows.every(row => row.recommended_message.includes('最近状态还好吗')));
+});
+
+test('outreach strategy jobs keep successful batches when another batch fails', async t => {
+  const h = await harness(t, {
+    fetchJuzi: async () => listCustomersResponse(),
+    fetchModel: async (_url, options) => {
+      const candidates = JSON.parse(JSON.parse(options.body).messages.at(-1).content).candidates;
+      if (candidates.some(candidate => candidate.id === 'job-fail-contact')) {
+        const error = new Error('触达策略生成服务暂时不可用');
+        error.code = 'MODEL_UNAVAILABLE';
+        throw error;
+      }
+      return jsonResponse({
+        choices: [{ message: { content: JSON.stringify({ tasks: [{
+          contact_id: candidates[0].id,
+          priority: 'high',
+          reason: '后台成功批次',
+          recommended_message: '陈哥，最近整体状态还好吗？',
+          next_action: '等待回复',
+          stop_rule: '明确拒绝后暂停',
+        }] }) },
+      }],
+      });
+    },
+  }, { STUDIO_OUTREACH_BATCH_SIZE: 1, STUDIO_OUTREACH_BATCH_CONCURRENCY: 2 });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  h.db.sqlite.prepare(`INSERT INTO studio_juzi_contacts
+    (id,im_contact_id,display_name,phone_suffix,gender,im_bot_id,friendship_status,match_status,last_synced_at,tags,remark)
+    VALUES('job-fail-contact','job-fail-im','失败客户','6789',2,'bot-1',1,'unmatched',?,'日常营养','失败批次')`)
+    .run(Date.now());
+
+  const created = await h.call('/api/studio/outreach/strategies/jobs', 'POST', { limit: 2 }, admin);
+  let job = created.data;
+  for (let attempt = 0; attempt < 30 && ['pending', 'running'].includes(job.status); attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+    job = (await h.call(`/api/studio/outreach/strategies/jobs/${created.data.job_id}`, 'GET', undefined, admin)).data;
+  }
+  assert.equal(job.status, 'partial');
+  assert.equal(job.created_count, 1);
+  assert.equal(job.failed_count, 1);
+  assert.equal(job.errors.length, 1);
+  assert.equal(job.errors[0].code, 'MODEL_UNAVAILABLE');
+  assert.equal(h.db.sqlite.prepare("SELECT COUNT(*) AS n FROM studio_outreach_tasks WHERE contact_id='job-fail-contact'").get().n, 0);
 });
 
 test('one failed outreach batch does not discard successful batches', async t => {

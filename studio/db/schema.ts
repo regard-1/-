@@ -123,3 +123,16 @@ export const idpTokens = sqliteTable('studio_idp_tokens', {
   tokenHash: text('token_hash').primaryKey(), clientId: text('client_id').notNull(),
   userId: text('user_id').notNull(), expiresAt: integer('expires_at').notNull(),
 });
+
+export const outreachJobs = sqliteTable('studio_outreach_jobs', {
+  id: text('id').primaryKey(), createdBy: text('created_by').notNull(),
+  status: text('status').notNull(), requestJson: text('request_json').notNull(),
+  direction: text('direction').notNull().default('auto'), tag: text('tag').notNull().default(''),
+  audience: text('audience').notNull().default(''), contactId: text('contact_id').notNull().default(''),
+  totalCount: integer('total_count').notNull().default(0), createdCount: integer('created_count').notNull().default(0),
+  existingCount: integer('existing_count').notNull().default(0), skippedCount: integer('skipped_count').notNull().default(0),
+  failedCount: integer('failed_count').notNull().default(0), remainingCount: integer('remaining_count').notNull().default(0),
+  batchesTotal: integer('batches_total').notNull().default(0), batchesCompleted: integer('batches_completed').notNull().default(0),
+  errorJson: text('error_json'), createdAt: integer('created_at').notNull(), startedAt: integer('started_at'),
+  updatedAt: integer('updated_at').notNull(), finishedAt: integer('finished_at'),
+});

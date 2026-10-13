@@ -70,11 +70,15 @@ export class Store {
    this.query('DELETE FROM studio_issues WHERE created_at<?', now - 2592000000),
    this.query('DELETE FROM studio_outreach_messages WHERE created_at<?', now - 2592000000),
    this.query('DELETE FROM studio_outreach_tasks WHERE created_at<?', now - 2592000000),
+   this.query('DELETE FROM studio_outreach_jobs WHERE created_at<?', now - 2592000000),
    this.query('DELETE FROM studio_customer_profile_updates WHERE created_at<?', now - 2592000000),
      this.query('DELETE FROM studio_outreach_templates WHERE active=0 AND updated_at<?', now - 2592000000),
      this.query('DELETE FROM studio_idp_codes WHERE expires_at<=?', now),
      this.query('DELETE FROM studio_idp_tokens WHERE expires_at<=?', now),
   ]);
+   await this.query(`UPDATE studio_outreach_jobs SET status='failed',error_json=?,updated_at=?,finished_at=?
+     WHERE status IN ('pending','running') AND updated_at<?`,
+     JSON.stringify([{ message: '任务因服务重启或长时间未更新已终止', code: 'JOB_STALE' }]), now, now, now - 1800000).run();
     const stale = await this.all("SELECT id,month,reservation,created_at FROM studio_usage WHERE status='pending' AND created_at<? LIMIT 100", now - 120000);
     for (const row of stale) await this.settle({ ...row, started: row.created_at }, 'unknown', row.reservation);
   }

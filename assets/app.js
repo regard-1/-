@@ -1,6 +1,7 @@
-const state={user:null,studioRole:null,page:'workbench',categories:[],audience:null,audienceQuery:'',audienceOwner:'',audiencePage:1,customer:null,scripts:[],tasks:[],taskCategory:'all',outreachUser:null,outreachCsrf:'',outreachData:null,outreachUsers:[],outreachPending:false,outreachAutoStarted:false,outreachModelConfigured:false,outreachError:'',outreachNotice:'',outreachBatch:null,outreachContactPage:1,outreachContactQuery:'',outreachContactReply:'all',outreachTaskPage:1,outreachTaskQuery:'',outreachTaskStatus:'all',outreachTaskSelectionAll:false,outreachTagQuery:'',outreachTagMode:'contains',outreachExcludeTag:'',outreachStrategyDirection:'auto',juziSpOrigin:'',passwordChangeRequired:false,passwordChangeUsername:''};
+const state={user:null,studioRole:null,page:'workbench',categories:[],audience:null,audienceQuery:'',audienceOwner:'',audiencePage:1,customer:null,scripts:[],tasks:[],taskCategory:'all',outreachUser:null,outreachCsrf:'',outreachData:null,outreachUsers:[],outreachPending:false,outreachAutoStarted:false,outreachModelConfigured:false,outreachError:'',outreachNotice:'',outreachJob:null,outreachBatch:null,outreachContactPage:1,outreachContactQuery:'',outreachContactReply:'all',outreachTaskPage:1,outreachTaskQuery:'',outreachTaskStatus:'all',outreachTaskSelectionAll:false,outreachTagQuery:'',outreachTagMode:'contains',outreachExcludeTag:'',outreachStrategyDirection:'auto',juziSpOrigin:'',passwordChangeRequired:false,passwordChangeUsername:''};
 let navigationVersion=0;
 let juziBlinkTimer=null,juziOriginalTitle='';
+let outreachJobTimer=null;
 const $=(selector,root=document)=>root.querySelector(selector);
 const $$=(selector,root=document)=>[...root.querySelectorAll(selector)];
 function esc(value=''){return String(value).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
@@ -223,6 +224,7 @@ function renderOutreachWorkspace(data){
     <div class="outreach-summary-grid">${outreachSummary('句子互动',data.configured?'已连接':'待配置',data.configured?'客户与发送 API 已连接':'请联系管理员配置')}${outreachSummary('策略模型',data.model_configured?'已接入':'未配置',data.model_configured?'策略与推荐回复共用配置':'请联系管理员配置')}${outreachSummary('真实客户',counts.contacts,'手机号仅保留后四位')}${outreachSummary('已回复',counts.replied,'回复用户置顶展示')}${outreachSummary('今日触达',counts.today,'含模板和一客一策')}${outreachSummary('已发送',counts.sentToday,'人工确认后提交上游')}</div>
     ${state.outreachError?`<div class="outreach-alert">${esc(state.outreachError)}</div>`:''}
     ${state.outreachNotice?`<div class="outreach-notice">${esc(state.outreachNotice)}</div>`:''}
+    ${outreachJobProgressHtml(state.outreachJob)}
     ${outreachTemplatePanel(data)}
     <section class="outreach-panel"><header><div><h4>真实客户 · 标签 · 画像</h4><p>点击“打开对话”查看该客户独立对话框；可对单人重新生成触达策略。</p></div><span class="outreach-count-pill">${pagination.total_contacts} 位已同步 · 当前 ${pagination.start_index}-${pagination.end_index} / ${pagination.total}</span></header><form class="outreach-contact-controls" data-action="outreach-search" onsubmit="submitOutreachContactSearch(event)"><div class="outreach-contact-search"><input id="outreach-contact-query" value="${esc(pagination.query||state.outreachContactQuery)}" maxlength="80" placeholder="搜索昵称、尾号、标签、备注、归属"><button class="primary-button" type="submit">搜索</button></div><div class="outreach-contact-filters"><button type="button" class="secondary-button ${pagination.reply_filter==='all'?'active':''}" onclick="setOutreachContactReply('all')">全部</button><button type="button" class="secondary-button ${pagination.reply_filter==='replied'?'active':''}" onclick="setOutreachContactReply('replied')">已回复</button><button type="button" class="secondary-button ${pagination.reply_filter==='unread'?'active':''}" onclick="setOutreachContactReply('unread')">未回复</button></div></form>
     <section class="outreach-tag-filter" aria-label="标签人群筛选">
@@ -315,36 +317,85 @@ function changeOutreachTaskPage(delta){const pagination=state.outreachData?.task
 async function syncOutreachContacts(){if(state.outreachPending)return;state.outreachPending=true;toast('正在同步句子互动客户…');try{await studioApi('/outreach/sync',{method:'POST',body:'{}'});state.outreachAutoStarted=false;await renderOutreach();toast('客户同步完成')}catch(error){toast(error.message)}finally{state.outreachPending=false}}
 async function refreshOutreachCache(contactId=''){if(state.outreachPending)return;state.outreachPending=true;try{await renderOutreach();if(contactId)openOutreachContact(contactId);toast('已刷新已同步数据')}catch(error){toast(error.message)}finally{state.outreachPending=false}}
 async function syncOutreachHistory(){if(state.outreachPending)return;state.outreachPending=true;state.outreachError='正在同步句子互动 30 天真实对话…';state.outreachNotice='';renderOutreachWorkspace(state.outreachData);try{const result=await studioApi('/outreach/messages/sync',{method:'POST',body:'{}'});state.outreachError='';state.outreachNotice='';await renderOutreach();toast(`真实对话同步完成：新增 ${result.inserted||0} 条`)}catch(error){if(error.code==='RATE_LIMIT'){state.outreachError='';state.outreachNotice='真实对话同步间隔未到，当前展示最近一次同步的数据。';toast('同步间隔未到，已展示最近同步数据')}else{state.outreachError=error.message;state.outreachNotice='';toast(error.message)}renderOutreachWorkspace(state.outreachData)}finally{state.outreachPending=false}}
-async function refreshOutreachStrategies(refresh){if(state.outreachPending)return;state.outreachPending=true;let first=refresh===true,total=0;state.outreachError='';state.outreachNotice=refresh?'正在分批为全部真实客户重新生成今日策略…':'正在分批生成今日策略…';renderOutreachWorkspace(state.outreachData);try{let remaining;do{const result=await studioApi('/outreach/strategies',{method:'POST',body:JSON.stringify({refresh:first,limit:10,direction:state.outreachStrategyDirection})});total+=result.created_count||0;remaining=result.remaining_count||0;first=false;state.outreachData=await loadOutreachSnapshot();state.outreachNotice=remaining?`正在分批生成今日策略：已生成 ${total} 条，剩余约 ${remaining} 位客户。`:`今日策略已生成 ${total} 条。`;renderOutreachWorkspace(state.outreachData)}while(remaining>0);state.outreachNotice='';toast(`今日策略已生成 ${total} 条`)}catch(error){state.outreachError=error.message;state.outreachNotice='';renderOutreachWorkspace(state.outreachData);toast(error.message)}finally{state.outreachPending=false}}
+async function refreshOutreachStrategies(refresh){
+  await startOutreachStrategyJob({
+    refresh:refresh===true,limit:50,direction:state.outreachStrategyDirection
+  },{label:refresh?'全量策略':'今日策略'});
+}
 async function generateOutreachTagStrategies(){
   const tag=($('#outreach-tag-query')?.value||state.outreachTagQuery||'').trim();
   if(!tag)return toast('请先填写标签关键词');
-  if(state.outreachPending)return;
-  state.outreachPending=true;
   state.outreachTagQuery=tag;
   state.outreachTagMode=$('#outreach-tag-mode')?.value||state.outreachTagMode;
   state.outreachExcludeTag=($('#outreach-exclude-tag')?.value||'').trim();
   state.outreachStrategyDirection=normalizeOutreachStrategyDirection($('#outreach-strategy-direction')?.value||state.outreachStrategyDirection);
   state.outreachContactPage=1;
-  let total=0,skipped=0,existing=0;
+  await startOutreachStrategyJob({
+    tag,tag_mode:state.outreachTagMode,exclude_tag:state.outreachExcludeTag,
+    direction:state.outreachStrategyDirection,refresh:false,limit:50
+  },{label:'标签人群策略'});
+}
+async function generateOutreachStrategyForContact(id){
+  const contact=(state.outreachData?.contacts||[]).find(item=>item.id===id);
+  state.outreachStrategyDirection=normalizeOutreachStrategyDirection($('#outreach-strategy-direction')?.value||state.outreachStrategyDirection);
+  await startOutreachStrategyJob({contact_id:id,direction:state.outreachStrategyDirection},
+    {label:contact?.display_name||'一客一策',contactId:id});
+}
+function outreachJobProgressHtml(job){
+  if(!job||['completed','partial','failed'].includes(job.status))return '';
+  const total=Number(job.total_count||0),done=Number(job.created_count||0);
+  const percent=total?Math.max(2,Math.round(done/total*100)):8;
+  const batchText=Number(job.batches_total||0)?`第 ${job.batches_completed||0}/${job.batches_total} 批`:null;
+  return `<section class="outreach-job-progress" id="outreach-job-progress" aria-live="polite">
+    <header><strong>后台生成${job.tag?' · '+esc(job.tag):''}</strong><span>${esc(batchText||'正在准备批次')}</span></header>
+    <div class="outreach-job-progress-track"><i style="width:${percent}%"></i></div>
+    <p>已生成 ${done}/${total||'—'} 条${Number(job.failed_count||0)?` · 失败 ${job.failed_count}`:''} · 页面可继续查看，无需等待。</p>
+  </section>`;
+}
+function updateOutreachJobProgress(){
+  const node=$('#outreach-job-progress');
+  if(node)node.outerHTML=outreachJobProgressHtml(state.outreachJob);
+}
+async function startOutreachStrategyJob(body,{label='',contactId=''}={}){
+  if(['pending','running'].includes(state.outreachJob?.status))return toast('已有策略任务在后台生成中');
   state.outreachError='';
-  state.outreachNotice=`正在按标签筛选人群生成一客一策…`;
-  renderOutreachWorkspace(state.outreachData);
+  state.outreachNotice=`已发起${label||'触达策略'}后台生成，可继续查看其他内容。`;
   try{
-    let remaining;
-    do{
-      const result=await studioApi('/outreach/strategies',{method:'POST',body:JSON.stringify({tag,tag_mode:state.outreachTagMode,exclude_tag:state.outreachExcludeTag,direction:state.outreachStrategyDirection,refresh:false,limit:10})});
-      total+=result.created_count||0;skipped+=result.frequency_skipped_count||0;existing+=result.existing_count||0;remaining=result.remaining_count||0;
-      state.outreachData=await loadOutreachSnapshot();
-      state.outreachNotice=remaining?`标签人群策略生成中：新增 ${total} 条，剩余约 ${remaining} 位。`:`标签人群策略已生成 ${total} 条，已有 ${existing} 条，频控跳过 ${skipped} 位。`;
-      renderOutreachWorkspace(state.outreachData);
-    }while(remaining>0);
-    toast(`标签人群策略完成：新增 ${total} 条，频控跳过 ${skipped} 位`);
+    const job=await studioApi('/outreach/strategies/jobs',{method:'POST',body:JSON.stringify(body)});
+    state.outreachJob=job;
+    renderOutreachWorkspace(state.outreachData);
+    startOutreachJobPolling(job.job_id,contactId);
   }catch(error){
     state.outreachError=error.message;state.outreachNotice='';renderOutreachWorkspace(state.outreachData);toast(error.message);
-  }finally{state.outreachPending=false}
+  }
 }
-async function generateOutreachStrategyForContact(id){if(state.outreachPending)return;state.outreachPending=true;const contact=(state.outreachData?.contacts||[]).find(item=>item.id===id);state.outreachError=`正在为 ${contact?.display_name||'该客户'} 生成一客一策…`;state.outreachStrategyDirection=normalizeOutreachStrategyDirection($('#outreach-strategy-direction')?.value||state.outreachStrategyDirection);renderOutreachWorkspace(state.outreachData);try{const result=await studioApi('/outreach/strategies',{method:'POST',body:JSON.stringify({contact_id:id,direction:state.outreachStrategyDirection})});state.outreachError='';await renderOutreach();openOutreachContact(id);toast(`已生成 ${result.created_count||result.tasks?.length||0} 条触达策略`)}catch(error){state.outreachError=error.message;renderOutreachWorkspace(state.outreachData);toast(error.message)}finally{state.outreachPending=false}}
+function startOutreachJobPolling(jobId,contactId=''){
+  if(outreachJobTimer)clearTimeout(outreachJobTimer);
+  const poll=async()=>{
+    if(state.page!=='outreach')return;
+    try{
+      const job=await studioApi(`/outreach/strategies/jobs/${encodeURIComponent(jobId)}`);
+      state.outreachJob=job;
+      if(['completed','partial','failed'].includes(job.status)){
+        outreachJobTimer=null;
+        state.outreachNotice=job.status==='failed'
+          ?(job.errors?.[0]?.message||'触达策略生成失败')
+          :`触达策略生成完成：新增 ${job.created_count||0} 条，已有 ${job.existing_count||0} 条，失败 ${job.failed_count||0} 条。`;
+        state.outreachError=job.status==='failed'?state.outreachNotice:'';
+        await renderOutreach();
+        if(contactId)openOutreachContact(contactId);
+        toast(state.outreachError||state.outreachNotice);
+        return;
+      }
+      updateOutreachJobProgress();
+      outreachJobTimer=setTimeout(poll,2000);
+    }catch(error){
+      outreachJobTimer=null;state.outreachError=error.message;state.outreachNotice='';
+      renderOutreachWorkspace(state.outreachData);toast(error.message);
+    }
+  };
+  outreachJobTimer=setTimeout(poll,1000);
+}
 function outreachChatMessages(messages){const items=[...messages].sort((a,b)=>a.created_at-b.created_at).slice(-100);if(!items.length)return '<div class="empty-card">暂无 30 天内真实聊天记录。请先同步真实对话。</div>';return `<div class="outreach-chat">${items.map(item=>`<article class="${item.direction==='inbound'?'inbound':'outbound'}"><p>${esc(item.content)}</p><time>${esc(fmtDate(item.created_at))} · ${esc(item.direction==='inbound'?'客户':'营养师')}</time></article>`).join('')}</div>`}
 function openOutreachContact(id){const contact=(state.outreachData?.contacts||[]).find(item=>item.id===id);if(!contact)return;const messages=(state.outreachData?.messages||[]).filter(item=>item.contact_id===id);const tasks=outreachVisibleTasks().filter(task=>task.contact_id===id&&task.plan_day===state.outreachData?.plan_day);const profile=outreachProfile(contact);showDrawer(`<div class="drawer-header"><button class="drawer-close" onclick="closeDrawer()">×</button><p class="hero-kicker">真实客户对话</p><h3>${esc(contact.display_name)} · 尾号 ${esc(contact.phone_suffix||'—')}</h3><p>${esc(contact.bot_name||'')} · ${esc(contact.owner_name||'未设置归属')} · ${contact.replied?'<b class="reply-badge replied">已回复</b>':'<b class="reply-badge">未回复</b>'}</p></div><div class="drawer-body outreach-drawer"><section class="outreach-drawer-grid"><div><h4>句子互动标签</h4><div class="outreach-tag-list">${(contact.tags||'').split('、').filter(Boolean).map(tag=>`<span>${esc(tag)}</span>`).join('')||'<span>无标签</span>'}</div>${contact.remark?`<p>${esc(contact.remark)}</p>`:''}</div><div><h4>画像与回复</h4><p>${esc(outreachProfileSummary(contact))}</p>${contact.last_reply_at?`<small>最近回复：${esc(fmtDate(contact.last_reply_at))}</small>`:'<small>暂无回复记录</small>'}<div class="outreach-inline-actions"><button class="secondary-button" type="button" onclick="toggleOutreachReplyStatus('${esc(id)}')">${contact.reply_status_override===0?'人工纠正回复状态':'恢复自动识别'}</button></div></div></section><section><h4>称呼确认</h4><div class="outreach-salutation-form"><input id="outreach-salutation-${esc(id)}" value="${esc(contact.confirmed_salutation||contact.salutation||outreachFallbackSalutation(contact))}" maxlength="30" placeholder="例如：张哥、徐姐、张老师"><button class="primary-button" type="button" onclick="saveOutreachSalutation('${esc(id)}')">保存称呼</button></div><small>人工确认后，固定模板和推荐回复会优先使用这个称呼。</small></section><section><h4>触达策略</h4>${tasks.length?tasks.map(outreachTaskCard).join(''):'<div class="empty-card">该客户今日暂无策略。</div>'}<button class="primary-button" type="button" onclick="generateOutreachStrategyForContact('${esc(id)}')">生成/重算一客一策</button></section><section><h4>真实对话框</h4>${outreachChatMessages(messages)}<div class="outreach-inline-actions"><button class="secondary-button" type="button" onclick="syncOutreachHistory()">同步最新对话</button><button class="primary-button" type="button" onclick="generateOutreachReply('${esc(id)}')">生成推荐回复</button></div></section></div>`)}
 async function bindOutreachContact(id,customerId){try{await studioApi(`/outreach/contacts/${encodeURIComponent(id)}/bind`,{method:'PUT',body:JSON.stringify({local_customer_id:customerId})});toast(customerId?'客户绑定已更新':'已解除绑定');await renderOutreach()}catch(error){toast(error.message)}}
