@@ -139,13 +139,13 @@ try {
   assert.equal(await page.locator('.drawer [data-task-select]').count(), 0);
   await page.locator('.drawer-close').click();
   assert.equal(await page.locator('#outreach-batch-queue-button').isDisabled(), true);
-  await page.locator('#outreach-task-select-all').check();
-  assert.equal(await page.locator('#outreach-task-selected-count').textContent(), '已选 1 条');
+  await page.locator('#outreach-task-select-today').check();
+  assert.equal(await page.locator('#outreach-task-selected-count').textContent(), '已选今日全部 1 条');
   assert.equal(await page.locator('#outreach-batch-queue-button').isDisabled(), false);
   await page.locator('.outreach-workspace .outreach-task-editor').fill('陈哥，先问一句：最近是精力跟不太上，还是睡眠先受影响？');
   page.once('dialog', dialog => dialog.accept());
   const bulkMessageUpdate = page.waitForRequest(request => request.url().includes('/api/studio/outreach/tasks/') && request.url().endsWith('/message'));
-  const bulkQueue = page.waitForResponse(response => response.url().includes('/api/studio/outreach/tasks/') && response.url().endsWith('/queue'));
+  const bulkQueue = page.waitForResponse(response => response.url().endsWith('/api/studio/outreach/tasks/queue-today'));
   await page.locator('#outreach-batch-queue-button').click();
   const bulkUpdateRequest = await bulkMessageUpdate;
   assert.equal(JSON.parse(bulkUpdateRequest.postData()).message, '陈哥，先问一句：最近是精力跟不太上，还是睡眠先受影响？');

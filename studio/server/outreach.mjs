@@ -142,11 +142,12 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
     LIMIT ? OFFSET ?`, ...taskParameters, taskLimit, taskStart);
   const [globalTaskStats] = await store.all(`SELECT COUNT(*) AS total,
     SUM(CASE WHEN status='draft' THEN 1 ELSE 0 END) AS draft,
+    SUM(CASE WHEN plan_day=? AND status='draft' THEN 1 ELSE 0 END) AS draft_today,
     SUM(CASE WHEN status='queued' THEN 1 ELSE 0 END) AS queued,
     SUM(CASE WHEN status='sent' AND plan_day=? THEN 1 ELSE 0 END) AS sent_today,
     SUM(CASE WHEN plan_day=? THEN 1 ELSE 0 END) AS today_total,
     SUM(CASE WHEN plan_day=? AND status IN ('draft','queued') THEN 1 ELSE 0 END) AS unsent_today
-    FROM studio_outreach_tasks`, day, day, day);
+  FROM studio_outreach_tasks`, day, day, day, day);
   const counts = {
     contacts: totalCount,
     filtered_contacts: filteredContacts.length,
@@ -154,6 +155,7 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
     suggested: allContacts.filter(c => c.match_status === 'suggested').length,
     ambiguous: allContacts.filter(c => c.match_status === 'ambiguous').length,
     draft: Number(globalTaskStats?.draft || 0),
+    draftToday: Number(globalTaskStats?.draft_today || 0),
     queued: Number(globalTaskStats?.queued || 0),
     sentToday: Number(globalTaskStats?.sent_today || 0),
     today: Number(globalTaskStats?.today_total || 0),
@@ -1143,6 +1145,16 @@ export async function queueTask(store, id) {
   const result = await store.query("UPDATE studio_outreach_tasks SET status='queued' WHERE id=? AND status='draft' RETURNING id", id).first();
   if (!result) fail(404, '触达任务不存在或不是待入队状态');
   return { queued: true };
+}
+
+export async function queueTodayTasks(store, body = {}) {
+  if (body?.scope !== 'today' || body?.confirm !== true) fail(400, '请确认批量加入今日执行队列');
+  const planDay = chinaDay();
+  const rows = await store.all(
+    "UPDATE studio_outreach_tasks SET status='queued' WHERE plan_day=? AND status='draft' RETURNING id",
+    planDay
+  );
+  return { queued_count: rows.length, plan_day: planDay };
 }
 
 export async function deleteTask(store, id) {

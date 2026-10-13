@@ -4,7 +4,7 @@ import { generate, validateMaterial } from './generation.mjs';
 import { knowledgeConfigured } from './knowledge.mjs';
 import { recognizeScreenshot } from './ocr.mjs';
 import { createJuziIframe, handleOauth } from './idp.mjs';
-import { assignBot, bindContact, clearTodayTasks, createTemplate, deleteTask, deleteTemplate, generateReply, generateStrategies, generateTemplateTasks, handleJuziCallback, outreachSnapshot, queueTask, sendTask, syncContacts, syncConversations, updateContactReplyStatus, updateContactSalutation, updateTaskMessage, updateTemplate } from './outreach.mjs';
+import { assignBot, bindContact, clearTodayTasks, createTemplate, deleteTask, deleteTemplate, generateReply, generateStrategies, generateTemplateTasks, handleJuziCallback, outreachSnapshot, queueTask, queueTodayTasks, sendTask, syncContacts, syncConversations, updateContactReplyStatus, updateContactSalutation, updateTaskMessage, updateTemplate } from './outreach.mjs';
 import { AUDIENCES, maskText, MODEL, monthKey } from '../shared.mjs';
 
 const cleanName = value => typeof value === 'string' && /^[a-zA-Z][a-zA-Z0-9_.-]{2,39}$/.test(value);
@@ -200,6 +200,11 @@ export async function api(request, env, dependencies = {}) {
   if (taskMessageMatch && method === 'PUT') {
     admin(user);
     return json(await updateTaskMessage(store, user, taskMessageMatch[1], await readBody(request)));
+  }
+  if (route === '/api/studio/outreach/tasks/queue-today' && method === 'POST') {
+    admin(user);
+    await store.rateLimit(`outreach-queue-today:${user.id}`, 4, 60);
+    return json(await queueTodayTasks(store, await readBody(request)));
   }
   const queueMatch = route.match(/^\/api\/studio\/outreach\/tasks\/([\w-]+)\/queue$/);
   if (queueMatch && method === 'POST') {

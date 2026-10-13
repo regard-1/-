@@ -1,4 +1,4 @@
-const state={user:null,studioRole:null,page:'workbench',categories:[],audience:null,audienceQuery:'',audienceOwner:'',audiencePage:1,customer:null,scripts:[],tasks:[],taskCategory:'all',outreachUser:null,outreachCsrf:'',outreachData:null,outreachUsers:[],outreachPending:false,outreachAutoStarted:false,outreachModelConfigured:false,outreachError:'',outreachNotice:'',outreachBatch:null,outreachContactPage:1,outreachContactQuery:'',outreachContactReply:'all',outreachTaskPage:1,outreachTaskQuery:'',outreachTaskStatus:'all',outreachTagQuery:'',outreachTagMode:'contains',outreachExcludeTag:'',outreachStrategyDirection:'auto',juziSpOrigin:'',passwordChangeRequired:false,passwordChangeUsername:''};
+const state={user:null,studioRole:null,page:'workbench',categories:[],audience:null,audienceQuery:'',audienceOwner:'',audiencePage:1,customer:null,scripts:[],tasks:[],taskCategory:'all',outreachUser:null,outreachCsrf:'',outreachData:null,outreachUsers:[],outreachPending:false,outreachAutoStarted:false,outreachModelConfigured:false,outreachError:'',outreachNotice:'',outreachBatch:null,outreachContactPage:1,outreachContactQuery:'',outreachContactReply:'all',outreachTaskPage:1,outreachTaskQuery:'',outreachTaskStatus:'all',outreachTaskSelectionAll:false,outreachTagQuery:'',outreachTagMode:'contains',outreachExcludeTag:'',outreachStrategyDirection:'auto',juziSpOrigin:'',passwordChangeRequired:false,passwordChangeUsername:''};
 let navigationVersion=0;
 let juziBlinkTimer=null,juziOriginalTitle='';
 const $=(selector,root=document)=>root.querySelector(selector);
@@ -156,6 +156,7 @@ function outreachVisibleTasks(data=state.outreachData){
 }
 async function renderOutreach(){
   setHeader('用户触达','用户触达 / 小蟹 AI 与句子互动');
+  state.outreachTaskSelectionAll=false;
   const version=navigationVersion;
   try{
     const account=await ensureOutreachAccount();
@@ -235,7 +236,7 @@ function renderOutreachWorkspace(data){
       <div class="outreach-tag-summary"><strong>${pagination.total} 位匹配 · ${tagSummary.distinct_tags||0} 个标签</strong>${tagSummary.related?.length?`<div class="outreach-related-tags">${tagSummary.related.map(item=>`<button type="button" onclick="applyOutreachRelatedTag('${esc(item.name)}')">${esc(item.name)} · ${item.count}</button>`).join('')}</div>`:'<small>输入关键词后会推荐相关标签。</small>'}<small>同一客户 3 天内已有待发送或已发送触达时，生成策略会自动跳过。</small></div>
     </section>
     <div class="outreach-contact-list">${contacts.length?contacts.map(outreachContactRow).join(''):'<div class="empty-card">当前筛选没有客户，可调整搜索或筛选条件。</div>'}</div><div class="outreach-pagination"><button class="secondary-button" type="button" onclick="changeOutreachContactPage(-1)" ${pagination.page<=1?'disabled':''}>上一页</button><span>第 ${pagination.page} / ${pagination.pages} 页</span><button class="secondary-button" type="button" onclick="changeOutreachContactPage(1)" ${pagination.page>=pagination.pages?'disabled':''}>下一页</button></div></section>
-    <section class="outreach-panel"><header><div><h4>今日一客一策</h4><p>每个策略来自真实客户标签、备注、画像和聊天历史，包含开口话术、下一步和暂停规则。</p></div><div class="outreach-header-actions"><span class="outreach-count-pill">第 ${taskPagination.start_index}-${taskPagination.end_index} / ${taskPagination.total} 条</span><button class="danger-button" type="button" onclick="clearTodayOutreachStrategies()" ${unsentTodayCount?'':'disabled'}>一键删除今日未发送策略</button></div></header><form class="outreach-task-bulk" data-action="outreach-bulk"><label class="outreach-task-select-all"><input type="checkbox" id="outreach-task-select-all" onchange="toggleAllOutreachTasks(this.checked)" ${todayTasks.some(task=>task.status==='draft')?'':'disabled'}><span>全选本页可入队策略</span></label><span class="outreach-task-selected-count" id="outreach-task-selected-count">已选 0 条</span><button class="primary-button" type="button" id="outreach-batch-queue-button" onclick="queueSelectedOutreachTasks()" disabled>一键保存并加入队列</button></form><form class="outreach-task-controls" data-action="outreach-task-search" onsubmit="submitOutreachTaskSearch(event)"><div class="outreach-contact-search"><input id="outreach-task-query" value="${esc(taskPagination.query||state.outreachTaskQuery)}" maxlength="80" placeholder="搜索客户、话术、状态、理由、托管账号"><button class="primary-button" type="submit">搜索策略</button></div><div class="outreach-contact-filters"><button type="button" class="secondary-button ${taskPagination.status_filter==='all'?'active':''}" onclick="setOutreachTaskStatus('all')">全部</button><button type="button" class="secondary-button ${taskPagination.status_filter==='sent'?'active':''}" onclick="setOutreachTaskStatus('sent')">已发送</button><button type="button" class="secondary-button ${taskPagination.status_filter==='unsent'?'active':''}" onclick="setOutreachTaskStatus('unsent')">未发送</button></div></form><div class="outreach-task-list">${todayTasks.length?todayTasks.map(task=>outreachTaskCard(task,true)).join(''):'<div class="empty-card">今日暂无匹配策略。可调整状态筛选，或重新生成。</div>'}</div><div class="outreach-pagination"><button class="secondary-button" type="button" onclick="changeOutreachTaskPage(-1)" ${taskPagination.page<=1?'disabled':''}>上一页</button><span>第 ${taskPagination.page} / ${taskPagination.pages} 页 · 每页 5 条</span><button class="secondary-button" type="button" onclick="changeOutreachTaskPage(1)" ${taskPagination.page>=taskPagination.pages?'disabled':''}>下一页</button></div></section>
+    <section class="outreach-panel"><header><div><h4>今日一客一策</h4><p>每个策略来自真实客户标签、备注、画像和聊天历史，包含开口话术、下一步和暂停规则。</p></div><div class="outreach-header-actions"><span class="outreach-count-pill">第 ${taskPagination.start_index}-${taskPagination.end_index} / ${taskPagination.total} 条</span><button class="danger-button" type="button" onclick="clearTodayOutreachStrategies()" ${unsentTodayCount?'':'disabled'}>一键删除今日未发送策略</button></div></header><form class="outreach-task-bulk" data-action="outreach-bulk"><div class="outreach-task-scope-controls" role="radiogroup" aria-label="批量入队范围"><label class="outreach-task-select-all"><input type="radio" id="outreach-task-select-all" name="outreach-task-scope" checked onchange="setOutreachTaskSelectionScope('page')" ${todayTasks.some(task=>task.status==='draft')?'':'disabled'}><span>全选本页可入队策略</span></label><label class="outreach-task-select-all"><input type="radio" id="outreach-task-select-today" name="outreach-task-scope" onchange="setOutreachTaskSelectionScope('today')" ${counts.draftToday?'':'disabled'}><span>全选今日所有可入队策略（${counts.draftToday} 条）</span></label></div><span class="outreach-task-selected-count" id="outreach-task-selected-count">已选 0 条</span><button class="primary-button" type="button" id="outreach-batch-queue-button" onclick="queueSelectedOutreachTasks()" disabled>一键保存并加入队列</button></form><form class="outreach-task-controls" data-action="outreach-task-search" onsubmit="submitOutreachTaskSearch(event)"><div class="outreach-contact-search"><input id="outreach-task-query" value="${esc(taskPagination.query||state.outreachTaskQuery)}" maxlength="80" placeholder="搜索客户、话术、状态、理由、托管账号"><button class="primary-button" type="submit">搜索策略</button></div><div class="outreach-contact-filters"><button type="button" class="secondary-button ${taskPagination.status_filter==='all'?'active':''}" onclick="setOutreachTaskStatus('all')">全部</button><button type="button" class="secondary-button ${taskPagination.status_filter==='sent'?'active':''}" onclick="setOutreachTaskStatus('sent')">已发送</button><button type="button" class="secondary-button ${taskPagination.status_filter==='unsent'?'active':''}" onclick="setOutreachTaskStatus('unsent')">未发送</button></div></form><div class="outreach-task-list">${todayTasks.length?todayTasks.map(task=>outreachTaskCard(task,true)).join(''):'<div class="empty-card">今日暂无匹配策略。可调整状态筛选，或重新生成。</div>'}</div><div class="outreach-pagination"><button class="secondary-button" type="button" onclick="changeOutreachTaskPage(-1)" ${taskPagination.page<=1?'disabled':''}>上一页</button><span>第 ${taskPagination.page} / ${taskPagination.pages} 页 · 每页 5 条</span><button class="secondary-button" type="button" onclick="changeOutreachTaskPage(1)" ${taskPagination.page>=taskPagination.pages?'disabled':''}>下一页</button></div></section>
     <section class="outreach-panel"><header><h4>执行队列</h4><p>仅管理员可入队和发送；发送前系统弹出完整内容二次确认。</p></header><div class="outreach-queue-list">${queuedTasks.map(outreachQueueCard).join('')||'<div class="empty-card">队列暂无待发送任务。</div>'}${outreachBatchControls(queuedTasks)}</div></section>
     <details class="outreach-panel outreach-archive"><summary><span>30 天真实消息留档</span><strong>${messages.length} 条</strong><small>仅管理员可查看，默认折叠</small></summary><div class="outreach-message-archive">${messages.length?messages.map(outreachMessageRow).join(''):'<div class="empty-card">暂无留档，请先同步真实对话。</div>'}</div></details>
     <details class="outreach-panel outreach-archive"><summary><span>画像更新建议</span><strong>${updates.length} 条</strong><small>客户回复后自动沉淀，由管理员复核后再用于下一轮策略。</small></summary><div class="outreach-profile-updates">${updates.length?updates.map(outreachProfileRow).join(''):'<div class="empty-card">暂无画像更新建议。</div>'}</div></details>
@@ -293,7 +294,7 @@ function outreachInitialProfileGrid(contact){
 }
 function outreachProfilePill(label,value){return `<span><b>${esc(label)}</b><strong>${esc(value)}</strong></span>`}
 function outreachContactRow(contact){const local=contact.local_customer_id||'';const contactTasks=outreachVisibleTasks().filter(task=>task.contact_id===contact.id&&task.plan_day===state.outreachData?.plan_day);const strategy=contactTasks[0];return `<article><div><strong>${esc(contact.display_name)}</strong><span>尾号 ${esc(contact.phone_suffix||'—')} · ${esc(contact.owner_name||contact.bot_name||'未设置归属')}</span></div><div class="outreach-contact-reply ${contact.replied?'replied':''}"><strong>${contact.replied?'已回复':'未回复'}</strong><span>${contact.last_reply_at?`最近回复 ${esc(fmtDate(contact.last_reply_at))}`:'暂无回复记录'}</span><button class="secondary-button" type="button" onclick="toggleOutreachReplyStatus('${esc(contact.id)}')">${contact.reply_status_override===0?'人工纠正':'恢复自动'}</button></div><div class="outreach-tag-list">${(contact.tags||'').split('、').filter(Boolean).map(tag=>`<span>${esc(tag)}</span>`).join('')||'<span>无标签</span>'}</div>${contact.remark?`<small>${esc(contact.remark)}</small>`:''}<small class="outreach-profile-line">${esc(outreachProfileSummary(contact))}</small><div class="outreach-contact-actions"><span class="tag ${strategy?.status==='sent'?'green':strategy?'blue':''}">${strategy?`今日${esc(strategy.status==='sent'?'已发送':strategy.status==='queued'?'待发送':strategy.status==='paused'?'已暂停':'已生成')}`:'今日未生成'}</span><button class="secondary-button" type="button" onclick="openOutreachContact('${esc(contact.id)}')">打开对话</button><button class="primary-button" type="button" onclick="generateOutreachStrategyForContact('${esc(contact.id)}')">${strategy?'重新生成':'生成一客一策'}</button><select data-contact="${esc(contact.id)}"><option value="">补充本地档案</option>${(state.outreachData?.local_customers||[]).map(c=>`<option value="${esc(c.id)}" ${c.id===local?'selected':''}>${esc(c.display_name)} · ${esc(c.phone_suffix)}</option>`).join('')}</select></div></article>`}
-function outreachTaskCard(task,selectable=false){const queued=task.status==='queued',sent=task.status==='sent',paused=task.status==='paused',editable=queued||task.status==='draft';const contact=(state.outreachData?.contacts||[]).find(item=>item.id===task.contact_id);const phone=task.phone_suffix||contact?.phone_suffix||'—';const select=selectable?`<label class="outreach-task-select"><input type="checkbox" data-task-select="${esc(task.id)}" onchange="updateOutreachTaskSelection()" ${task.status==='draft'?'':'disabled'}><span>选择</span></label>`:'';return `<article class="outreach-task-card ${task.priority}"><header><div>${select}<div><strong>${esc(task.contact_name||task.customer_name||'客户')}</strong><span>尾号 ${esc(phone)} · ${esc(strategyName(task.strategy_type))} · ${esc(task.audience||'')} · ${esc(task.source==='template'?'固定模板':task.source==='reply'?'回复跟进':'一客一策')}</span></div></div><span>${esc(task.status)}</span></header>${editable?`<label class="form-label">触达内容<textarea class="outreach-task-editor" data-task="${esc(task.id)}" rows="4" maxlength="600">${esc(task.recommended_message)}</textarea></label><button class="secondary-button" type="button" onclick="updateOutreachTaskMessage('${esc(task.id)}')">保存修改内容</button>`:`<p>${esc(task.recommended_message)}</p>`}<dl><div><dt>触达理由</dt><dd>${esc(task.reason)}</dd></div><div><dt>下一步</dt><dd>${esc(task.next_action)}</dd></div><div><dt>暂停规则</dt><dd>${esc(task.stop_rule)}</dd></div><div><dt>画像沉淀</dt><dd>${esc(profileUpdateText(task.profile_updates))}</dd></div></dl><footer>${task.status==='draft'?`<button class="primary-button" type="button" data-action="outreach-queue" onclick="queueOutreachTask('${esc(task.id)}')">保存并加入队列</button>`:''}${queued?`<button class="primary-button" type="button" data-action="outreach-send" onclick="confirmOutreachSend('${esc(task.id)}')">保存并发送</button>`:''}${editable?`<button class="danger-button" type="button" onclick="deleteOutreachTask('${esc(task.id)}')">删除</button>`:''}${paused?'<span class="tag red">已暂停</span>':''}${sent?'<span class="tag green">已发送</span>':''}</footer></article>`}
+function outreachTaskCard(task,selectable=false){const queued=task.status==='queued',sent=task.status==='sent',paused=task.status==='paused',editable=queued||task.status==='draft';const contact=(state.outreachData?.contacts||[]).find(item=>item.id===task.contact_id);const phone=task.phone_suffix||contact?.phone_suffix||'—';const select=selectable?`<label class="outreach-task-select"><input type="checkbox" data-task-select="${esc(task.id)}" onchange="handleOutreachTaskSelectionChange()" ${task.status==='draft'?'':'disabled'}><span>选择</span></label>`:'';return `<article class="outreach-task-card ${task.priority}"><header><div>${select}<div><strong>${esc(task.contact_name||task.customer_name||'客户')}</strong><span>尾号 ${esc(phone)} · ${esc(strategyName(task.strategy_type))} · ${esc(task.audience||'')} · ${esc(task.source==='template'?'固定模板':task.source==='reply'?'回复跟进':'一客一策')}</span></div></div><span>${esc(task.status)}</span></header>${editable?`<label class="form-label">触达内容<textarea class="outreach-task-editor" data-task="${esc(task.id)}" rows="4" maxlength="600">${esc(task.recommended_message)}</textarea></label><button class="secondary-button" type="button" onclick="updateOutreachTaskMessage('${esc(task.id)}')">保存修改内容</button>`:`<p>${esc(task.recommended_message)}</p>`}<dl><div><dt>触达理由</dt><dd>${esc(task.reason)}</dd></div><div><dt>下一步</dt><dd>${esc(task.next_action)}</dd></div><div><dt>暂停规则</dt><dd>${esc(task.stop_rule)}</dd></div><div><dt>画像沉淀</dt><dd>${esc(profileUpdateText(task.profile_updates))}</dd></div></dl><footer>${task.status==='draft'?`<button class="primary-button" type="button" data-action="outreach-queue" onclick="queueOutreachTask('${esc(task.id)}')">保存并加入队列</button>`:''}${queued?`<button class="primary-button" type="button" data-action="outreach-send" onclick="confirmOutreachSend('${esc(task.id)}')">保存并发送</button>`:''}${editable?`<button class="danger-button" type="button" onclick="deleteOutreachTask('${esc(task.id)}')">删除</button>`:''}${paused?'<span class="tag red">已暂停</span>':''}${sent?'<span class="tag green">已发送</span>':''}</footer></article>`}
 function strategyName(type){return ({care:'关怀',repurchase_notice:'复购通知',education:'教育',activity:'活动',service:'服务',boundary_check:'边界确认'}[type]||'关怀')}
 function profileUpdateText(value){try{const data=JSON.parse(value||'{}');return [data.observed_signal,data.next_focus].filter(Boolean).join(' / ')||'暂无'}catch{return '暂无'}}
 function outreachQueueCard(task){return `<article><div><strong>${esc(task.contact_name||task.customer_name||'客户')}</strong><span>${esc(task.bot_name||'')} · 待人工确认</span></div><p>${esc(task.recommended_message)}</p><footer><button class="primary-button" type="button" data-action="outreach-send" onclick="confirmOutreachSend('${esc(task.id)}')">确认发送</button><button class="danger-button" type="button" onclick="deleteOutreachTask('${esc(task.id)}')">删除</button></footer></article>`}
@@ -368,12 +369,43 @@ function updateOutreachTaskSelection(){
   const selected=boxes.filter(box=>box.checked);
   const count=document.querySelector('#outreach-task-selected-count');
   const button=document.querySelector('#outreach-batch-queue-button');
-  const selectAll=document.querySelector('#outreach-task-select-all');
+  const pageScope=document.querySelector('#outreach-task-select-all');
+  const todayScope=document.querySelector('#outreach-task-select-today');
+  const todayCount=Number(state.outreachData?.counts?.draftToday||0);
+  if(state.outreachTaskSelectionAll){
+    if(count)count.textContent=`已选今日全部 ${todayCount} 条`;
+    if(button&&!state.outreachPending)button.disabled=!todayCount;
+    if(pageScope)pageScope.checked=false;
+    if(todayScope)todayScope.checked=true;
+    return;
+  }
   if(count)count.textContent=`已选 ${selected.length} 条`;
   if(button&&!state.outreachPending)button.disabled=!selected.length;
-  if(selectAll)selectAll.checked=boxes.length>0&&selected.length===boxes.length;
+  if(pageScope)pageScope.checked=boxes.length>0&&selected.length===boxes.length;
+  if(todayScope)todayScope.checked=false;
+}
+function setOutreachTaskSelectionScope(scope){
+  const boxes=outreachQueueableTaskBoxes();
+  if(scope==='today'){
+    state.outreachTaskSelectionAll=true;
+    for(const box of boxes)box.checked=true;
+  }else{
+    state.outreachTaskSelectionAll=false;
+    for(const box of boxes)box.checked=true;
+  }
+  updateOutreachTaskSelection();
+}
+function handleOutreachTaskSelectionChange(){
+  const boxes=outreachQueueableTaskBoxes();
+  if(state.outreachTaskSelectionAll&&boxes.some(box=>!box.checked)){
+    state.outreachTaskSelectionAll=false;
+    const pageScope=document.querySelector('#outreach-task-select-all');
+    if(pageScope)pageScope.checked=true;
+  }
+  updateOutreachTaskSelection();
 }
 function toggleAllOutreachTasks(checked){
+  if(checked)state.outreachTaskSelectionAll=false;
   for(const box of outreachQueueableTaskBoxes())box.checked=checked;
   updateOutreachTaskSelection();
 }
@@ -388,6 +420,41 @@ async function saveOutreachTaskMessageFromWorkspace(id){
 }
 async function queueSelectedOutreachTasks(){
   if(state.outreachPending)return;
+  if(state.outreachTaskSelectionAll){
+    const count=Number(state.outreachData?.counts?.draftToday||0);
+    if(!count)return toast('今日没有可加入队列的草稿策略');
+    const boxes=outreachQueueableTaskBoxes();
+    if(!confirm(`确认将今日全部 ${count} 条草稿策略保存并加入执行队列？\n\n系统会先保存当前页编辑框里的最新话术；已入队、已发送和已暂停的策略不会重复处理。加入队列后仍需人工确认才会发送。`))return;
+    state.outreachPending=true;
+    state.outreachError='';
+    const progress=document.querySelector('#outreach-task-selected-count');
+    const button=document.querySelector('#outreach-batch-queue-button');
+    if(button)button.disabled=true;
+    if(progress)progress.textContent=`正在保存当前页修改：0/${boxes.length}`;
+    let saved=0;
+    try{
+      for(const box of boxes){
+        const id=box.dataset.taskSelect;
+        await saveOutreachTaskMessageFromWorkspace(id);
+        saved++;
+        if(progress)progress.textContent=`正在保存当前页修改：${saved}/${boxes.length}`;
+      }
+      if(progress)progress.textContent=`正在加入今日执行队列：${count} 条`;
+      const result=await studioApi('/outreach/tasks/queue-today',{method:'POST',body:JSON.stringify({scope:'today',confirm:true})});
+      await renderOutreach();
+      toast(`已保存并加入 ${result.queued_count} 条策略`);
+    }catch(error){
+      const message=`当前页修改已保存 ${saved}/${boxes.length} 条，批量入队失败：${error.message}`;
+      state.outreachError=message;
+      if(progress)progress.textContent=message;
+      toast(message);
+    }finally{
+      state.outreachPending=false;
+      updateOutreachTaskSelection();
+      if(state.outreachError&&progress)progress.textContent=state.outreachError;
+    }
+    return;
+  }
   const boxes=outreachQueueableTaskBoxes().filter(box=>box.checked);
   const ids=boxes.map(box=>box.dataset.taskSelect);
   if(!ids.length)return toast('请先勾选要加入队列的策略');
@@ -552,5 +619,5 @@ async function copyEditedScript(){try{await navigator.clipboard.writeText($('#sc
 async function renderGovernance(){setHeader('合规与权限','合规与权限');const data=await api('/api/v1/private/governance');$('#main-content').innerHTML=`<section class="permission-banner"><div><span>当前角色</span><h3>${esc(data.role)}</h3><p>权限围绕本人负责用户的触达执行配置。</p></div><strong>内部信息仅限授权人员使用</strong></section><div class="permission-grid"><article class="permission-card allowed"><h3>允许操作</h3><ul>${data.allowed.map(x=>`<li>✓ ${esc(x)}</li>`).join('')}</ul></article><article class="permission-card blocked"><h3>禁止操作</h3><ul>${data.blocked.map(x=>`<li>× ${esc(x)}</li>`).join('')}</ul></article></div><section class="panel"><div class="panel-title"><h4>最近操作记录</h4><span>演示审计日志</span></div>${data.audit.map(x=>`<div class="audit-row"><time>${esc(x.time)}</time><strong>${esc(x.action)}</strong><span>${esc(x.object)}</span><b>${esc(x.result)}</b></div>`).join('')}</section>`}
 
 Object.assign(window,{navigate,openSegment,openAudience,searchAudience,selectOwner,changeAudiencePage,openCustomerForm,saveCustomer,openImportForm,renderImportPreview,loadImportFile,saveCustomerImport,openCustomer,closeDrawer,refreshProfile,filterTasks,openTaskDetail,refreshTouchOptimization,completeTask,syncOutreachContacts,syncOutreachHistory,refreshOutreachCache,refreshOutreachStrategies,generateOutreachTagStrategies,generateOutreachStrategyForContact,openOutreachContact,bindOutreachContact,assignOutreachBot,queueOutreachTask,deleteOutreachTask,clearTodayOutreachStrategies,confirmOutreachSend,resetOutreachTemplateForm,editOutreachTemplate,saveOutreachTemplate,deleteOutreachTemplate,generateOutreachTemplateTasks,startOutreachBatchSend,sendNextOutreachBatchTask,cancelOutreachBatchSend,toggleOutreachReplyStatus,saveOutreachSalutation,updateOutreachTaskMessage,generateOutreachReply,copyScript,openScript,copyEditedScript,submitOutreachContactSearch,submitOutreachTaskSearch,submitOutreachTagFilter,clearOutreachTagFilter,setOutreachTagMode,setOutreachStrategyDirection,applyOutreachRelatedTag,setOutreachContactReply,setOutreachTaskStatus,changeOutreachContactPage,changeOutreachTaskPage});
-Object.assign(window,{toggleAllOutreachTasks,updateOutreachTaskSelection,queueSelectedOutreachTasks});
+Object.assign(window,{toggleAllOutreachTasks,updateOutreachTaskSelection,queueSelectedOutreachTasks,setOutreachTaskSelectionScope,handleOutreachTaskSelectionChange});
 bootstrap();

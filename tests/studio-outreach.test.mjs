@@ -122,6 +122,7 @@ test('outreach is admin-only and sales calls never reach upstream or model', asy
     ['/api/studio/outreach/tasks/task-1', 'DELETE', undefined],
     ['/api/studio/outreach/messages/sync', 'POST', {}],
     ['/api/studio/outreach/tasks/task-1/queue', 'POST', {}],
+    ['/api/studio/outreach/tasks/queue-today', 'POST', {}],
     ['/api/studio/outreach/tasks/task-1/send', 'POST', {}],
     ['/api/studio/outreach/messages', 'GET', undefined],
   ];
@@ -199,6 +200,21 @@ test('outreach snapshot reports the full count and returns searchable pages', as
   const allTasks = await h.call('/api/studio/outreach?page=1&limit=20&task_page=1&task_limit=5&task_status=all', 'GET', undefined, admin);
   assert.equal(allTasks.data.task_pagination.status_filter, 'all');
   assert.equal(allTasks.data.task_pagination.total, 7);
+
+  taskInsert.run('old-draft-task', contactId, 'anti_aging', '历史草稿', 'draft', 'admin', Date.now(), '2000-01-01');
+  taskInsert.run('today-sent-task', contactId, 'anti_aging', '今日已发送', 'sent', 'admin', Date.now(), chinaDay());
+  taskInsert.run('today-paused-task', contactId, 'anti_aging', '今日已暂停', 'paused', 'admin', Date.now(), chinaDay());
+  const invalid = await h.call('/api/studio/outreach/tasks/queue-today', 'POST', {}, admin);
+  assert.equal(invalid.status, 400);
+  const queuedToday = await h.call('/api/studio/outreach/tasks/queue-today', 'POST', { scope: 'today', confirm: true }, admin);
+  assert.equal(queuedToday.status, 200);
+  assert.equal(queuedToday.data.queued_count, 6);
+  const statuses = Object.fromEntries(h.db.sqlite.prepare('SELECT id,status FROM studio_outreach_tasks').all().map(row => [row.id, row.status]));
+  assert.equal(statuses['old-draft-task'], 'draft');
+  assert.equal(statuses['today-sent-task'], 'sent');
+  assert.equal(statuses['today-paused-task'], 'paused');
+  assert.equal(statuses['today-task-0'], 'sent');
+  for (let index = 1; index <= 6; index++) assert.equal(statuses[`today-task-${index}`], 'queued');
 });
 
 test('tag filters derive initial profiles and generate only matched audiences', async t => {
