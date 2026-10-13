@@ -987,7 +987,7 @@ async function requestStrategyTasks(batch, base, env, fetchModel, materials, dir
     : '';
   const modelBody = {
     model: outreachModel(env), stream: false,
-    max_tokens: Math.min(2400, Math.max(900, batch.length * 900)),
+    max_tokens: Math.min(5000, Math.max(1200, batch.length * 900)),
     enable_search: false, enable_thinking: false,
     response_format: { type: 'json_object' },
     messages: [
@@ -1103,7 +1103,7 @@ export async function generateStrategies(store, user, body, env, dependencies = 
     env, dependencies.fetchKnowledge || dependencies.fetchModel || fetch);
   const materials = [...localMaterials, ...knowledgeMaterials];
   const base = modelBase(env);
-  const batchSize = Math.max(1, Math.min(5, Number(env.STUDIO_OUTREACH_BATCH_SIZE) || 1));
+  const batchSize = Math.max(1, Math.min(10, Number(env.STUDIO_OUTREACH_BATCH_SIZE) || 10));
   const batches = [];
   for (let index = 0; index < limitedCandidates.length; index += batchSize) batches.push(limitedCandidates.slice(index, index + batchSize));
   const created = [];
