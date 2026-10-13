@@ -12,7 +12,7 @@ const textValue = (value, maximum, label) => {
 
 // qwen3.8-max supports 131072 output tokens, but outreach JSON stays compact.
 // A bounded ceiling avoids pathological long generations and request timeouts.
-const OUTREACH_BATCH_MAX_TOKENS = 12000;
+const OUTREACH_BATCH_MAX_TOKENS = 30000;
 const OUTREACH_REPLY_MAX_TOKENS = 1500;
 const OUTREACH_BATCH_CONCURRENCY = 3;
 
@@ -1123,7 +1123,7 @@ export async function generateStrategies(store, user, body, env, dependencies = 
     env, dependencies.fetchKnowledge || dependencies.fetchModel || fetch);
   const materials = [...localMaterials, ...knowledgeMaterials];
   const base = modelBase(env);
-  const batchSize = Math.max(1, Math.min(10, Number(env.STUDIO_OUTREACH_BATCH_SIZE) || 10));
+  const batchSize = Math.max(1, Math.min(50, Number(env.STUDIO_OUTREACH_BATCH_SIZE) || 50));
   const batchConcurrency = Math.max(1, Math.min(5,
     Number(env.STUDIO_OUTREACH_BATCH_CONCURRENCY) || OUTREACH_BATCH_CONCURRENCY));
   const batches = [];

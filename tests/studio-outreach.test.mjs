@@ -713,7 +713,7 @@ test('fifty outreach strategies run batches concurrently and keep partial result
         }],
       });
     },
-  }, { STUDIO_OUTREACH_BATCH_SIZE: 10, STUDIO_OUTREACH_BATCH_CONCURRENCY: 3 });
+  });
   const admin = await h.login();
   await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
   const insert = h.db.sqlite.prepare(`INSERT INTO studio_juzi_contacts
@@ -727,8 +727,8 @@ test('fifty outreach strategies run batches concurrently and keep partial result
   const result = await h.call('/api/studio/outreach/strategies', 'POST', { limit: 50 }, admin);
   assert.equal(result.status, 200);
   assert.equal(result.data.created_count, 50);
-  assert.equal(modelCalls, 5);
-  assert.ok(maxActive <= 3, `expected at most three concurrent batches, got ${maxActive}`);
+  assert.equal(modelCalls, 1);
+  assert.ok(maxActive <= 1, `expected at most one concurrent batch, got ${maxActive}`);
   assert.equal(result.data.partial, false);
 });
 

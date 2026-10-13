@@ -1,4 +1,4 @@
-const state={user:null,studioRole:null,page:'workbench',categories:[],audience:null,audienceQuery:'',audienceOwner:'',audiencePage:1,customer:null,scripts:[],tasks:[],taskCategory:'all',outreachUser:null,outreachCsrf:'',outreachData:null,outreachUsers:[],outreachPending:false,outreachAutoStarted:false,outreachModelConfigured:false,outreachError:'',outreachNotice:'',outreachJob:null,outreachBatch:null,outreachContactPage:1,outreachContactQuery:'',outreachContactReply:'all',outreachTaskPage:1,outreachTaskQuery:'',outreachTaskStatus:'all',outreachTaskSelectionAll:false,outreachTagQuery:'',outreachTagMode:'contains',outreachExcludeTag:'',outreachStrategyDirection:'auto',juziSpOrigin:'',passwordChangeRequired:false,passwordChangeUsername:''};
+const state={user:null,studioRole:null,page:'workbench',categories:[],audience:null,audienceQuery:'',audienceOwner:'',audiencePage:1,customer:null,scripts:[],tasks:[],taskCategory:'all',outreachUser:null,outreachCsrf:'',outreachData:null,outreachUsers:[],outreachPending:false,outreachAutoStarted:false,outreachModelConfigured:false,outreachError:'',outreachNotice:'',outreachJob:null,outreachJobContactId:'',outreachBatch:null,outreachContactPage:1,outreachContactQuery:'',outreachContactReply:'all',outreachTaskPage:1,outreachTaskQuery:'',outreachTaskStatus:'all',outreachTaskSelectionAll:false,outreachTagQuery:'',outreachTagMode:'contains',outreachExcludeTag:'',outreachStrategyDirection:'auto',juziSpOrigin:'',passwordChangeRequired:false,passwordChangeUsername:''};
 let navigationVersion=0;
 let juziBlinkTimer=null,juziOriginalTitle='';
 let outreachJobTimer=null;
@@ -169,6 +169,9 @@ async function renderOutreach(){
     if(version!==navigationVersion)return;
     state.outreachData=data;
     state.outreachUsers=users.items||[];
+    if(state.outreachJob&&['pending','running'].includes(state.outreachJob.status)&&!outreachJobTimer){
+      startOutreachJobPolling(state.outreachJob.job_id,state.outreachJobContactId);
+    }
     if(shouldAutoGenerateOutreach(data)){
       state.outreachAutoStarted=true;
       state.outreachError='正在生成今日一客一策…';
@@ -349,7 +352,7 @@ function outreachJobProgressHtml(job){
   return `<section class="outreach-job-progress" id="outreach-job-progress" aria-live="polite">
     <header><strong>后台生成${job.tag?' · '+esc(job.tag):''}</strong><span>${esc(batchText||'正在准备批次')}</span></header>
     <div class="outreach-job-progress-track"><i style="width:${percent}%"></i></div>
-    <p>已生成 ${done}/${total||'—'} 条${Number(job.failed_count||0)?` · 失败 ${job.failed_count}`:''} · 页面可继续查看，无需等待。</p>
+    <p>已生成 ${done}/${total||'—'} 条${Number(job.failed_count||0)?` · 失败 ${job.failed_count}`:''} · 切换页面不会中断，回到本板块自动恢复进度。</p>
   </section>`;
 }
 function updateOutreachJobProgress(){
@@ -363,21 +366,27 @@ async function startOutreachStrategyJob(body,{label='',contactId=''}={}){
   try{
     const job=await studioApi('/outreach/strategies/jobs',{method:'POST',body:JSON.stringify(body)});
     state.outreachJob=job;
-    renderOutreachWorkspace(state.outreachData);
-    startOutreachJobPolling(job.job_id,contactId);
+    state.outreachJobContactId=contactId;
+    if(state.page==='outreach'){
+      renderOutreachWorkspace(state.outreachData);
+      startOutreachJobPolling(job.job_id,contactId);
+    }
   }catch(error){
-    state.outreachError=error.message;state.outreachNotice='';renderOutreachWorkspace(state.outreachData);toast(error.message);
+    state.outreachError=error.message;state.outreachNotice='';
+    if(state.page==='outreach')renderOutreachWorkspace(state.outreachData);
+    toast(error.message);
   }
 }
 function startOutreachJobPolling(jobId,contactId=''){
   if(outreachJobTimer)clearTimeout(outreachJobTimer);
   const poll=async()=>{
-    if(state.page!=='outreach')return;
+    if(state.page!=='outreach'){outreachJobTimer=null;return}
     try{
       const job=await studioApi(`/outreach/strategies/jobs/${encodeURIComponent(jobId)}`);
       state.outreachJob=job;
       if(['completed','partial','failed'].includes(job.status)){
         outreachJobTimer=null;
+        state.outreachJobContactId='';
         state.outreachNotice=job.status==='failed'
           ?(job.errors?.[0]?.message||'触达策略生成失败')
           :`触达策略生成完成：新增 ${job.created_count||0} 条，已有 ${job.existing_count||0} 条，失败 ${job.failed_count||0} 条。`;
@@ -390,6 +399,7 @@ function startOutreachJobPolling(jobId,contactId=''){
       updateOutreachJobProgress();
       outreachJobTimer=setTimeout(poll,2000);
     }catch(error){
+      if(state.page!=='outreach'){outreachJobTimer=null;return}
       outreachJobTimer=null;state.outreachError=error.message;state.outreachNotice='';
       renderOutreachWorkspace(state.outreachData);toast(error.message);
     }

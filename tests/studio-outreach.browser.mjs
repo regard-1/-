@@ -19,6 +19,8 @@ db.sqlite.prepare(`INSERT INTO studio_customers(id,display_name,audience,owner_u
   VALUES('customer-1','陈先生','anti_aging','outreach-sales','陈哥','5678','NMN','精力','价格','','先核实安全',1,'outreach-sales',?)`).run(Date.now());
 
 let sentText = '';
+let releaseBrowserModel;
+const browserModelGate = new Promise(resolve => { releaseBrowserModel = resolve; });
 const runtime = await startServer({ db, env: {
   STUDIO_LLM_API_KEY: 'test-only',
   STUDIO_LLM_BASE_URL: 'https://model.example/v1',
@@ -50,6 +52,7 @@ const runtime = await startServer({ db, env: {
     return new Response(JSON.stringify({ errcode: 0, requestId: 'synthetic-request-id' }), { headers: { 'Content-Type': 'application/json' } });
   },
   fetchModel: async (_url, options) => {
+    await browserModelGate;
     const body = JSON.parse(options.body);
     const candidate = JSON.parse(body.messages.at(-1).content).candidates[0];
     return new Response(JSON.stringify({
@@ -133,6 +136,12 @@ try {
   await page.getByRole('button', { name: '生成一客一策' }).click();
   assert.equal(JSON.parse((await generatedRequest).postData()).direction, '复购提醒');
   await generated;
+  await page.locator('[data-page="workbench"]').click();
+  await page.getByRole('heading', { name: '今天需要跟进的用户' }).waitFor();
+  await page.locator('[data-page="outreach"]').click();
+  await page.locator('.outreach-job-progress').waitFor();
+  assert.ok((await page.locator('.outreach-job-progress').textContent()).includes('切换页面不会中断'));
+  releaseBrowserModel();
   await page.waitForSelector('.drawer [data-action="outreach-queue"]', { timeout: 10000 });
   assert.ok((await page.locator('.outreach-workspace').textContent()).includes('陈哥'));
 
