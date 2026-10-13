@@ -550,6 +550,44 @@ test('partial strategy output ignores invented customers and retries missing cus
   assert.ok(!JSON.stringify(rows).includes('invented-contact'));
 });
 
+test('single customer strategy retries empty output and tolerates safe reference variants', async t => {
+  let modelCalls = 0;
+  const h = await harness(t, {
+    fetchJuzi: async () => listCustomersResponse(),
+    fetchModel: async (_url, options) => {
+      modelCalls++;
+      const candidate = JSON.parse(JSON.parse(options.body).messages.at(-1).content).candidates[0];
+      if (modelCalls === 1) return jsonResponse({ choices: [{ message: { content: JSON.stringify({ tasks: [] }) } }] });
+      return jsonResponse({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              tasks: [{
+                candidateId: candidate.display_name,
+                priority: 'medium',
+                reason: '模型使用唯一展示名回指客户',
+                recommended_message: '陈哥，最近整体状态还好吗？',
+                next_action: '等待客户回复',
+                stop_rule: '客户明确不需要后暂停',
+              }],
+            }),
+          },
+        }],
+      });
+    },
+  });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  const snapshot = await h.call('/api/studio/outreach', 'GET', undefined, admin);
+  const contact = snapshot.data.contacts[0];
+
+  const result = await h.call('/api/studio/outreach/strategies', 'POST', { contact_id: contact.id }, admin);
+  assert.equal(result.status, 200);
+  assert.equal(result.data.created_count, 1);
+  assert.equal(result.data.tasks[0].contact_id, contact.id);
+  assert.equal(modelCalls, 2);
+});
+
 test('missing outreach messages are retried without stopping the whole batch', async t => {
   let modelCalls = 0;
   const h = await harness(t, {

@@ -751,14 +751,47 @@ async function outreachKnowledgeMaterials(direction, contacts, env, fetchKnowled
 
 function strategyCandidate(output, candidates) {
   const aliases = new Map();
+  const normalizeReference = value => String(value || '')
+    .trim()
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+  const aliasValues = candidate => [
+    candidate.id,
+    candidate.im_contact_id,
+    candidate.local_customer_id,
+    candidate.customer_id,
+    candidate.external_user_id,
+  ];
   for (const candidate of candidates) {
-    for (const key of [candidate.id, candidate.im_contact_id, candidate.local_customer_id]) {
-      const value = String(key || '').trim().replace(/^["']|["']$/g, '');
+    for (const key of aliasValues(candidate)) {
+      const value = normalizeReference(key);
       if (value && !aliases.has(value)) aliases.set(value, candidate);
+    }
+  }
+  const nameCounts = new Map();
+  for (const candidate of candidates) {
+    const names = new Set([candidate.display_name, candidate.customer_name, candidate.local_customer_name]
+      .map(value => normalizeReference(value)).filter(Boolean));
+    for (const value of names) nameCounts.set(value, (nameCounts.get(value) || 0) + 1);
+  }
+  for (const candidate of candidates) {
+    for (const key of [candidate.display_name, candidate.customer_name, candidate.local_customer_name]) {
+      const value = normalizeReference(key);
+      if (value && nameCounts.get(value) === 1 && !aliases.has(value)) aliases.set(value, candidate);
     }
   }
   if (!output || typeof output !== 'object' || !Array.isArray(output.tasks)) fail(502, '模型未返回 tasks 数组，请重试', 'MODEL_FORMAT');
   return { aliases };
+}
+
+function taskContactReference(item) {
+  let value = item?.contact_id ?? item?.contactId ?? item?.candidate_id ?? item?.candidateId ?? item?.id;
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    value = value.id ?? value.contact_id ?? value.contactId ?? value.value;
+  }
+  if (value == null || typeof value === 'object') return '';
+  return String(value);
 }
 
 function validateTasks(output, candidates, { partial = false } = {}) {
@@ -766,8 +799,12 @@ function validateTasks(output, candidates, { partial = false } = {}) {
   const tasks = [];
   const used = new Set();
   for (const item of output.tasks) {
-    const rawId = String(item?.contact_id || '').trim().replace(/^["']|["']$/g, '');
-    const candidate = aliases.get(rawId);
+    const rawId = taskContactReference(item);
+    const normalizedId = String(rawId || '').trim()
+      .replace(/^["'`]+|["'`]+$/g, '')
+      .replace(/\s+/g, ' ')
+      .toLowerCase();
+    const candidate = aliases.get(normalizedId);
     if (!candidate) {
       if (!partial) fail(502, '模型返回了未提供的客户策略，请重试', 'MODEL_FORMAT');
       continue;
@@ -833,7 +870,15 @@ async function requestStrategyTasks(batch, base, env, fetchModel, materials, dir
   if (!response.ok) fail(502, '触达策略生成服务暂时不可用，请稍后重试', 'MODEL_UNAVAILABLE');
   let payload;
   try { payload = await response.json(); } catch { fail(502, '触达策略生成格式异常，请重试', 'MODEL_FORMAT'); }
-  const tasks = validateTasks(extractJSON(modelContent(payload)), batch, { partial: true });
+  let tasks;
+  try {
+    tasks = validateTasks(extractJSON(modelContent(payload)), batch, { partial: true });
+  } catch (error) {
+    if (attempt === 0 && batch.length === 1 && error?.code === 'MODEL_FORMAT') {
+      return requestStrategyTasks(batch, base, env, fetchModel, materials, direction, 1);
+    }
+    throw error;
+  }
   if (tasks.length === batch.length) return tasks;
   if (batch.length === 1) {
     if (attempt === 0) return requestStrategyTasks(batch, base, env, fetchModel, materials, direction, 1);
