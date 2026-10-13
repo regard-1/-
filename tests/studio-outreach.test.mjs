@@ -540,6 +540,43 @@ test('single customer output can use task objects without a matching reference',
   assert.equal(result.data.tasks[0].contact_id, contact.id);
 });
 
+test('strategy parser accepts alternate message fields without retry', async t => {
+  let modelCalls = 0;
+  const h = await harness(t, {
+    fetchJuzi: async () => listCustomersResponse(),
+    fetchModel: async (_url, options) => {
+      modelCalls++;
+      const candidate = JSON.parse(JSON.parse(options.body).messages.at(-1).content).candidates[0];
+      return jsonResponse({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              tasks: [{
+                contact_id: candidate.id,
+                priority: 'medium',
+                reason: '模型将话术放在 message.text 中',
+                message: { text: '陈哥，最近整体状态还好吗？我先帮您看重点。' },
+                next_action: '等待回复',
+                stop_rule: '明确拒绝后暂停',
+              }],
+            }),
+          },
+        }],
+      });
+    },
+  });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  const snapshot = await h.call('/api/studio/outreach', 'GET', undefined, admin);
+  const contact = snapshot.data.contacts[0];
+
+  const result = await h.call('/api/studio/outreach/strategies', 'POST', { contact_id: contact.id }, admin);
+  assert.equal(result.status, 200);
+  assert.equal(result.data.created_count, 1);
+  assert.equal(modelCalls, 1);
+  assert.equal(result.data.tasks[0].recommended_message, '陈哥，最近整体状态还好吗？我先帮您看重点。');
+});
+
 test('full strategy generation parses wrapped JSON and retries malformed batches one by one', async t => {
   let modelCalls = 0;
   const h = await harness(t, {

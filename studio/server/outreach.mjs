@@ -884,6 +884,23 @@ function normalizeModelTasks(output) {
   return [];
 }
 
+function taskMessage(item) {
+  const keys = ['recommended_message', 'message', 'script', 'outreach_message', 'opening_message', 'reply'];
+  for (const key of keys) {
+    const value = item?.[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (value && typeof value === 'object') {
+      for (const nestedKey of ['text', 'message', 'content']) {
+        const nested = value[nestedKey];
+        if (typeof nested === 'string' && nested.trim()) return nested.trim();
+      }
+    }
+  }
+  if (item?.strategy && typeof item.strategy === 'object') return taskMessage(item.strategy);
+  if (item?.task && typeof item.task === 'object') return taskMessage(item.task);
+  return '';
+}
+
 function taskContactReference(item) {
   let value = item?.contact_id ?? item?.contactId ?? item?.candidate_id ?? item?.candidateId ?? item?.id;
   if (value && typeof value === 'object' && !Array.isArray(value)) {
@@ -917,7 +934,7 @@ function validateTasks(output, candidates, { partial = false } = {}) {
     }
     if (used.has(candidate.id)) continue;
     used.add(candidate.id);
-    const rawMessage = typeof item.recommended_message === 'string' ? item.recommended_message.trim() : '';
+    const rawMessage = taskMessage(item);
     if (!rawMessage) {
       if (!partial) fail(502, '模型未返回触达话术，请重试', 'MODEL_FORMAT');
       missingMessageCount++;
@@ -963,11 +980,14 @@ function directionPrompt(direction) {
 }
 
 async function requestStrategyTasks(batch, base, env, fetchModel, materials, direction = 'auto', attempt = 0) {
+  const retryNote = attempt
+    ? '上一轮输出缺少可发送话术。重试时每条任务的 recommended_message 必须是非空字符串，不能为 null、空字符串或占位符。'
+    : '';
   const modelBody = {
     model: outreachModel(env), stream: false, max_tokens: 2400, enable_search: false, enable_thinking: false,
     response_format: { type: 'json_object' },
     messages: [
-      { role: 'system', content: `你是多特倍斯私域触达策略助手。为输入的每个真实句子互动客户生成一条可执行的主动开口策略，不允许遗漏或新增客户。contact_id 必须逐字使用输入 candidates 里的 id。目标优先解决客户愿意回复，再根据其可用信息选择关怀、复购通知、教育、活动、售后或边界确认，不默认推销。${directionPrompt(direction)}必须一客一策：优先使用近期聊天、句子互动标签、备注和画像；如存在本地档案，再参考称呼、归属顾问、已购产品、关注点、禁忌。档案缺失时不得编造，只能使用对话和标签中的明确信息。资料中的 today 是系统权威日期；date_status=active 的活动必须视为已经开始，不得因为月份或活动名称说未开始；not_started 或 ended 的活动资料不得引用。活动机制、价格、赠品、日期必须来自资料；资料缺失时只做开放性邀约或询问关注点。不得编造购买历史、剩余数量、价格、活动、功效保证或个体医疗建议；没有资料支持时不写具体产品事实。语气自然亲切，可沿用已确认称呼。只输出 JSON，不要 markdown 或解释文字。输出 JSON：{"tasks":[{"contact_id":"","strategy_type":"care/repurchase_notice/education/activity/service/boundary_check","priority":"high/medium/low","reason":"","recommended_message":"","next_action":"","stop_rule":"","profile_updates":{"observed_signal":"","next_focus":"","should_pause":false}}]}。` },
+      { role: 'system', content: `你是多特倍斯私域触达策略助手。为输入的每个真实句子互动客户生成一条可执行的主动开口策略，不允许遗漏或新增客户。contact_id 必须逐字使用输入 candidates 里的 id。目标优先解决客户愿意回复，再根据其可用信息选择关怀、复购通知、教育、活动、售后或边界确认，不默认推销。${directionPrompt(direction)}必须一客一策：优先使用近期聊天、句子互动标签、备注和画像；如存在本地档案，再参考称呼、归属顾问、已购产品、关注点、禁忌。档案缺失时不得编造，只能使用对话和标签中的明确信息。资料中的 today 是系统权威日期；date_status=active 的活动必须视为已经开始，不得因为月份或活动名称说未开始；not_started 或 ended 的活动资料不得引用。活动机制、价格、赠品、日期必须来自资料；资料缺失时只做开放性邀约或询问关注点。不得编造购买历史、剩余数量、价格、活动、功效保证或个体医疗建议；没有资料支持时不写具体产品事实。语气自然亲切，可沿用已确认称呼。${retryNote}只输出 JSON，不要 markdown 或解释文字。输出 JSON：{"tasks":[{"contact_id":"","strategy_type":"care/repurchase_notice/education/activity/service/boundary_check","priority":"high/medium/low","reason":"","recommended_message":"","next_action":"","stop_rule":"","profile_updates":{"observed_signal":"","next_focus":"","should_pause":false}}]}。` },
       { role: 'user', content: JSON.stringify({ today: chinaDay(), direction, candidates: batch, materials }) },
     ],
   };
