@@ -322,7 +322,7 @@ async function refreshOutreachCache(contactId=''){if(state.outreachPending)retur
 async function syncOutreachHistory(){if(state.outreachPending)return;state.outreachPending=true;state.outreachError='正在同步句子互动 30 天真实对话…';state.outreachNotice='';renderOutreachWorkspace(state.outreachData);try{const result=await studioApi('/outreach/messages/sync',{method:'POST',body:'{}'});state.outreachError='';state.outreachNotice='';await renderOutreach();toast(`真实对话同步完成：新增 ${result.inserted||0} 条`)}catch(error){if(error.code==='RATE_LIMIT'){state.outreachError='';state.outreachNotice='真实对话同步间隔未到，当前展示最近一次同步的数据。';toast('同步间隔未到，已展示最近同步数据')}else{state.outreachError=error.message;state.outreachNotice='';toast(error.message)}renderOutreachWorkspace(state.outreachData)}finally{state.outreachPending=false}}
 async function refreshOutreachStrategies(refresh){
   await startOutreachStrategyJob({
-    refresh:refresh===true,limit:50,direction:state.outreachStrategyDirection
+    refresh:refresh===true,limit:2000,direction:state.outreachStrategyDirection
   },{label:refresh?'全量策略':'今日策略'});
 }
 async function generateOutreachTagStrategies(){
@@ -335,7 +335,7 @@ async function generateOutreachTagStrategies(){
   state.outreachContactPage=1;
   await startOutreachStrategyJob({
     tag,tag_mode:state.outreachTagMode,exclude_tag:state.outreachExcludeTag,
-    direction:state.outreachStrategyDirection,refresh:false,limit:50
+    direction:state.outreachStrategyDirection,refresh:false,limit:2000
   },{label:'标签人群策略'});
 }
 async function generateOutreachStrategyForContact(id){

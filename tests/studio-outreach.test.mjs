@@ -1378,6 +1378,11 @@ test('migrations and production configuration keep the token server-side', () =>
   assert.match(compose, /STUDIO_OUTREACH_MODEL_TIMEOUT_MS:\s*\$\{STUDIO_OUTREACH_MODEL_TIMEOUT_MS:-300000\}/);
   const prodServer = readFileSync(new URL('../server-prod.mjs', import.meta.url), 'utf8');
   assert.match(prodServer, /STUDIO_OUTREACH_MODEL_TIMEOUT_MS:\s*process\.env\.STUDIO_OUTREACH_MODEL_TIMEOUT_MS/);
+  const outreach = readFileSync(new URL('../studio/server/outreach.mjs', import.meta.url), 'utf8');
+  assert.match(outreach, /OUTREACH_TASK_LIMIT = 2000/);
+  assert.match(outreach, /Math\.min\(requestedLimit, OUTREACH_TASK_LIMIT\)/);
+  const client = readFileSync(new URL('../assets/app.js', import.meta.url), 'utf8');
+  assert.match(client, /limit:2000/);
   assert.ok(!compose.includes(juziToken));
   const deployScript = readFileSync(new URL('../scripts/ci-deploy.sh', import.meta.url), 'utf8');
   assert.ok(!/--exclude\s+['"]docker-compose\.prod\.yml['"]/.test(deployScript));

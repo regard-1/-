@@ -16,6 +16,7 @@ const OUTREACH_BATCH_MAX_TOKENS = 30000;
 const OUTREACH_REPLY_MAX_TOKENS = 1500;
 const OUTREACH_BATCH_CONCURRENCY = 3;
 const OUTREACH_DEFAULT_BATCH_SIZE = 10;
+const OUTREACH_TASK_LIMIT = 2000;
 const OUTREACH_BATCH_MODEL_TIMEOUT_MS = 300000;
 
 function normalizeTimestamp(value) {
@@ -1119,7 +1120,8 @@ export async function generateStrategies(store, user, body, env, dependencies = 
     FROM studio_materials WHERE active=1 ORDER BY updated_at DESC LIMIT 20`))
     .map(material => outreachMaterialForPrompt(material, today)).filter(Boolean).slice(0, 12);
   const requestedLimit = Number(body?.limit);
-  const requestLimit = Number.isInteger(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, 50) : null;
+  const requestLimit = Number.isInteger(requestedLimit) && requestedLimit > 0
+    ? Math.min(requestedLimit, OUTREACH_TASK_LIMIT) : null;
   const limitedCandidates = requestLimit ? candidates.slice(0, requestLimit) : candidates;
   const knowledgeMaterials = await outreachKnowledgeMaterials(direction, limitedCandidates,
     env, dependencies.fetchKnowledge || dependencies.fetchModel || fetch);
@@ -1239,7 +1241,8 @@ export async function createOutreachStrategyJob(store, user, body, env, dependen
   const direction = normalizeStrategyDirection(body?.direction);
   const contactId = body?.contact_id ? String(body.contact_id).slice(0, 100) : '';
   const requestedLimit = Number(body?.limit);
-  const limit = Number.isInteger(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, 50) : null;
+  const limit = Number.isInteger(requestedLimit) && requestedLimit > 0
+    ? Math.min(requestedLimit, OUTREACH_TASK_LIMIT) : null;
   const request = {
     audience, tag: tagFilter.join('、'), tag_mode: tagMode, exclude_tag: excludeTags.join('、'),
     direction, contact_id: contactId, refresh: body?.refresh === true, ...(limit ? { limit } : {}),
