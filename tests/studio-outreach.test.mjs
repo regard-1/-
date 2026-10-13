@@ -376,22 +376,43 @@ test('unbound Juzi contacts can generate one-customer strategies from real signa
 
 test('outreach model can be configured independently of script generation', async t => {
   let requestedModel;
+  let requestedMaxTokens;
   const h = await harness(t, {
     fetchJuzi: async () => listCustomersResponse(),
     fetchModel: async (_, options) => {
       const body = JSON.parse(options.body);
       requestedModel = body.model;
-      const candidate = JSON.parse(body.messages.at(-1).content).candidates[0];
-      return modelTask(candidate.id, candidate.local_customer_id);
+      requestedMaxTokens = body.max_tokens;
+      const candidates = JSON.parse(body.messages.at(-1).content).candidates;
+      return jsonResponse({
+        choices: [{
+          message: { content: JSON.stringify({ tasks: candidates.map(candidate => ({
+            contact_id: candidate.id,
+            priority: 'medium',
+            reason: '模型配置测试',
+            recommended_message: '陈哥，最近状态还好吗？',
+            next_action: '等待回复',
+            stop_rule: '明确拒绝后暂停',
+          })) }) },
+        }],
+      });
     },
   }, { STUDIO_OUTREACH_MODEL: 'qwen3.8-max' });
   const admin = await h.login();
   await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  const insert = h.db.sqlite.prepare(`INSERT INTO studio_juzi_contacts(id,im_contact_id,display_name,phone_suffix,im_bot_id,friendship_status,match_status,last_synced_at,tags,remark)
+    VALUES(?,?,?,?,?,1,'unmatched',?,?,'')`);
+  for (let index = 0; index < 9; index++) {
+    insert.run(`model-contact-${index}`, `model-im-${index}`, `配置客户${index}`, String(1000 + index).slice(-4), 'bot-1', Date.now(), '日常营养');
+  }
   const snapshot = await h.call('/api/studio/outreach', 'GET', undefined, admin);
   const contact = snapshot.data.contacts[0];
-  const generated = await h.call('/api/studio/outreach/strategies', 'POST', { contact_id: contact.id }, admin);
+  const generated = await h.call('/api/studio/outreach/strategies', 'POST', { limit: 10 }, admin);
   assert.equal(requestedModel, 'qwen3.8-max');
+  assert.equal(requestedMaxTokens, 12000);
   assert.equal(generated.status, 200);
+  assert.equal(generated.data.created_count, 10);
+  assert.equal(generated.data.tasks.some(task => task.contact_id === contact.id), true);
 });
 
 test('production outreach uses the default model fetch when dependencies are omitted', async t => {

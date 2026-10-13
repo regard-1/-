@@ -10,6 +10,11 @@ const textValue = (value, maximum, label) => {
   return text;
 };
 
+// qwen3.8-max supports 131072 output tokens, but outreach JSON stays compact.
+// A bounded ceiling avoids pathological long generations and request timeouts.
+const OUTREACH_BATCH_MAX_TOKENS = 12000;
+const OUTREACH_REPLY_MAX_TOKENS = 1500;
+
 function normalizeTimestamp(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric) || numeric <= 0) return Date.now();
@@ -654,7 +659,8 @@ export async function generateReply(store, user, body, env, dependencies = {}) {
     FROM studio_materials WHERE active=1 ORDER BY updated_at DESC LIMIT 8`);
   const base = modelBase(env), fetchModel = dependencies.fetchModel || fetch;
   const modelBody = {
-    model: outreachModel(env), stream: false, max_tokens: 700, enable_search: false, enable_thinking: false,
+    model: outreachModel(env), stream: false, max_tokens: OUTREACH_REPLY_MAX_TOKENS,
+    enable_search: false, enable_thinking: false,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: `你是多特倍斯私域跟进回复助手。根据客户最新回复、可用画像和已核对资料，生成一条可直接编辑后发送的回复。先准确回应客户当前问题，再推进一个自然动作；语气亲切自然，可使用已确认称呼。没有资料支持的价格、规格、活动、用法不编造；售后或身体不适优先处理安全和服务。输出 JSON：{"reply":"","next_action":"","reason":""}。` },
@@ -987,7 +993,7 @@ async function requestStrategyTasks(batch, base, env, fetchModel, materials, dir
     : '';
   const modelBody = {
     model: outreachModel(env), stream: false,
-    max_tokens: Math.min(5000, Math.max(1200, batch.length * 900)),
+    max_tokens: Math.min(OUTREACH_BATCH_MAX_TOKENS, Math.max(1200, batch.length * 1200)),
     enable_search: false, enable_thinking: false,
     response_format: { type: 'json_object' },
     messages: [
