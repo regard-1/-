@@ -637,6 +637,33 @@ test('full strategy generation parses wrapped JSON and retries malformed batches
   assert.equal(limited.data.remaining_count, 0);
 });
 
+test('connection timeouts in a batch fall back to single-customer requests', async t => {
+  let modelCalls = 0;
+  const h = await harness(t, {
+    fetchJuzi: async () => listCustomersResponse(),
+    fetchModel: async (_url, options) => {
+      modelCalls++;
+      const candidates = JSON.parse(JSON.parse(options.body).messages.at(-1).content).candidates;
+      if (candidates.length > 1) {
+        const error = new Error('model request timed out');
+        error.name = 'TimeoutError';
+        throw error;
+      }
+      return modelTask(candidates[0].id, candidates[0].local_customer_id || 'customer-1');
+    },
+  });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  h.db.sqlite.prepare(`INSERT INTO studio_juzi_contacts(id,im_contact_id,display_name,phone_suffix,gender,im_bot_id,friendship_status,local_customer_id,match_status,last_synced_at,tags,remark)
+    VALUES('timeout-contact-2','timeout-im-2','李女士','6789',2,'bot-1',1,NULL,'unmatched',?,'日常营养','关注免疫力')`).run(Date.now());
+
+  const result = await h.call('/api/studio/outreach/strategies', 'POST', {}, admin);
+  assert.equal(result.status, 200);
+  assert.equal(result.data.created_count, 2);
+  assert.equal(modelCalls, 3);
+  assert.ok(result.data.tasks.every(task => task.recommended_message));
+});
+
 test('partial strategy output ignores invented customers and retries missing customers', async t => {
   let modelCalls = 0;
   const h = await harness(t, {

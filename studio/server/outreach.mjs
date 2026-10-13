@@ -986,7 +986,9 @@ async function requestStrategyTasks(batch, base, env, fetchModel, materials, dir
     ? '上一轮输出缺少可发送话术。重试时每条任务的 recommended_message 必须是非空字符串，不能为 null、空字符串或占位符。'
     : '';
   const modelBody = {
-    model: outreachModel(env), stream: false, max_tokens: 2400, enable_search: false, enable_thinking: false,
+    model: outreachModel(env), stream: false,
+    max_tokens: Math.min(2400, Math.max(900, batch.length * 900)),
+    enable_search: false, enable_thinking: false,
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: `你是多特倍斯私域触达策略助手。为输入的每个真实句子互动客户生成一条可执行的主动开口策略，不允许遗漏或新增客户。contact_id 必须逐字使用输入 candidates 里的 id。目标优先解决客户愿意回复，再根据其可用信息选择关怀、复购通知、教育、活动、售后或边界确认，不默认推销。${directionPrompt(direction)}必须一客一策：优先使用近期聊天、句子互动标签、备注和画像；如存在本地档案，再参考称呼、归属顾问、已购产品、关注点、禁忌。档案缺失时不得编造，只能使用对话和标签中的明确信息。资料中的 today 是系统权威日期；date_status=active 的活动必须视为已经开始，不得因为月份或活动名称说未开始；not_started 或 ended 的活动资料不得引用。活动机制、价格、赠品、日期必须来自资料；资料缺失时只做开放性邀约或询问关注点。不得编造购买历史、剩余数量、价格、活动、功效保证或个体医疗建议；没有资料支持时不写具体产品事实。语气自然亲切，可沿用已确认称呼。${retryNote}只输出 JSON，不要 markdown 或解释文字。输出 JSON：{"tasks":[{"contact_id":"","strategy_type":"care/repurchase_notice/education/activity/service/boundary_check","priority":"high/medium/low","reason":"","recommended_message":"","next_action":"","stop_rule":"","profile_updates":{"observed_signal":"","next_focus":"","should_pause":false}}]}。` },
@@ -994,13 +996,29 @@ async function requestStrategyTasks(batch, base, env, fetchModel, materials, dir
     ],
   };
   let response;
+  const startedAt = Date.now();
   try {
     response = await fetchModel(`${base.href.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST', signal: AbortSignal.timeout(Math.max(30000, Number(env.STUDIO_OUTREACH_MODEL_TIMEOUT_MS) || 120000)),
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.STUDIO_LLM_API_KEY}` },
       body: JSON.stringify(modelBody),
     });
-  } catch { fail(502, '触达策略生成超时或连接异常，请稍后重试', 'MODEL_UNAVAILABLE'); }
+  } catch (error) {
+    const elapsedMs = Date.now() - startedAt;
+    const retriable = ['TimeoutError', 'AbortError', 'TypeError'].includes(error?.name);
+    console.warn(JSON.stringify({
+      event: 'outreach_model_unavailable', model: outreachModel(env), batch_size: batch.length,
+      elapsed_ms: elapsedMs, error_name: error?.name || 'Unknown',
+    }));
+    if (retriable && batch.length > 1) {
+      const tasks = [];
+      for (const candidate of batch) {
+        tasks.push(...await requestStrategyTasks([candidate], base, env, fetchModel, materials, direction, attempt));
+      }
+      return tasks;
+    }
+    fail(502, '触达策略生成超时或连接异常，请稍后重试', 'MODEL_UNAVAILABLE');
+  }
   if (!response.ok) fail(502, '触达策略生成服务暂时不可用，请稍后重试', 'MODEL_UNAVAILABLE');
   let payload;
   try { payload = await response.json(); } catch { fail(502, '触达策略生成格式异常，请重试', 'MODEL_FORMAT'); }
@@ -1085,7 +1103,7 @@ export async function generateStrategies(store, user, body, env, dependencies = 
     env, dependencies.fetchKnowledge || dependencies.fetchModel || fetch);
   const materials = [...localMaterials, ...knowledgeMaterials];
   const base = modelBase(env);
-  const batchSize = Math.max(1, Math.min(5, Number(env.STUDIO_OUTREACH_BATCH_SIZE) || 3));
+  const batchSize = Math.max(1, Math.min(5, Number(env.STUDIO_OUTREACH_BATCH_SIZE) || 2));
   const batches = [];
   for (let index = 0; index < limitedCandidates.length; index += batchSize) batches.push(limitedCandidates.slice(index, index + batchSize));
   const created = [];
