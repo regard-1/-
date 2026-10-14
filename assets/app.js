@@ -2,6 +2,7 @@ const state={user:null,studioRole:null,page:'workbench',categories:[],audience:n
 let navigationVersion=0;
 let juziBlinkTimer=null,juziOriginalTitle='';
 let outreachJobTimer=null;
+let outreachHistorySyncTimer=null;
 const $=(selector,root=document)=>root.querySelector(selector);
 const $$=(selector,root=document)=>[...root.querySelectorAll(selector)];
 function esc(value=''){return String(value).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
@@ -20,7 +21,7 @@ function setNav(page){state.page=page;$$('.nav-item').forEach(x=>x.classList.tog
 async function bootstrap(){try{const data=await studioApi('/me');applyStudioSession(data);window.DotbestDemoAuth?.set(true);applyUser();showApp();if(data.user?.must_change){renderPasswordChange();return}state.passwordChangeRequired=false;state.passwordChangeUsername='';navigate(initialPage(),'replace')}catch{showLogin()}}
 function applyUser(){$('#user-name').textContent=state.user?.display_name||'未登录';$('#user-role').textContent=state.user?.role==='admin'?'管理员':state.user?.role==='sales'?'销售':'团队账号';$('#user-avatar').textContent=state.user?.display_name?.slice(0,1)||'多'}
 $('#login-form').addEventListener('submit',async e=>{e.preventDefault();const form=new FormData(e.currentTarget);const credentials=Object.fromEntries(form);credentials.username=String(credentials.username||'').trim();try{const data=await studioApi('/login',{method:'POST',body:JSON.stringify(credentials)});applyStudioSession(data);window.DotbestDemoAuth?.set(true);applyUser();showApp();if(data.user?.must_change){state.passwordChangeRequired=true;state.passwordChangeUsername=credentials.username;renderPasswordChange();return}state.passwordChangeRequired=false;state.passwordChangeUsername='';const me=await studioApi('/me');applyStudioSession(me);window.DotbestDemoAuth?.set(true);applyUser();navigate(initialPage())}catch(err){toast(err.message)}});
-$('#logout-button').addEventListener('click',async()=>{navigationVersion++;$('#main-content').replaceChildren();try{await logoutStudio();state.user=null;state.passwordChangeRequired=false;state.passwordChangeUsername='';window.DotbestDemoAuth?.set(false);showLogin()}catch{toast('退出未完成，请重试')}});
+$('#logout-button').addEventListener('click',async()=>{navigationVersion++;stopOutreachHistoryAutoSync();$('#main-content').replaceChildren();try{await logoutStudio();state.user=null;state.passwordChangeRequired=false;state.passwordChangeUsername='';window.DotbestDemoAuth?.set(false);showLogin()}catch{toast('退出未完成，请重试')}});
 function updateOutreachVisibility(){
   const outreach=$('[data-page="outreach"]');if(outreach)outreach.classList.toggle('hidden',state.studioRole==='sales');
   const juzi=$('[data-page="juzi-workbench"]');if(juzi)juzi.classList.toggle('hidden',state.studioRole!=='admin');
@@ -89,7 +90,19 @@ document.addEventListener('change',event=>{
   if(contact)bindOutreachContact(contact.dataset.contact,contact.value);
 });
 
-async function navigate(page,historyMode='push'){if(!page)return;if(state.passwordChangeRequired){toast('请先完成临时密码修改');return}const version=++navigationVersion;setNav(page);closeDrawer();loading();if(historyMode!=='none'){const url=new URL(location.href);url.searchParams.set('page',page);if(url.href!==location.href)history[historyMode==='replace'?'replaceState':'pushState']({},'',url)}try{if(page==='workbench')await renderWorkbench();else if(page==='assets')await renderAssets();else if(page==='tasks')await renderTasks();else if(page==='scripts')await renderScripts();else if(page==='outreach')await renderOutreach();else if(page==='juzi-workbench')await renderJuziWorkbench();else if(page==='script-templates')await renderScriptTemplates();else if(page==='governance')await renderGovernance()}catch(err){if(version!==navigationVersion||err.name==='AbortError')return;$('#main-content').innerHTML=`<div class="empty-card">加载失败：${esc(err.message)}<br><button class="secondary-button" onclick="navigate('${esc(page)}')">重新加载</button></div>`}}
+async function navigate(page,historyMode='push'){if(!page)return;if(state.passwordChangeRequired){toast('请先完成临时密码修改');return}const version=++navigationVersion;if(page!=='outreach')stopOutreachHistoryAutoSync();setNav(page);closeDrawer();loading();if(historyMode!=='none'){const url=new URL(location.href);url.searchParams.set('page',page);if(url.href!==location.href)history[historyMode==='replace'?'replaceState':'pushState']({},'',url)}try{if(page==='workbench')await renderWorkbench();else if(page==='assets')await renderAssets();else if(page==='tasks')await renderTasks();else if(page==='scripts')await renderScripts();else if(page==='outreach')await renderOutreach();else if(page==='juzi-workbench')await renderJuziWorkbench();else if(page==='script-templates')await renderScriptTemplates();else if(page==='governance')await renderGovernance()}catch(err){if(version!==navigationVersion||err.name==='AbortError')return;$('#main-content').innerHTML=`<div class="empty-card">加载失败：${esc(err.message)}<br><button class="secondary-button" onclick="navigate('${esc(page)}')">重新加载</button></div>`}}
+function startOutreachHistoryAutoSync(){
+  if(outreachHistorySyncTimer)return;
+  outreachHistorySyncTimer=setInterval(()=>{
+    if(document.hidden||state.page!=='outreach'||state.outreachUser?.role!=='admin')return;
+    syncOutreachHistory({automatic:true});
+  },30000);
+}
+function stopOutreachHistoryAutoSync(){
+  if(!outreachHistorySyncTimer)return;
+  clearInterval(outreachHistorySyncTimer);
+  outreachHistorySyncTimer=null;
+}
 window.addEventListener('popstate',()=>{if(state.user)navigate(initialPage(),'none')});
 function metric(label,value,note,tone='') {return `<article class="metric-card execution-metric ${tone}"><span>${esc(label)}</span><strong>${esc(value)}</strong><small>${esc(note)}</small></article>`}
 function assetCard(item){return `<button class="asset-card" style="--accent:${esc(item.color)}" onclick="openAudience('${esc(item.code)}')"><div class="asset-icon">${esc(item.name.slice(0,1))}</div><h4>${esc(item.name)}</h4><p>${esc(item.description)}</p><div class="asset-stats"><div><strong>${item.customer_count}</strong><span>归属用户</span></div><div><strong>${item.due_count}</strong><span>待触达</span></div></div><b class="asset-arrow">→</b></button>`}
@@ -162,13 +175,14 @@ async function renderOutreach(){
   try{
     const account=await ensureOutreachAccount();
     if(version!==navigationVersion)return;
-    if(account==='setup'){$('#main-content').innerHTML=outreachSetupForm();$('#outreach-setup-form').addEventListener('submit',event=>submitOutreachLogin(event,'setup'));return}
-    if(account==='login'){$('#main-content').innerHTML=outreachLoginForm();$('#outreach-login-form').addEventListener('submit',event=>submitOutreachLogin(event,'login'));return}
-    if(state.outreachUser?.role!=='admin'){$('#main-content').innerHTML='<div class="empty-card">当前账号没有用户触达权限，仅管理员可以执行主动触达。</div>';return}
+    if(account==='setup'){stopOutreachHistoryAutoSync();$('#main-content').innerHTML=outreachSetupForm();$('#outreach-setup-form').addEventListener('submit',event=>submitOutreachLogin(event,'setup'));return}
+    if(account==='login'){stopOutreachHistoryAutoSync();$('#main-content').innerHTML=outreachLoginForm();$('#outreach-login-form').addEventListener('submit',event=>submitOutreachLogin(event,'login'));return}
+    if(state.outreachUser?.role!=='admin'){stopOutreachHistoryAutoSync();$('#main-content').innerHTML='<div class="empty-card">当前账号没有用户触达权限，仅管理员可以执行主动触达。</div>';return}
     const [data,users]=await Promise.all([loadOutreachSnapshot(),studioApi('/users')]);
     if(version!==navigationVersion)return;
     state.outreachData=data;
     state.outreachUsers=users.items||[];
+    startOutreachHistoryAutoSync();
     if(state.outreachJob&&['pending','running'].includes(state.outreachJob.status)&&!outreachJobTimer){
       startOutreachJobPolling(state.outreachJob.job_id,state.outreachJobContactId);
     }
@@ -182,6 +196,7 @@ async function renderOutreach(){
     renderOutreachWorkspace(data);
   }catch(error){
     if(version!==navigationVersion)return;
+    stopOutreachHistoryAutoSync();
     state.outreachError=error.message;
     renderOutreachWorkspace(state.outreachData);
   }
@@ -223,7 +238,7 @@ function renderOutreachWorkspace(data){
   const taskPagination=data.task_pagination||{page:1,limit:5,total:todayTasks.length,pages:1,start_index:0,end_index:todayTasks.length,query:'',status_filter:'all'};
   const unsentTodayCount=counts.unsentToday??todayTasks.filter(t=>['draft','queued'].includes(t.status)).length;
   $('#main-content').innerHTML=`<section class="outreach-workspace">
-    <header><div><span>OUTREACH CONTROL</span><h3>真实客户每日主动触达</h3><p>以句子互动同步的真实客户为主体，先同步标签、备注和 30 天对话，再生成一客一策；发送前必须人工确认。</p></div><div class="outreach-header-actions"><button class="secondary-button" type="button" data-action="outreach-refresh" onclick="refreshOutreachCache()">刷新缓存</button><button class="secondary-button" type="button" data-action="outreach-sync" onclick="syncOutreachContacts()">同步客户</button><button class="secondary-button" type="button" data-action="outreach-history" onclick="syncOutreachHistory()">同步真实对话（5 分钟一次）</button><button class="primary-button" type="button" data-action="outreach-generate" onclick="refreshOutreachStrategies(true)">生成全量策略</button></div></header>
+    <header><div><span>OUTREACH CONTROL</span><h3>真实客户每日主动触达</h3><p>以句子互动同步的真实客户为主体，先同步标签、备注和 30 天对话，再生成一客一策；本板块每 30 秒自动同步真实对话，发送前必须人工确认。</p></div><div class="outreach-header-actions"><button class="secondary-button" type="button" data-action="outreach-refresh" onclick="refreshOutreachCache()">刷新缓存</button><button class="secondary-button" type="button" data-action="outreach-sync" onclick="syncOutreachContacts()">同步客户</button><button class="secondary-button" type="button" data-action="outreach-history" onclick="syncOutreachHistory()">同步真实对话（30 秒一次）</button><button class="primary-button" type="button" data-action="outreach-generate" onclick="refreshOutreachStrategies(true)">生成全量策略</button></div></header>
     <div class="outreach-summary-grid">${outreachSummary('句子互动',data.configured?'已连接':'待配置',data.configured?'客户与发送 API 已连接':'请联系管理员配置')}${outreachSummary('策略模型',data.model_configured?'已接入':'未配置',data.model_configured?'策略与推荐回复共用配置':'请联系管理员配置')}${outreachSummary('真实客户',counts.contacts,'手机号仅保留后四位')}${outreachSummary('已回复',counts.replied,'回复用户置顶展示')}${outreachSummary('今日触达',counts.today,'含模板和一客一策')}${outreachSummary('已发送',counts.sentToday,'人工确认后提交上游')}</div>
     ${state.outreachError?`<div class="outreach-alert">${esc(state.outreachError)}</div>`:''}
     ${state.outreachNotice?`<div class="outreach-notice">${esc(state.outreachNotice)}</div>`:''}
@@ -319,7 +334,69 @@ function changeOutreachContactPage(delta){const pagination=state.outreachData?.c
 function changeOutreachTaskPage(delta){const pagination=state.outreachData?.task_pagination;if(!pagination)return;const next=(pagination.page||1)+Number(delta);if(next<1||next>pagination.pages)return;state.outreachTaskPage=next;renderOutreach()}
 async function syncOutreachContacts(){if(state.outreachPending)return;state.outreachPending=true;toast('正在同步句子互动客户…');try{await studioApi('/outreach/sync',{method:'POST',body:'{}'});state.outreachAutoStarted=false;await renderOutreach();toast('客户同步完成')}catch(error){toast(error.message)}finally{state.outreachPending=false}}
 async function refreshOutreachCache(contactId=''){if(state.outreachPending)return;state.outreachPending=true;try{await renderOutreach();if(contactId)openOutreachContact(contactId);toast('已刷新已同步数据')}catch(error){toast(error.message)}finally{state.outreachPending=false}}
-async function syncOutreachHistory(){if(state.outreachPending)return;state.outreachPending=true;state.outreachError='正在同步句子互动 30 天真实对话…';state.outreachNotice='';renderOutreachWorkspace(state.outreachData);try{const result=await studioApi('/outreach/messages/sync',{method:'POST',body:'{}'});state.outreachError='';state.outreachNotice='';await renderOutreach();toast(`真实对话同步完成：新增 ${result.inserted||0} 条`)}catch(error){if(error.code==='RATE_LIMIT'){state.outreachError='';state.outreachNotice='真实对话同步间隔未到，当前展示最近一次同步的数据。';toast('同步间隔未到，已展示最近同步数据')}else{state.outreachError=error.message;state.outreachNotice='';toast(error.message)}renderOutreachWorkspace(state.outreachData)}finally{state.outreachPending=false}}
+function outreachInputKey(element){
+  return element.id||element.dataset.taskSelect||element.name||'';
+}
+function snapshotOutreachInputs(){
+  return $$('#main-content input, #main-content textarea, #main-content select')
+    .filter(element=>outreachInputKey(element))
+    .map(element=>({key:outreachInputKey(element),value:element.value,checked:element.checked}));
+}
+function restoreOutreachInputs(snapshot){
+  for(const item of snapshot){
+    const element=$(`#main-content [name="${CSS.escape(item.key)}"], #main-content [data-task-select="${CSS.escape(item.key)}"], #main-content #${CSS.escape(item.key)}`);
+    if(element){element.value=item.value;element.checked=item.checked}
+  }
+}
+async function syncOutreachHistory({automatic=false}={}){
+  if(state.outreachPending)return;
+  if(automatic&&document.activeElement&&['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName))return;
+  state.outreachPending=true;
+  if(!automatic){
+    state.outreachError='正在同步句子互动 30 天真实对话…';
+    state.outreachNotice='';
+    renderOutreachWorkspace(state.outreachData);
+  }
+  try{
+    const result=await studioApi('/outreach/messages/sync',{method:'POST',body:'{}'});
+    state.outreachError='';
+    state.outreachNotice='';
+    if(automatic){
+      if(Number(result.inserted||0)>0){
+        const snapshot=snapshotOutreachInputs();
+        const data=await loadOutreachSnapshot();
+        if(state.page!=='outreach')return;
+        state.outreachData=data;
+        renderOutreachWorkspace(data);
+        restoreOutreachInputs(snapshot);
+      }
+    }else{
+      await renderOutreach();
+      stopOutreachHistoryAutoSync();
+      startOutreachHistoryAutoSync();
+      toast(`真实对话同步完成：新增 ${result.inserted||0} 条`);
+    }
+  }catch(error){
+    if(error.name==='AbortError')return;
+    if(error.code==='RATE_LIMIT'){
+      state.outreachError='';
+      state.outreachNotice='真实对话同步间隔未到，当前展示最近一次同步的数据。';
+      if(!automatic)toast('同步间隔未到，已展示最近同步数据');
+      if(automatic)return;
+    }else{
+      state.outreachError=automatic?'':error.message;
+      state.outreachNotice=automatic?`真实对话自动同步失败：${error.message}`:'';
+      if(!automatic)toast(error.message);
+    }
+    if(state.page==='outreach'){
+      const snapshot=snapshotOutreachInputs();
+      renderOutreachWorkspace(state.outreachData);
+      restoreOutreachInputs(snapshot);
+    }
+  }finally{
+    state.outreachPending=false;
+  }
+}
 async function refreshOutreachStrategies(refresh){
   await startOutreachStrategyJob({
     refresh:refresh===true,limit:2000,direction:state.outreachStrategyDirection
@@ -690,6 +767,7 @@ window.addEventListener('message',event=>{
 });
 window.addEventListener('focus',stopJuziBlink);
 window.addEventListener('pagehide',stopJuziBlink);
+window.addEventListener('pagehide',stopOutreachHistoryAutoSync);
 async function renderScriptTemplates(){setHeader('模板参考','话术中心 / 模板参考');const data=await api('/api/v1/private/scripts');state.scripts=data.items;const h=data.historical_learning,t=h.totals;$('#main-content').innerHTML=`<section class="hero script-hero"><div><p class="hero-kicker">HUMAN-TONE PLAYBOOK</p><h3>先像一个记得上下文的人，再像一个懂产品的顾问</h3><p>基于历史触达结果生成：首条只做一件事，先让用户愿意开口；用户回复后再进入教育、对比、成交或服务。</p></div><button class="primary-button" onclick="navigate(&#39;scripts&#39;)">打开话术中心 →</button></section><section class="history-learning"><header><div><span>已导入历史触达学习</span><h2>${esc(h.source)}</h2><p>${esc(h.scope)}</p></div><div class="history-total"><strong>${Number(t.touches).toLocaleString()}</strong><span>历史触达量 · ${t.records} 条汇总口径记录</span></div></header><div class="history-metrics">${rateMetric('历史回复率',t.reply_rate+'%',Number(t.replies).toLocaleString()+' 人回复')}${rateMetric('回复后转化率',t.reply_to_conversion+'%',Number(t.conversions).toLocaleString()+' 人转化')}${rateMetric('历史意向人数',Number(t.intents).toLocaleString(),'脱敏模拟汇总口径')}${rateMetric('删除人数',Number(t.deletes).toLocaleString(),'用于演示打扰风险')}</div><div class="evidence-grid">${h.evidence.map(x=>`<article class="evidence-card ${x.type==='风险信号'?'risk':''}"><span>${esc(x.type)}</span><h3>${esc(x.title)}</h3><strong>${esc(x.rate)}</strong><p>${esc(x.metric)}</p><small>${esc(x.note)}</small></article>`).join('')}</div><div class="learned-rules"><strong>已写入生成器的规则</strong>${h.rules.map(x=>`<span>✓ ${esc(x)}</span>`).join('')}</div></section><section class="lifecycle-map">${data.lifecycle.map(x=>`<div><strong>${esc(x.customer_type)}</strong>${x.path.map((p,i)=>`<span>${i?'<i>→</i>':''}${esc(p)}</span>`).join('')}</div>`).join('')}</section><div class="script-filter">${data.scenes.map(x=>`<span>${esc(x)}</span>`).join('')}</div><div class="script-grid">${data.items.map((x,i)=>`<article class="script-card"><div class="script-meta"><span>${esc(x.customer_type)}</span><b>${esc(x.stage)}</b></div><h3>${esc(x.title)}</h3><p>${esc(x.scene)} · ${esc(x.purpose)}</p><blockquote>${esc(x.template)}</blockquote><div class="next-turn-mini"><strong>下一回合</strong>${esc(x.next_turn)}</div><div class="script-warning">避免：${esc(x.avoid)}</div><div><button class="secondary-button" onclick="copyScript(${i})">复制模板</button><button class="text-button" onclick="openScript(${i})">查看与编辑 →</button></div></article>`).join('')}</div>`}
 async function copyScript(index){try{await navigator.clipboard.writeText(state.scripts[index].template);toast('模板已复制，使用前请完成个性化编辑')}catch{toast('请手动复制模板')}}
 function openScript(index){const x=state.scripts[index];showDrawer(`<div class="drawer-header"><button class="drawer-close" onclick="closeDrawer()">×</button><p class="hero-kicker">${esc(x.customer_type)} · ${esc(x.stage)}</p><h3>${esc(x.title)}</h3><p>${esc(x.scene)} · ${esc(x.purpose)}</p></div><div class="drawer-body"><label class="form-label">可编辑话术<textarea id="script-editor" rows="9">${esc(x.template)}</textarea></label><section class="detail-section"><h4>用户回复后的下一回合</h4><p>${esc(x.next_turn)}</p></section><div class="caution-box"><strong>发送前检查</strong><p>${esc(x.avoid)}</p></div><button class="primary-button full" onclick="copyEditedScript()">复制编辑后话术</button><button class="secondary-button full" onclick="closeDrawer();navigate(&#39;scripts&#39;)">打开话术中心生成个性化版本</button></div>`)}

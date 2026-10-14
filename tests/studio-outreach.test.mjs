@@ -1404,6 +1404,8 @@ test('migrations and production configuration keep the token server-side', () =>
   assert.match(compose, /STUDIO_OUTREACH_BATCH_SIZE:\s*\$\{STUDIO_OUTREACH_BATCH_SIZE:-10\}/);
   assert.match(compose, /STUDIO_OUTREACH_BATCH_CONCURRENCY:\s*\$\{STUDIO_OUTREACH_BATCH_CONCURRENCY:-5\}/);
   assert.match(compose, /STUDIO_OUTREACH_MODEL_TIMEOUT_MS:\s*\$\{STUDIO_OUTREACH_MODEL_TIMEOUT_MS:-300000\}/);
+  const worker = readFileSync(new URL('../studio/server/worker.mjs', import.meta.url), 'utf8');
+  assert.match(worker, /outreach-history-sync[^;]+1,\s*30/s);
   const prodServer = readFileSync(new URL('../server-prod.mjs', import.meta.url), 'utf8');
   assert.match(prodServer, /STUDIO_OUTREACH_MODEL_TIMEOUT_MS:\s*process\.env\.STUDIO_OUTREACH_MODEL_TIMEOUT_MS/);
   const outreach = readFileSync(new URL('../studio/server/outreach.mjs', import.meta.url), 'utf8');
@@ -1411,6 +1413,10 @@ test('migrations and production configuration keep the token server-side', () =>
   assert.match(outreach, /Math\.min\(requestedLimit, OUTREACH_TASK_LIMIT\)/);
   const client = readFileSync(new URL('../assets/app.js', import.meta.url), 'utf8');
   assert.match(client, /limit:2000/);
+  assert.match(client, /同步真实对话（30 秒一次）/);
+  assert.match(client, /startOutreachHistoryAutoSync/);
+  assert.match(client, /,30000\)/);
+  assert.ok(!client.includes('5 分钟一次'));
   assert.ok(!compose.includes(juziToken));
   const deployScript = readFileSync(new URL('../scripts/ci-deploy.sh', import.meta.url), 'utf8');
   assert.ok(!/--exclude\s+['"]docker-compose\.prod\.yml['"]/.test(deployScript));

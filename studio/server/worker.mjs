@@ -142,7 +142,7 @@ export async function api(request, env, dependencies = {}) {
   }
   if (route === '/api/studio/outreach/messages/sync' && method === 'POST') {
     admin(user);
-    await store.rateLimit(`outreach-history-sync:${user.id}`, 1, 300);
+    await store.rateLimit(`outreach-history-sync:${user.id}`, 1, 30);
     return json(await syncConversations(store, env, user, dependencies));
   }
   const botMatch = route.match(/^\/api\/studio\/outreach\/bots\/([\w-]+)$/);
