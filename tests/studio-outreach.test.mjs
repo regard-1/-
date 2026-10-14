@@ -67,6 +67,7 @@ function listCustomersResponse() {
     errcode: 0,
     data: [{
       imContactId: 'external-contact-1',
+      chatId: 'chat-1',
       name: '陈先生',
       remarkMobiles: [fullPhone],
       systemTags: ['NMN用户', { tagName: '高互动' }],
@@ -99,11 +100,17 @@ function historyResponse() {
   const message = {
     messageId: 'history-message-1',
     imContactId: 'external-contact-1',
+    chatId: 'chat-1',
     isSelf: false,
     timestamp: Math.floor(Date.now() / 1000),
     Payload: { TextPayload: { text: `最近睡眠一般，想了解搭配，电话${fullPhone}` } },
   };
-  return jsonResponse({ data: { messages: [message, { ...message }] }, seq: '' });
+  return jsonResponse({ data: { messages: [
+    message,
+    { ...message },
+    { ...message, messageId: 'history-message-self', imContactId: 'bot-1', isSelf: true,
+      Payload: { TextPayload: { text: '陈哥，最近服用后整体状态怎么样？' } } },
+  ] }, seq: '' });
 }
 
 test('outreach is admin-only and sales calls never reach upstream or model', async t => {
@@ -446,14 +453,18 @@ test('conversation history is deduplicated, masked, and updates the profile', as
   await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
   const result = await h.call('/api/studio/outreach/messages/sync', 'POST', {}, admin);
   assert.equal(result.status, 200);
-  assert.equal(result.data.inserted, 1);
+  assert.equal(result.data.inserted, 2);
   assert.equal(result.data.updated_profiles, 1);
 
-  const message = h.db.sqlite.prepare('SELECT * FROM studio_outreach_messages').get();
-  assert.equal(message.message_id, 'history-message-1');
-  assert.equal(message.direction, 'inbound');
-  assert.ok(message.content.includes('尾号5678'));
-  assert.ok(!message.content.includes(fullPhone));
+  const messages = h.db.sqlite.prepare('SELECT * FROM studio_outreach_messages ORDER BY message_id').all();
+  assert.equal(messages.length, 2);
+  assert.deepEqual(messages.map(message => [message.message_id, message.direction]), [
+    ['history-message-1', 'inbound'],
+    ['history-message-self', 'outbound'],
+  ]);
+  assert.ok(messages[0].content.includes('尾号5678'));
+  assert.ok(messages.some(message => message.content.includes('陈哥，最近服用后整体状态怎么样？')));
+  assert.ok(!JSON.stringify(messages).includes(fullPhone));
 
   const contact = h.db.sqlite.prepare('SELECT * FROM studio_juzi_contacts').get();
   const profile = JSON.parse(contact.profile_json);
@@ -469,8 +480,8 @@ test('conversation history is deduplicated, masked, and updates the profile', as
   const contactMessages = await h.call(`/api/studio/outreach/messages?contact_id=${encodeURIComponent(contact.id)}`, 'GET', undefined, admin);
   assert.equal(contactMessages.status, 200);
   assert.equal(contactMessages.data.contact_id, contact.id);
-  assert.equal(contactMessages.data.items.length, 1);
-  assert.equal(contactMessages.data.items[0].message_id, 'history-message-1');
+  assert.equal(contactMessages.data.items.length, 2);
+  assert.equal(new Set(contactMessages.data.items.map(item => item.message_id)).size, 2);
   assert.ok(!JSON.stringify(contactMessages).includes(fullPhone));
   assert.equal((await h.call('/api/studio/outreach/messages?contact_id=missing-contact', 'GET', undefined, admin)).status, 404);
 });
@@ -1162,20 +1173,25 @@ test('Juzi callback always returns ok, validates token, and is idempotent', asyn
     payload: { text: `收到消息，电话${fullPhone}` },
     timestamp: Date.now(),
   };
-  await h.db.sqlite.prepare(`INSERT INTO studio_juzi_contacts(id,im_contact_id,display_name,phone_suffix,im_bot_id,match_status,last_synced_at)
-    VALUES(?,?,?,?,?,?,?)`).run('contact-1', 'external-contact-1', '陈先生', '5678', 'bot-1', 'unmatched', Date.now());
+  await h.db.sqlite.prepare(`INSERT INTO studio_juzi_contacts(id,im_contact_id,upstream_chat_id,display_name,phone_suffix,im_bot_id,match_status,last_synced_at)
+    VALUES(?,?,?,?,?,?,?,?)`).run('contact-1', 'external-contact-1', 'chat-1', '陈先生', '5678', 'bot-1', 'unmatched', Date.now());
 
-  for (const payload of [null, { ...body, token: 'wrong' }, { ...body, imContactId: 'missing' }, body, body]) {
+  const selfBody = { ...body, messageId: 'self-message-1', imContactId: 'bot-1', chatId: 'chat-1', isSelf: true,
+    payload: { text: '陈哥，这两天先按现在的搭配继续，有情况随时和我说。' } };
+  for (const payload of [null, { ...body, token: 'wrong' }, { ...body, imContactId: 'missing' }, body, body, selfBody]) {
     const response = await h.callback(payload);
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { errcode: 0, errmsg: 'ok' });
   }
   const rows = h.db.sqlite.prepare('SELECT * FROM studio_outreach_messages').all();
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].status, 'received');
-  assert.equal(rows[0].direction, 'inbound');
-  assert.match(rows[0].content, /尾号5678/);
-  assert.ok(!rows[0].content.includes(fullPhone));
+  assert.equal(rows.length, 2);
+  const inbound = rows.find(row => row.message_id === 'message-1');
+  const outbound = rows.find(row => row.message_id === 'self-message-1');
+  assert.equal(inbound.status, 'received');
+  assert.equal(inbound.direction, 'inbound');
+  assert.equal(outbound.direction, 'outbound');
+  assert.match(inbound.content, /尾号5678/);
+  assert.ok(!inbound.content.includes(fullPhone));
   assert.ok(!JSON.stringify(rows).includes(juziToken));
 });
 

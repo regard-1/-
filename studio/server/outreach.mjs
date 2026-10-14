@@ -320,13 +320,14 @@ export async function syncContacts(store, env, user, dependencies = {}) {
     await store.query(`INSERT INTO studio_juzi_bots(im_bot_id,bot_name,owner_user_id,last_synced_at)
       VALUES(?,?,NULL,?) ON CONFLICT(im_bot_id) DO UPDATE SET bot_name=excluded.bot_name,last_synced_at=excluded.last_synced_at`,
       imBotId, maskText(String(row.botInfo?.name || '')).slice(0, 80), now).run();
-    await store.query(`INSERT INTO studio_juzi_contacts(id,im_contact_id,external_user_id,display_name,phone_suffix,gender,im_bot_id,friendship_status,local_customer_id,match_status,last_synced_at,tags,remark)
-      VALUES(?,?,?,?,?,?,?,?,NULL,'unmatched',?,?,?)
-      ON CONFLICT(im_contact_id) DO UPDATE SET external_user_id=excluded.external_user_id,display_name=excluded.display_name,
+    await store.query(`INSERT INTO studio_juzi_contacts(id,im_contact_id,external_user_id,upstream_chat_id,display_name,phone_suffix,gender,im_bot_id,friendship_status,local_customer_id,match_status,last_synced_at,tags,remark)
+      VALUES(?,?,?,?,?,?,?,?,?,NULL,'unmatched',?,?,?)
+      ON CONFLICT(im_contact_id) DO UPDATE SET external_user_id=excluded.external_user_id,upstream_chat_id=excluded.upstream_chat_id,display_name=excluded.display_name,
         phone_suffix=excluded.phone_suffix,gender=excluded.gender,im_bot_id=excluded.im_bot_id,
         friendship_status=excluded.friendship_status,last_synced_at=excluded.last_synced_at,
         tags=excluded.tags,remark=excluded.remark`,
-      crypto.randomUUID(), imContactId, String(row?.imInfo?.externalUserId || '').slice(0, 128),
+      crypto.randomUUID(), imContactId, String(row?.imInfo?.externalUserId || imContactId || '').slice(0, 128),
+      String(row?.chatId || '').slice(0, 128),
       maskText(String(row?.name || '')).slice(0, 80), phoneSuffix(row?.remarkMobiles),
       Number.isInteger(row?.gender) ? row.gender : 0, imBotId,
       Number.isInteger(row?.friendshipStatus) ? row.friendshipStatus : 0, now,
@@ -365,9 +366,11 @@ function historyDay(offset) {
 function matchHistoryContact(message, contacts) {
   if (message?.coworker) return null;
   const externalUserId = String(message?.customerExternalUserId || '');
+  const chatId = String(message?.chatId || '');
   const senderId = String(message?.imContactId || '');
   return contacts.find(contact => (!message?.isSelf && contact.im_contact_id === senderId)
-    || (message?.isSelf && externalUserId && contact.external_user_id === externalUserId)) || null;
+    || (message?.isSelf && ((externalUserId && contact.external_user_id === externalUserId)
+      || (chatId && contact.upstream_chat_id === chatId)))) || null;
 }
 
 export async function syncConversations(store, env, user, dependencies = {}) {
@@ -375,7 +378,7 @@ export async function syncConversations(store, env, user, dependencies = {}) {
   const bots = await store.all('SELECT im_bot_id FROM studio_juzi_bots ORDER BY im_bot_id');
   let upstreamMessages = 0, textMessages = 0, inserted = 0, latestInbound = new Map();
   for (const bot of bots) {
-    const contacts = await store.all('SELECT id,im_contact_id,external_user_id FROM studio_juzi_contacts WHERE im_bot_id=?', bot.im_bot_id);
+    const contacts = await store.all('SELECT id,im_contact_id,external_user_id,upstream_chat_id FROM studio_juzi_contacts WHERE im_bot_id=?', bot.im_bot_id);
     for (let dayOffset = 0; dayOffset < 30; dayOffset++) {
       let seq = '0', pages = 0;
       do {
@@ -1417,7 +1420,14 @@ export async function handleJuziCallback(request, env, store) {
   try { body = await request.json(); } catch { return callbackOK(); }
   if (!env.WECOM_API_TOKEN || String(body?.token || '') !== env.WECOM_API_TOKEN) return callbackOK();
   if (!body?.messageId || !body?.imContactId || Number(body?.messageType) !== 7 || typeof body?.payload?.text !== 'string') return callbackOK();
-  const contact = await store.query('SELECT id FROM studio_juzi_contacts WHERE im_contact_id=?', String(body.imContactId)).first();
+  const imContactId = String(body.imContactId || '');
+  const chatId = String(body.chatId || '');
+  const customerExternalUserId = String(body.customerExternalUserId || '');
+  const contact = body.isSelf
+    ? await store.query(`SELECT id FROM studio_juzi_contacts
+        WHERE (upstream_chat_id=? AND ?<>'') OR (external_user_id=? AND ?<>'') LIMIT 1`,
+        chatId, chatId, customerExternalUserId, customerExternalUserId).first()
+    : await store.query('SELECT id FROM studio_juzi_contacts WHERE im_contact_id=?', imContactId).first();
   if (!contact) return callbackOK();
   const messageId = String(body.messageId).slice(0, 128);
   const existingMessage = await store.query('SELECT id FROM studio_outreach_messages WHERE message_id=?', messageId).first();

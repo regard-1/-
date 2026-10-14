@@ -28,6 +28,7 @@ export class PgDB {
         { tag: '0006_pg_outreach_template', file: '../drizzle/0006_pg_outreach_template.sql' },
         { tag: '0007_pg_idp_tokens', file: '../drizzle/0007_pg_idp_tokens.sql' },
         { tag: '0008_pg_outreach_jobs', file: '../drizzle/0008_pg_outreach_jobs.sql' },
+        { tag: '0009_pg_juzi_chat_id', file: '../drizzle/0009_pg_juzi_chat_id.sql' },
       ];
       for (const migration of migrations) {
         const exists = await client.query('SELECT tag FROM pg_migrations WHERE tag=$1', [migration.tag]);

@@ -70,6 +70,7 @@ export const juziBots = sqliteTable('studio_juzi_bots', {
 export const juziContacts = sqliteTable('studio_juzi_contacts', {
   id: text('id').primaryKey(), imContactId: text('im_contact_id').notNull().unique(),
   externalUserId: text('external_user_id').notNull().default(''), displayName: text('display_name').notNull().default(''),
+  upstreamChatId: text('upstream_chat_id').notNull().default(''),
   phoneSuffix: text('phone_suffix').notNull().default(''), gender: integer('gender').notNull().default(0),
   imBotId: text('im_bot_id').notNull(), friendshipStatus: integer('friendship_status').notNull().default(0),
   localCustomerId: text('local_customer_id'), matchStatus: text('match_status').notNull().default('unmatched'),
