@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, primaryKey } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, primaryKey } from 'drizzle-orm/sqlite-core';
 export const users = sqliteTable('studio_users', {
   id: text('id').primaryKey(), username: text('username').notNull().unique(),
   displayName: text('display_name').notNull(), passwordHash: text('password_hash').notNull(),
@@ -136,4 +136,10 @@ export const outreachJobs = sqliteTable('studio_outreach_jobs', {
   batchesTotal: integer('batches_total').notNull().default(0), batchesCompleted: integer('batches_completed').notNull().default(0),
   errorJson: text('error_json'), createdAt: integer('created_at').notNull(), startedAt: integer('started_at'),
   updatedAt: integer('updated_at').notNull(), finishedAt: integer('finished_at'),
+});
+
+export const salesTargets = sqliteTable('studio_sales_targets', {
+  businessDay: text('business_day').primaryKey(), targetAmount: real('target_amount').notNull().default(0),
+  youzanActual: real('youzan_actual').notNull().default(0), tianmaoActual: real('tianmao_actual').notNull().default(0),
+  updatedBy: text('updated_by').notNull(), createdAt: integer('created_at').notNull(), updatedAt: integer('updated_at').notNull(),
 });

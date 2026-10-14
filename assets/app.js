@@ -1,8 +1,10 @@
-const state={user:null,studioRole:null,page:'workbench',categories:[],audience:null,audienceQuery:'',audienceOwner:'',audiencePage:1,customer:null,scripts:[],tasks:[],taskCategory:'all',outreachUser:null,outreachCsrf:'',outreachData:null,outreachUsers:[],outreachPending:false,outreachAutoStarted:false,outreachModelConfigured:false,outreachError:'',outreachNotice:'',outreachJob:null,outreachJobContactId:'',outreachBatch:null,outreachContactPage:1,outreachContactQuery:'',outreachContactReply:'all',outreachTaskPage:1,outreachTaskQuery:'',outreachTaskStatus:'all',outreachTaskSelectionAll:false,outreachTagQuery:'',outreachTagMode:'contains',outreachExcludeTag:'',outreachStrategyDirection:'auto',juziSpOrigin:'',passwordChangeRequired:false,passwordChangeUsername:''};
+const state={user:null,studioRole:null,page:'workbench',dashboardData:null,dashboardAssetPage:1,dashboardAssetQuery:'',dashboardAssetTag:'',dashboardAssetAudience:'',dashboardAssetReply:'all',dashboardTaskPage:1,dashboardTaskQuery:'',dashboardTaskStatus:'all',dashboardTaskScope:'today',outreachUser:null,outreachCsrf:'',outreachData:null,outreachUsers:[],outreachPending:false,outreachAutoStarted:false,outreachModelConfigured:false,outreachError:'',outreachNotice:'',outreachJob:null,outreachJobContactId:'',outreachBatch:null,outreachContactPage:1,outreachContactQuery:'',outreachContactReply:'all',outreachTaskPage:1,outreachTaskQuery:'',outreachTaskStatus:'all',outreachTaskSelectionAll:false,outreachTagQuery:'',outreachTagMode:'contains',outreachExcludeTag:'',outreachStrategyDirection:'auto',juziSpOrigin:'',passwordChangeRequired:false,passwordChangeUsername:''};
 let navigationVersion=0;
 let juziBlinkTimer=null,juziOriginalTitle='';
 let outreachJobTimer=null;
 let outreachHistorySyncTimer=null;
+let dashboardRefreshTimer=null;
+let dashboardSalesFormDirty=false;
 const $=(selector,root=document)=>root.querySelector(selector);
 const $$=(selector,root=document)=>[...root.querySelectorAll(selector)];
 function esc(value=''){return String(value).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
@@ -90,7 +92,7 @@ document.addEventListener('change',event=>{
   if(contact)bindOutreachContact(contact.dataset.contact,contact.value);
 });
 
-async function navigate(page,historyMode='push'){if(!page)return;if(state.passwordChangeRequired){toast('请先完成临时密码修改');return}const version=++navigationVersion;if(page!=='outreach')stopOutreachHistoryAutoSync();setNav(page);closeDrawer();loading();if(historyMode!=='none'){const url=new URL(location.href);url.searchParams.set('page',page);if(url.href!==location.href)history[historyMode==='replace'?'replaceState':'pushState']({},'',url)}try{if(page==='workbench')await renderWorkbench();else if(page==='assets')await renderAssets();else if(page==='tasks')await renderTasks();else if(page==='scripts')await renderScripts();else if(page==='outreach')await renderOutreach();else if(page==='juzi-workbench')await renderJuziWorkbench();else if(page==='script-templates')await renderScriptTemplates();else if(page==='governance')await renderGovernance()}catch(err){if(version!==navigationVersion||err.name==='AbortError')return;$('#main-content').innerHTML=`<div class="empty-card">加载失败：${esc(err.message)}<br><button class="secondary-button" onclick="navigate('${esc(page)}')">重新加载</button></div>`}}
+async function navigate(page,historyMode='push'){if(!page)return;if(state.passwordChangeRequired){toast('请先完成临时密码修改');return}const version=++navigationVersion;if(page!=='outreach')stopOutreachHistoryAutoSync();if(page!=='workbench')stopDashboardAutoRefresh();setNav(page);closeDrawer();loading();if(historyMode!=='none'){const url=new URL(location.href);url.searchParams.set('page',page);if(url.href!==location.href)history[historyMode==='replace'?'replaceState':'pushState']({},'',url)}try{if(page==='workbench')await renderWorkbench();else if(page==='assets')await renderAssets();else if(page==='tasks')await renderTasks();else if(page==='scripts')await renderScripts();else if(page==='outreach')await renderOutreach();else if(page==='juzi-workbench')await renderJuziWorkbench();else if(page==='script-templates')await renderScriptTemplates();else if(page==='governance')await renderGovernance()}catch(err){if(version!==navigationVersion||err.name==='AbortError')return;$('#main-content').innerHTML=`<div class="empty-card">加载失败：${esc(err.message)}<br><button class="secondary-button" onclick="navigate('${esc(page)}')">重新加载</button></div>`}}
 function startOutreachHistoryAutoSync(){
   if(outreachHistorySyncTimer)return;
   outreachHistorySyncTimer=setInterval(()=>{
@@ -103,25 +105,165 @@ function stopOutreachHistoryAutoSync(){
   clearInterval(outreachHistorySyncTimer);
   outreachHistorySyncTimer=null;
 }
+function startDashboardAutoRefresh(){
+  if(dashboardRefreshTimer)return;
+  dashboardRefreshTimer=setInterval(async()=>{
+    if(document.hidden||state.page!=='workbench')return;
+    if(document.activeElement&&$('#dashboard-sales-form')?.contains(document.activeElement))return;
+    if(dashboardSalesFormDirty)return;
+    try{
+      const data=await studioApi('/dashboard');
+      if(state.page==='workbench')renderDashboardWorkspace(data);
+    }catch{}
+  },30000);
+}
+function stopDashboardAutoRefresh(){
+  if(!dashboardRefreshTimer)return;
+  clearInterval(dashboardRefreshTimer);
+  dashboardRefreshTimer=null;
+}
 window.addEventListener('popstate',()=>{if(state.user)navigate(initialPage(),'none')});
 function metric(label,value,note,tone='') {return `<article class="metric-card execution-metric ${tone}"><span>${esc(label)}</span><strong>${esc(value)}</strong><small>${esc(note)}</small></article>`}
 function assetCard(item){return `<button class="asset-card" style="--accent:${esc(item.color)}" onclick="openAudience('${esc(item.code)}')"><div class="asset-icon">${esc(item.name.slice(0,1))}</div><h4>${esc(item.name)}</h4><p>${esc(item.description)}</p><div class="asset-stats"><div><strong>${item.customer_count}</strong><span>归属用户</span></div><div><strong>${item.due_count}</strong><span>待触达</span></div></div><b class="asset-arrow">→</b></button>`}
 function segmentCard(item){const parts=(state.categories||[]).filter(c=>item.category_codes.includes(c.code)).map(c=>c.name).join('、');return `<button class="asset-card segment-card" style="--accent:${esc(item.color)}" onclick="openSegment('${esc(item.code)}')"><div class="asset-icon">${esc(item.name.slice(0,1))}</div><h4>${esc(item.name)}</h4><p>${esc(item.description)}</p><small class="segment-parts">${esc(parts)}</small><div class="asset-stats"><div><strong>${item.customer_count}</strong><span>板块用户</span></div><div><strong>${item.due_count}</strong><span>待触达</span></div></div><b class="asset-arrow">→</b></button>`}
 function stagePill(stage){const cls=stage==='待回复'||stage==='对话中'?'urgent':stage==='暂停触达'?'paused':stage==='待跟进'?'follow':'';return `<span class="stage-pill ${cls}">${esc(stage)}</span>`}
 
-async function renderWorkbench(){setHeader('今天需要跟进的用户','今日工作台');const data=await api('/api/v1/private/workbench');state.categories=data.categories;$('#task-count').textContent=data.metrics.due;
-  $('#main-content').innerHTML=`<section class="hero execution-hero"><div><p class="hero-kicker">FRONTLINE EXECUTION DESK</p><h3>先读懂当前待办，再给出合适触达</h3><p>聚合用户事实、内部辅助摘要和触达任务，为一线运营提供可执行的用户触达入口。</p></div><button class="primary-button" onclick="navigate('outreach')">进入用户触达 →</button></section>
-  <div class="metric-grid execution-grid">${metric('今日待办',data.metrics.due,'需要回复或跟进','urgent')}${metric('等待回复',data.metrics.waiting,'客户消息优先处理')}${metric('约定跟进',data.metrics.followups,'按约定时间执行')}${metric('暂停触达',data.metrics.paused,'严格遵守用户边界')}${metric('今日已完成',data.completed_today,'已写入跟进记录','done')}</div>
-  <div class="section-heading"><div><h3>优先处理队列</h3><p>按客户消息、约定时间和授权状态排列，不提供经营决策排序</p></div><button class="text-button" onclick="navigate('tasks')">查看全部任务 →</button></div>
-  <section class="execution-queue">${data.queue.map(t=>queueCard(t)).join('')}</section>
-  <div class="section-heading spaced-heading"><div><h3>用户资产入口</h3><p>按抗衰、基础营养两个板块进入，资料和会话在两个板块间共享</p></div><button class="text-button" onclick="navigate('assets')">查看全部 →</button></div>
-  <div class="asset-grid">${data.segments.map(segmentCard).join('')}</div>`}
-function queueCard(task){const c=task.customer;return `<article class="queue-card"><div class="queue-avatar">${esc(c.name.slice(0,1))}</div><div class="queue-main"><div><strong>${esc(c.name)}</strong>${stagePill(c.stage)}<span class="priority ${c.priority==='高'?'high':''}">${esc(c.priority)}优先</span></div><p class="customer-quote">“${esc(c.last_message)}”</p><small>${esc(task.type)} · ${esc(task.reason)} · ${esc(task.due)}</small></div><div class="queue-action"><span>${esc(c.product_focus)}</span><button class="primary-button" onclick="openCustomer(${c.id})">处理用户</button><button class="secondary-button" onclick="navigate('tasks')">查看任务</button></div></article>`}
+async function renderWorkbench(){
+  setHeader('今日私域经营与触达','今日工作台');
+  const version=navigationVersion;
+  const data=await studioApi('/dashboard');
+  if(version!==navigationVersion)return;
+  state.dashboardData=data;
+  renderDashboardWorkspace(data);
+  startDashboardAutoRefresh();
+}
+function dashboardCurrency(value){return `¥${Number(value||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2})}`}
+function dashboardPercent(value){return value==null?'—':`${Number(value).toFixed(1)}%`}
+function dashboardStatusPill(status){
+  const label={draft:'未入队',queued:'待发送',sent:'已发送',failed:'异常',paused:'已暂停'}[status]||status;
+  const cls=['draft','queued'].includes(status)?'pending':status==='sent'?'done':status==='paused'?'paused':'failed';
+  return `<span class="dashboard-status ${cls}">${esc(label)}</span>`;
+}
+function renderDashboardWorkspace(data){
+  state.dashboardData=data;
+  $('#task-count').textContent=data.task_stats.unsent;
+  const sales=data.sales,today=sales.today,yesterday=sales.yesterday,rate=data.outreach_rate,tasks=data.task_stats,contacts=data.contact_stats;
+  $('#main-content').innerHTML=`<section class="dashboard-hero">
+    <div><p class="hero-kicker">REAL PRIVATE OPERATION</p><h1>今日工作台</h1><p>销售目标、真实触达结果和执行队列在同一屏核对；数据来自句子互动同步链路，30 秒自动刷新。</p></div>
+    <div class="dashboard-hero-side"><span>昨日 ${esc(data.yesterday)}</span><strong>${dashboardCurrency(yesterday.actual_amount)}</strong><small>有赞 ${dashboardCurrency(yesterday.youzan_actual)} + 天猫 ${dashboardCurrency(yesterday.tianmao_actual)}</small></div>
+  </section>
+  <div class="dashboard-metric-grid">
+    ${metric('昨日私域产出',dashboardCurrency(yesterday.actual_amount),yesterday.achievement_rate==null?'未设置昨日目标':`达成率 ${dashboardPercent(yesterday.achievement_rate)}`)}
+    ${metric('今日私域目标',dashboardCurrency(today.target_amount),today.achievement_rate==null?'已录产出，未设置达成率':`达成率 ${dashboardPercent(today.achievement_rate)} · 已录产出 ${dashboardCurrency(today.actual_amount)}`)}
+    ${metric('昨日触达回复率',dashboardPercent(rate.rate),`${rate.replied}/${rate.touched} 人回复`,'urgent')}
+    ${metric('今日触达任务',tasks.total,`未完成 ${tasks.unsent} 条`)}
+    ${metric('执行队列',tasks.queued,'发送前仍需人工确认')}
+    ${metric('真实客户',contacts.total,`${contacts.anti_aging} 抗衰 / ${contacts.daily_nutrition} 日常`)}
+  </div>
+  <section class="dashboard-two-column">
+    <div>
+      <div class="section-heading"><div><h3>今日销售目标与产出</h3><p>只填私域总目标；完成情况拆分有赞和天猫实际产出。</p></div></div>
+      ${state.studioRole==='admin'?`<form id="dashboard-sales-form" class="dashboard-sales-form" onsubmit="saveDashboardSalesTarget(event)">
+        <label>业务日期<input type="date" name="business_day" value="${esc(data.today)}" oninput="dashboardSalesFormDirty=true" required></label>
+        <label>私域总目标（元）<input type="number" name="target_amount" min="0" step="0.01" value="${esc(today.target_amount||0)}" oninput="dashboardSalesFormDirty=true" required></label>
+        <label>有赞实际产出（元）<input type="number" name="youzan_actual" min="0" step="0.01" value="${esc(today.youzan_actual||0)}" oninput="dashboardSalesFormDirty=true"></label>
+        <label>天猫实际产出（元）<input type="number" name="tianmao_actual" min="0" step="0.01" value="${esc(today.tianmao_actual||0)}" oninput="dashboardSalesFormDirty=true"></label>
+        <button class="primary-button" type="submit">保存目标与产出</button>
+      </form>`:`<div class="dashboard-note">目标由管理员录入，销售账号按归属客户查看执行结果。</div>`}
+      <div class="dashboard-advice-list">
+        <h3>销售与运营建议</h3>
+        ${data.suggestions.map(item=>`<p><span>→</span>${esc(item)}</p>`).join('')}
+      </div>
+    </div>
+    <div>
+      <div class="section-heading"><div><h3>今日优先执行队列</h3><p>来自真实一客一策任务，发送前必须逐条确认。</p></div><button class="text-button" onclick="navigate('tasks')">全部任务 →</button></div>
+      <div class="dashboard-priority-list">${data.priority_tasks.map(task=>`
+        <article><div><strong>${esc(task.salutation||task.contact_name)}</strong><small>${esc(task.phone||'无尾号')} · ${esc(task.owner_name)}</small></div><p>${esc(task.recommended_message||task.reason||'待生成话术')}</p><footer>${dashboardStatusPill(task.status)}<span>${esc(task.audience_label)}</span><span>${esc(task.strategy_type||'策略')}</span></footer></article>`).join('')||'<div class="empty-card">今日暂无待执行触达任务。</div>'}</div>
+    </div>
+  </section>
+  <section class="dashboard-footer-stats">
+    <div><span>已回复客户</span><strong>${contacts.replied}</strong></div>
+    <div><span>未绑定档案</span><strong>${contacts.unbound}</strong></div>
+    <div><span>服务风险</span><strong>${contacts.risk}</strong></div>
+    <div><span>30天消息留档</span><strong>${data.message_stats.last_30_days}</strong></div>
+    <div><span>标签数</span><strong>${data.tag_summary.distinct_tags}</strong></div>
+  </section>`;
+}
+async function saveDashboardSalesTarget(event){
+  event.preventDefault();
+  const form=new FormData(event.target);
+  try{
+    const data=await studioApi('/dashboard/sales-target',{method:'POST',body:JSON.stringify(Object.fromEntries(form))});
+    dashboardSalesFormDirty=false;
+    toast(`${data.business_day} 销售目标已保存`);
+    const snapshot=await studioApi('/dashboard');
+    if(state.page==='workbench')renderDashboardWorkspace(snapshot);
+  }catch(error){toast(error.message)}
+}
 
 function ownerChipsHtml(owners,selected,onClick){if(!owners||!owners.length)return '';const sorted=[...owners].sort((a,b)=>b.count-a.count);return `<div class="owner-filter"><button class="owner-chip ${selected===''?'active':''}" onclick="${onClick}('')">全部顾问</button>${sorted.map(o=>`<button class="owner-chip ${selected===o.name?'active':''}" onclick="${onClick}('${esc(o.name).replace(/'/g,"\\'")}')">${esc(o.name)} <b>${o.count||''}</b></button>`).join('')}</div>`}
 function selectOwner(owner){state.audienceOwner=owner||'';state.audiencePage=1;openAudience(state.audience,state.audienceQuery,1)}
 
-async function renderAssets(){setHeader('用户资产','用户资产');const data=await api('/api/v1/private/user-assets');state.categories=data.categories;const total=data.total_users;const segmentTotal=data.segments.reduce((sum,x)=>sum+x.customer_count,0);$('#main-content').innerHTML=`<section class="hero asset-hero"><div><p class="hero-kicker">USER ASSET CENTER</p><h3>从用户事实进入每一次沟通</h3><p>当前共 ${total} 位用户，按抗衰与基础营养两大板块组织。同一用户可同时属于多个细类，但只保留一份资料、一条会话链路和一套触达边界。</p></div></section><div class="section-heading"><div><h3>选择用户板块</h3><p>内部辅助摘要仅供已授权运营人员使用，不会进入客户消息</p></div><span class="asset-actions"><button class="secondary-button" onclick="openCustomerForm()">+ 新增客户</button><button class="secondary-button" onclick="openImportForm()">+ 批量导入</button><span>更新于 ${fmtDate(data.updated_at)}</span></span></div><div class="asset-grid">${data.segments.map(segmentCard).join('')}</div><section class="boundary-note"><strong>本模块的使用边界</strong><span>可用于理解用户与生成回复；不可直接把内部标签、优先级、评分或推断内容发送给客户。</span></section>`}
+async function renderAssets(){
+  setHeader('真实客户资产','用户资产');
+  const version=navigationVersion;
+  const params=new URLSearchParams({
+    page:state.dashboardAssetPage,limit:10,q:state.dashboardAssetQuery,tag:state.dashboardAssetTag,
+    audience:state.dashboardAssetAudience,reply:state.dashboardAssetReply,
+  });
+  const [data,snapshot]=await Promise.all([studioApi(`/dashboard/assets?${params}`),studioApi('/dashboard')]);
+  if(version!==navigationVersion)return;
+  renderDashboardAssets(data,snapshot);
+}
+function renderDashboardAssets(data,snapshot){
+  const contacts=snapshot.contact_stats,pagination=data.pagination;
+  $('#task-count').textContent=contacts.total;
+  $('#main-content').innerHTML=`<section class="dashboard-hero compact">
+    <div><p class="hero-kicker">REAL CUSTOMER ASSETS</p><h1>用户资产</h1><p>展示句子互动同步后的真实客户，按标签、人群和回复状态筛选；手机号仅显示后四位。</p></div>
+    <div class="dashboard-hero-side"><span>真实客户</span><strong>${contacts.total}</strong><small>${contacts.anti_aging} 抗衰 / ${contacts.daily_nutrition} 日常</small></div>
+  </section>
+  <div class="dashboard-filter-bar">
+    <input id="dashboard-asset-search" value="${esc(state.dashboardAssetQuery)}" placeholder="搜索姓名、称呼、尾号、标签、备注或归属">
+    <select id="dashboard-asset-audience" onchange="filterDashboardAssets()">
+      <option value="">全部人群</option>
+      <option value="anti_aging" ${state.dashboardAssetAudience==='anti_aging'?'selected':''}>抗衰用户</option>
+      <option value="daily_nutrition" ${state.dashboardAssetAudience==='daily_nutrition'?'selected':''}>日常营养补充用户</option>
+    </select>
+    <select id="dashboard-asset-reply" onchange="filterDashboardAssets()">
+      <option value="all">全部回复状态</option>
+      <option value="replied" ${state.dashboardAssetReply==='replied'?'selected':''}>已回复</option>
+      <option value="unread" ${state.dashboardAssetReply==='unread'?'selected':''}>未回复</option>
+    </select>
+    <input id="dashboard-asset-tag" value="${esc(state.dashboardAssetTag)}" placeholder="标签筛选，支持多个词">
+    <button class="primary-button" onclick="filterDashboardAssets()">筛选</button>
+  </div>
+  <div class="table-wrap"><table class="data-table dashboard-table"><thead><tr><th>客户</th><th>人群与标签</th><th>内部画像摘要</th><th>状态</th><th>归属</th></tr></thead>
+    <tbody>${data.items.map(item=>`<tr><td><div class="user-cell"><div class="mini-avatar">${esc(String(item.salutation||item.name).slice(0,1))}</div><div><strong>${esc(item.salutation||item.name)}</strong><span>${esc(item.phone||'无尾号')} · ${esc(item.match_status==='bound'?'已绑定档案':item.match_status==='suggested'?'建议绑定':'未绑定')}</span></div></div></td>
+      <td><strong>${esc(item.audience_label)}</strong><div>${item.tags.slice(0,4).map(tag=>`<span class="tag">${esc(tag)}</span>`).join('')||'<span class="tag">无标签</span>'}</div></td>
+      <td class="profile-cell">${esc(item.summary)}<br><small>${esc(item.purchased_products||item.interests||'暂无购买与关注线索')}</small></td>
+      <td>${dashboardStatusPill(item.replied?'sent':'draft')}<small>${esc(item.lifecycle)}</small></td>
+      <td>${esc(item.owner_name)}</td></tr>`).join('')||'<tr><td colspan="5" class="empty-table-cell">没有符合条件的客户。</td></tr>'}</tbody></table>
+    <div class="pagination-note">第 ${pagination.start_index}-${pagination.end_index} / 共 ${pagination.total} 条 · 每页 10 人 · 手机号已脱敏</div>
+    <div class="pagination-controls"><button class="secondary-button" onclick="changeDashboardAssetPage(-1)" ${pagination.page<=1?'disabled':''}>上一页</button><span>第 ${pagination.page} / ${pagination.pages} 页</span><button class="secondary-button" onclick="changeDashboardAssetPage(1)" ${pagination.page>=pagination.pages?'disabled':''}>下一页</button></div>
+  </div>
+  <section class="boundary-note"><strong>使用边界</strong><span>画像、标签和意向层级仅供内部判断；不得直接发送给客户，暂停触达与服务风险客户优先处理诉求。</span></section>`;
+  const search=$('#dashboard-asset-search');
+  search.addEventListener('keydown',event=>{if(event.key==='Enter')filterDashboardAssets()});
+  const tag=$('#dashboard-asset-tag');
+  tag.addEventListener('keydown',event=>{if(event.key==='Enter')filterDashboardAssets()});
+}
+function filterDashboardAssets(){
+  state.dashboardAssetQuery=$('#dashboard-asset-search').value.trim();
+  state.dashboardAssetTag=$('#dashboard-asset-tag').value.trim();
+  state.dashboardAssetAudience=$('#dashboard-asset-audience').value;
+  state.dashboardAssetReply=$('#dashboard-asset-reply').value;
+  state.dashboardAssetPage=1;
+  renderAssets().catch(error=>toast(error.message));
+}
+function changeDashboardAssetPage(delta){
+  state.dashboardAssetPage=Math.max(1,state.dashboardAssetPage+delta);
+  renderAssets().catch(error=>toast(error.message));
+}
 async function openAudience(code,q='',page=1){state.audience=code;state.audienceQuery=q||'';state.audiencePage=Math.max(1,Number(page)||1);loading('正在加载用户列表…');const data=await api(`/api/v1/private/user-assets/${encodeURIComponent(code)}/customers?q=${encodeURIComponent(q)}&owner=${encodeURIComponent(state.audienceOwner||'')}`);const view=audienceSlice(data.items,data.pagination.total,state.audiencePage);setHeader(data.audience.name,`用户资产 / ${data.audience.name}`);const ownerBar=ownerChipsHtml(data.owners,state.audienceOwner,'selectOwner');const segmentBar=data.audience.category_codes?`<div class="audience-segment-bar"><button class="segment-chip active">${esc(data.audience.name)} · 全部 ${data.pagination.total}</button>${state.categories.filter(c=>data.audience.category_codes.includes(c.code)).map(c=>`<button class="segment-chip" onclick="openAudience('${esc(c.code)}')">${esc(c.name)} <b>${c.customer_count}</b></button>`).join('')}</div>`:'';$('#main-content').innerHTML=`<button class="back-button" onclick="navigate('assets')">← 返回用户资产</button><div class="section-heading"><div><h3>${esc(data.audience.name)}</h3><p>${esc(data.audience.description)} · ${data.pagination.total} 位用户</p></div></div>${ownerBar}${segmentBar}<div class="toolbar"><div class="search-box"><input id="asset-search" value="${esc(q)}" placeholder="搜索姓名、称呼、手机号后四位、产品关注或当前状态"></div><button class="secondary-button" onclick="searchAudience()">搜索</button></div><div class="table-wrap"><table class="data-table operator-table"><thead><tr><th>用户</th><th>产品关注</th><th>内部沟通摘要</th><th>当前状态</th><th>下一步</th><th>操作</th></tr></thead><tbody>${view.items.map(c=>`<tr onclick="openCustomer(${c.id})"><td><div class="user-cell"><div class="mini-avatar">${esc((c.salutation||c.name).slice(0,1))}</div><div><strong>${esc(c.salutation||c.name)}</strong><span>${esc(c.phone)} · ${esc(c.owner)}</span>${c.remark?`<small>${esc(c.remark)}</small>`:''}</div></div></td><td><strong>${esc(c.product_focus)}</strong><br>${c.assets.map(a=>`<span class="tag">${esc(a.name)}</span>`).join('')}</td><td class="profile-cell">${esc(c.ai_profile.summary.slice(0,75))}…<br>${c.ai_profile.tags.slice(0,2).map(x=>`<span class="tag">${esc(x)}</span>`).join('')}</td><td>${stagePill(c.stage)}<br><small>${esc(c.last_time)}</small></td><td class="profile-cell">${esc(c.next_action)}<br><b>${esc(c.next_at)}</b></td><td><button class="action-link" onclick="event.stopPropagation();openCustomer(${c.id})">查看资料</button></td></tr>`).join('')}</tbody></table><div class="pagination-note">${audienceRange(view)} · 手机号已脱敏 · 仅展示当前运营角色可见用户</div>${audiencePagerHtml(data.audience.code,view)}</div>`;$('#asset-search').addEventListener('keydown',e=>{if(e.key==='Enter')searchAudience()})}
 function audienceSlice(items,total,page){const size=100;const pages=Math.max(1,Math.ceil(total/size));const current=Math.min(Math.max(1,Number(page)||1),pages);const start=(current-1)*size;return {items:items.slice(start,start+size),start,current,pages,total}}
 function audienceRange(view){if(!view.total)return '共 0 条';const end=Math.min(view.start+view.items.length,view.total);return `第 ${view.start+1}-${end} / 共 ${view.total} 条`}
@@ -148,7 +290,73 @@ function personaItem(label,value,basis){return `<div class="persona-item"><span>
 function detailMetric(label,value){return `<div class="detail-metric"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`}
 async function refreshProfile(id){try{await api(`/api/v1/private/customers/${id}/ai-profile/refresh`,{method:'POST',body:'{}'});toast('内部摘要已按最新事实更新');openCustomer(id)}catch(err){toast(err.message)}}
 
-async function renderTasks(category=state.taskCategory){state.taskCategory=category;setHeader('触达任务与每日优化','触达任务');const data=await api(`/api/v1/private/tasks?category=${encodeURIComponent(category)}`);state.tasks=data.all_items;$('#task-count').textContent=data.pending;const p=data.performance,m=p.metrics,d=p.deltas;$('#main-content').innerHTML=`<section class="task-page-head"><div><p class="hero-kicker">DAILY OUTREACH ENGINE</p><h1>今天该联系谁、为什么联系、怎么开口</h1><p>任务由用户事实、授权状态、沟通阶段和昨日效果共同生成；运营人员确认后执行。</p></div><div><span>${esc(p.optimization.version)}</span><strong>${data.pending} 项待执行</strong><small>下次复盘 ${esc(p.optimization.next_review)}</small></div></section><div class="touch-metric-grid">${rateMetric('昨日完成',`${m.completed}/${m.assigned}`,'触达任务')}${rateMetric('开口率',m.opening_rate+'%',signed(d.opening_rate))}${rateMetric('回复率',m.reply_rate+'%',signed(d.reply_rate))}${rateMetric('意向率',m.intent_rate+'%',signed(d.intent_rate))}${rateMetric('转化率',m.conversion_rate+'%',signed(d.conversion_rate),d.conversion_rate<0?'down':'')}${rateMetric('关怀正向率',m.care_positive_rate+'%','购买后/生日关怀')}</div><section class="daily-optimization"><header><div><span>基于前一日触达内容自动复盘</span><h2>今日触达优化建议</h2></div><button class="secondary-button" onclick="refreshTouchOptimization()">重新生成今日建议</button></header><div class="optimization-body"><div class="optimization-column winners"><h3>昨日有效方式</h3>${p.optimization.winners.map(x=>`<p><span>↑</span>${esc(x)}</p>`).join('')}</div><div class="optimization-column adjustments"><h3>今日调整</h3>${p.optimization.adjustments.map(x=>`<p><span>→</span>${esc(x)}</p>`).join('')}</div><div class="optimization-focus"><strong>今日总体策略</strong><p>${esc(p.optimization.today_focus)}</p><small>数据口径：开口率=用户打开或形成有效会话；意向率=明确表示愿意继续了解；转化率=完成既定产品转化动作。</small></div></div><div class="category-performance">${p.by_category.map(x=>`<div><strong>${esc(x.label)}</strong><span>开口 ${x.opening_rate}%</span><span>意向 ${x.intent_rate}%</span><span>转化 ${x.conversion_rate}%</span></div>`).join('')}</div></section><div class="section-heading task-category-heading"><div><h3>触达类型</h3><p>同一用户可在不同时间进入不同任务，但暂停触达状态拥有最高优先级</p></div></div><div class="task-category-grid"><button class="task-category-card ${category==='all'?'active':''}" onclick="filterTasks('all')"><span>全</span><strong>全部任务</strong><small>${data.all_items.length} 项</small></button>${data.categories.map(x=>taskCategoryCard(x,data.all_items,category)).join('')}</div><div class="task-filter-bar"><strong>${category==='all'?'全部触达任务':esc(data.categories.find(x=>x.code===category)?.label||'触达任务')}</strong><span>${data.items.length} 项 · 已综合职业、年龄阶段、性格、生活节奏、意向与历史触达</span></div><section class="touch-task-list">${data.items.map(t=>touchTaskCard(t)).join('')||'<div class="empty-card">该类型暂无任务。</div>'}</section>`}
+async function renderTasks(){
+  setHeader('真实触达任务','触达任务');
+  const version=navigationVersion;
+  const params=new URLSearchParams({
+    page:state.dashboardTaskPage,limit:10,q:state.dashboardTaskQuery,status:state.dashboardTaskStatus,scope:state.dashboardTaskScope,
+  });
+  const [data,snapshot]=await Promise.all([studioApi(`/dashboard/tasks?${params}`),studioApi('/dashboard')]);
+  if(version!==navigationVersion)return;
+  renderDashboardTasks(data,snapshot);
+}
+function renderDashboardTasks(data,snapshot){
+  const stats=snapshot.task_stats,pagination=data.pagination;
+  $('#task-count').textContent=stats.unsent;
+  const admin=state.studioRole==='admin';
+  $('#main-content').innerHTML=`<section class="dashboard-hero compact">
+    <div><p class="hero-kicker">REAL OUTREACH TASKS</p><h1>触达任务</h1><p>展示真实一客一策任务、执行状态和失败原因；管理员可入队、发送或删除未发送内容。</p></div>
+    <div class="dashboard-hero-side"><span>${data.scope==='today'?'今日任务':'全部任务'}</span><strong>${pagination.total}</strong><small>未完成 ${stats.unsent} 条 · 队列 ${stats.queued} 条</small></div>
+  </section>
+  <div class="dashboard-filter-bar">
+    <input id="dashboard-task-search" value="${esc(state.dashboardTaskQuery)}" placeholder="搜索客户、话术、策略或归属">
+    <select id="dashboard-task-status" onchange="filterDashboardTasks()">
+      <option value="all">全部状态</option>
+      <option value="unsent" ${state.dashboardTaskStatus==='unsent'?'selected':''}>未发送</option>
+      <option value="sent" ${state.dashboardTaskStatus==='sent'?'selected':''}>已发送</option>
+      <option value="failed" ${state.dashboardTaskStatus==='failed'?'selected':''}>异常或暂停</option>
+    </select>
+    <select id="dashboard-task-scope" onchange="filterDashboardTasks()">
+      <option value="today" ${state.dashboardTaskScope==='today'?'selected':''}>今日任务</option>
+      <option value="all" ${state.dashboardTaskScope==='all'?'selected':''}>全部任务</option>
+    </select>
+    <button class="primary-button" onclick="filterDashboardTasks()">筛选</button>
+  </div>
+  <div class="table-wrap"><table class="data-table dashboard-table"><thead><tr><th>客户</th><th>策略依据</th><th>待确认话术</th><th>状态</th>${admin?'<th>操作</th>':''}</tr></thead>
+    <tbody>${data.items.map(task=>`<tr><td><div class="user-cell"><div class="mini-avatar">${esc(String(task.salutation||task.contact_name).slice(0,1))}</div><div><strong>${esc(task.salutation||task.contact_name)}</strong><span>${esc(task.phone||'无尾号')} · ${esc(task.owner_name)}</span><small>${task.tags.slice(0,3).map(tag=>esc(tag)).join('、')||'无标签'}</small></div></div></td>
+      <td class="profile-cell"><strong>${esc(task.strategy_type||'一客一策')}</strong><br>${esc(task.reason||'暂无策略依据')}<br><small>${esc(task.next_action||'')}</small></td>
+      <td class="profile-cell">${esc(task.recommended_message||'待生成话术')}</td>
+      <td>${dashboardStatusPill(task.status)}<small>${esc(task.plan_day)}</small></td>
+      ${admin?`<td class="dashboard-task-actions">${task.status==='draft'?`<button class="primary-button" onclick="queueDashboardTask('${esc(task.id)}')">加入队列</button>`:''}${task.status==='queued'?`<button class="primary-button" onclick="sendDashboardTask('${esc(task.id)}')">确认发送</button>`:''}${['draft','queued'].includes(task.status)?`<button class="secondary-button" onclick="deleteDashboardTask('${esc(task.id)}')">删除</button>`:''}</td>`:''}</tr>`).join('')||`<tr><td colspan="${admin?5:4}" class="empty-table-cell">没有符合条件的触达任务。</td></tr>`}</tbody></table>
+    <div class="pagination-note">第 ${pagination.start_index}-${pagination.end_index} / 共 ${pagination.total} 条 · 每页 10 条 · 发送前需人工确认</div>
+    <div class="pagination-controls"><button class="secondary-button" onclick="changeDashboardTaskPage(-1)" ${pagination.page<=1?'disabled':''}>上一页</button><span>第 ${pagination.page} / ${pagination.pages} 页</span><button class="secondary-button" onclick="changeDashboardTaskPage(1)" ${pagination.page>=pagination.pages?'disabled':''}>下一页</button></div>
+  </div>`;
+  const search=$('#dashboard-task-search');
+  search.addEventListener('keydown',event=>{if(event.key==='Enter')filterDashboardTasks()});
+}
+function filterDashboardTasks(){
+  state.dashboardTaskQuery=$('#dashboard-task-search').value.trim();
+  state.dashboardTaskStatus=$('#dashboard-task-status').value;
+  state.dashboardTaskScope=$('#dashboard-task-scope').value;
+  state.dashboardTaskPage=1;
+  renderTasks().catch(error=>toast(error.message));
+}
+function changeDashboardTaskPage(delta){
+  state.dashboardTaskPage=Math.max(1,state.dashboardTaskPage+delta);
+  renderTasks().catch(error=>toast(error.message));
+}
+async function queueDashboardTask(id){
+  try{await studioApi(`/outreach/tasks/${encodeURIComponent(id)}/queue`,{method:'POST',body:'{}'});toast('已加入真实执行队列');await renderTasks()}catch(error){toast(error.message)}
+}
+async function sendDashboardTask(id){
+  const task=(state.dashboardData?.priority_tasks||[]).find(item=>item.id===id);
+  if(!confirm('确认发送该触达内容？发送前请再次核对称呼、事实和活动信息。'))return;
+  try{await studioApi(`/outreach/tasks/${encodeURIComponent(id)}/send`,{method:'POST',body:'{}'});toast('已提交句子互动发送');await renderTasks()}catch(error){toast(error.message)}
+}
+async function deleteDashboardTask(id){
+  if(!confirm('确认删除这条未发送触达内容？已发送真实消息留档不会删除。'))return;
+  try{await studioApi(`/outreach/tasks/${encodeURIComponent(id)}`,{method:'DELETE'});toast('未发送触达内容已删除');await renderTasks()}catch(error){toast(error.message)}
+}
 function signed(value){return `${value>=0?'↑':'↓'} ${Math.abs(value)}% 较前日`}
 function rateMetric(label,value,note,tone=''){return `<article class="touch-metric ${tone}"><span>${esc(label)}</span><strong>${esc(value)}</strong><small>${esc(note)}</small></article>`}
 function taskCategoryCard(category,items,active){const count=items.filter(x=>x.category===category.code&&x.status==='pending').length;return `<button class="task-category-card ${active===category.code?'active':''}" onclick="filterTasks('${esc(category.code)}')"><span>${esc(category.icon)}</span><strong>${esc(category.label)}</strong><small>${count} 项 · ${esc(category.description)}</small></button>`}

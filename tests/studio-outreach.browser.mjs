@@ -137,7 +137,7 @@ try {
   assert.equal(JSON.parse((await generatedRequest).postData()).direction, '复购提醒');
   await generated;
   await page.locator('[data-page="workbench"]').click();
-  await page.getByRole('heading', { name: '今天需要跟进的用户' }).waitFor();
+  await page.getByRole('heading', { name: '今日工作台' }).waitFor();
   await page.locator('[data-page="outreach"]').click();
   await page.locator('.outreach-job-progress').waitFor();
   const progressText = await page.locator('.outreach-job-progress').textContent();

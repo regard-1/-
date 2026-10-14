@@ -5,6 +5,7 @@ import { knowledgeConfigured } from './knowledge.mjs';
 import { recognizeScreenshot } from './ocr.mjs';
 import { createJuziIframe, handleOauth } from './idp.mjs';
 import { assignBot, bindContact, clearTodayTasks, createOutreachStrategyJob, createTemplate, deleteTask, deleteTemplate, generateReply, generateStrategies, generateTemplateTasks, handleJuziCallback, outreachContactMessages, outreachJobStatus, outreachSnapshot, queueTask, queueTodayTasks, sendTask, syncContacts, syncConversations, updateContactReplyStatus, updateContactSalutation, updateTaskMessage, updateTemplate } from './outreach.mjs';
+import { dashboardAssets, dashboardSnapshot, dashboardTasks, saveSalesTarget } from './dashboard.mjs';
 import { AUDIENCES, maskText, MODEL, monthKey } from '../shared.mjs';
 
 const cleanName = value => typeof value === 'string' && /^[a-zA-Z][a-zA-Z0-9_.-]{2,39}$/.test(value);
@@ -130,6 +131,19 @@ export async function api(request, env, dependencies = {}) {
     const result = await createJuziIframe(store, user, env);
     if (!result) fail(503, '请联系管理员配置句子互动 SSO 参数', 'IDP_NOT_CONFIGURED');
     return json(result);
+  }
+  if (route === '/api/studio/dashboard' && method === 'GET') {
+    return json(await dashboardSnapshot(store, user));
+  }
+  if (route === '/api/studio/dashboard/assets' && method === 'GET') {
+    return json(await dashboardAssets(store, user, new URL(request.url).searchParams));
+  }
+  if (route === '/api/studio/dashboard/tasks' && method === 'GET') {
+    return json(await dashboardTasks(store, user, new URL(request.url).searchParams));
+  }
+  if (route === '/api/studio/dashboard/sales-target' && method === 'POST') {
+    admin(user);
+    return json(await saveSalesTarget(store, user, await readBody(request)));
   }
   if (route === '/api/studio/outreach' && method === 'GET') {
     admin(user);
