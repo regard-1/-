@@ -320,6 +320,8 @@ test('tag strategy generation respects a three-day outreach cooldown', async t =
   assert.equal(skipped.status, 200);
   assert.equal(skipped.data.created_count, 1);
   assert.equal(skipped.data.frequency_skipped_count, 1);
+  assert.equal(skipped.data.cooldown_skipped_count, 1);
+  assert.equal(skipped.data.skipped_count, 1);
   assert.ok(skipped.data.tasks.every(task => task.contact_id !== 'cooldown-contact'));
 
   h.db.sqlite.prepare('UPDATE studio_outreach_tasks SET created_at=?,plan_day=? WHERE id=?')
@@ -463,6 +465,14 @@ test('conversation history is deduplicated, masked, and updates the profile', as
   assert.equal(updates.length, 1);
   assert.equal(updates[0].message_id, 'history-message-1');
   assert.ok(!JSON.stringify(updates).includes(fullPhone));
+
+  const contactMessages = await h.call(`/api/studio/outreach/messages?contact_id=${encodeURIComponent(contact.id)}`, 'GET', undefined, admin);
+  assert.equal(contactMessages.status, 200);
+  assert.equal(contactMessages.data.contact_id, contact.id);
+  assert.equal(contactMessages.data.items.length, 1);
+  assert.equal(contactMessages.data.items[0].message_id, 'history-message-1');
+  assert.ok(!JSON.stringify(contactMessages).includes(fullPhone));
+  assert.equal((await h.call('/api/studio/outreach/messages?contact_id=missing-contact', 'GET', undefined, admin)).status, 404);
 });
 
 test('missing Juzi credentials stop before upstream and expose no secret', async t => {

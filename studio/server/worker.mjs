@@ -4,7 +4,7 @@ import { generate, validateMaterial } from './generation.mjs';
 import { knowledgeConfigured } from './knowledge.mjs';
 import { recognizeScreenshot } from './ocr.mjs';
 import { createJuziIframe, handleOauth } from './idp.mjs';
-import { assignBot, bindContact, clearTodayTasks, createOutreachStrategyJob, createTemplate, deleteTask, deleteTemplate, generateReply, generateStrategies, generateTemplateTasks, handleJuziCallback, outreachJobStatus, outreachSnapshot, queueTask, queueTodayTasks, sendTask, syncContacts, syncConversations, updateContactReplyStatus, updateContactSalutation, updateTaskMessage, updateTemplate } from './outreach.mjs';
+import { assignBot, bindContact, clearTodayTasks, createOutreachStrategyJob, createTemplate, deleteTask, deleteTemplate, generateReply, generateStrategies, generateTemplateTasks, handleJuziCallback, outreachContactMessages, outreachJobStatus, outreachSnapshot, queueTask, queueTodayTasks, sendTask, syncContacts, syncConversations, updateContactReplyStatus, updateContactSalutation, updateTaskMessage, updateTemplate } from './outreach.mjs';
 import { AUDIENCES, maskText, MODEL, monthKey } from '../shared.mjs';
 
 const cleanName = value => typeof value === 'string' && /^[a-zA-Z][a-zA-Z0-9_.-]{2,39}$/.test(value);
@@ -238,6 +238,8 @@ export async function api(request, env, dependencies = {}) {
   }
   if (route === '/api/studio/outreach/messages' && method === 'GET') {
     admin(user);
+    const contactId = new URL(request.url).searchParams.get('contact_id');
+    if (contactId) return json(await outreachContactMessages(store, contactId));
     const messages = await store.all(`SELECT m.*,c.display_name AS contact_name FROM studio_outreach_messages m
       LEFT JOIN studio_juzi_contacts c ON c.id=m.contact_id WHERE m.created_at>? ORDER BY m.created_at DESC LIMIT 500`, Date.now() - 2592000000);
     return json({ items: messages, retention_days: 30 });

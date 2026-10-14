@@ -72,8 +72,13 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
     const inbound = Math.max(Number(replyMap.get(contact.id)?.last_inbound_at || 0), Number(profile.last_reply_at || 0));
     const outbound = Number(replyMap.get(contact.id)?.last_outbound_at || 0);
     contact.last_reply_at = inbound || null;
+    const messageInbound = Number(replyMap.get(contact.id)?.last_inbound_at || 0);
+    const profileInbound = Number(profile.last_reply_at || 0);
     contact.replied = contact.reply_status_override === 1
       || (contact.reply_status_override === 0 && inbound > outbound);
+    contact.reply_source = contact.reply_status_override === 1 ? 'manual'
+      : messageInbound > outbound ? 'message'
+        : profileInbound > outbound ? 'profile' : null;
     contact.initial_profile = buildInitialProfile(contact);
   }
   contacts.sort((a, b) => Number(b.replied) - Number(a.replied) || String(a.display_name).localeCompare(String(b.display_name), 'zh-Hans-CN'));
@@ -198,6 +203,16 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
       unsent: Number(taskStats?.unsent || 0),
     }, queued_tasks: queuedTasks, contact_tasks: contactTasks, messages, profile_updates: profileUpdates, templates,
     local_customers: localCustomers, counts };
+}
+
+export async function outreachContactMessages(store, id) {
+  const contact = await store.query('SELECT id FROM studio_juzi_contacts WHERE id=?', String(id || '')).first();
+  if (!contact) fail(404, '句子互动客户不存在');
+  const messages = await store.all(`SELECT m.*,c.display_name AS contact_name FROM studio_outreach_messages m
+    LEFT JOIN studio_juzi_contacts c ON c.id=m.contact_id
+    WHERE m.contact_id=? AND m.created_at>? ORDER BY m.created_at DESC LIMIT 500`,
+    contact.id, Date.now() - 2592000000);
+  return { contact_id: contact.id, items: messages, retention_days: 30 };
 }
 
 function contactTags(contact) {
@@ -1091,12 +1106,13 @@ export async function generateStrategies(store, user, body, env, dependencies = 
       : /nmn|麦角硫因|抗衰/i.test(`${c.tags || ''} ${c.remark || ''}`) ? 'anti_aging' : 'daily_nutrition';
     return { ...c, audience: derivedAudience, profile, recent_messages: [] };
   });
-  const selectedContacts = contacts.filter(contact => {
+  const matchingContacts = contacts.filter(contact => {
     if (body?.contact_id && contact.id !== String(body.contact_id)) return false;
     if (audience && contact.audience !== audience) return false;
-    if (!matchTags(contactTags(contact), tagFilter, tagMode, excludeTags)) return false;
-    return !contact.profile?.should_pause;
+    return matchTags(contactTags(contact), tagFilter, tagMode, excludeTags);
   });
+  const pausedSkipped = matchingContacts.filter(contact => contact.profile?.should_pause);
+  const selectedContacts = matchingContacts.filter(contact => !contact.profile?.should_pause);
   const todayTasks = await store.all(`SELECT t.*,c.display_name AS contact_name,l.display_name AS customer_name
     FROM studio_outreach_tasks t JOIN studio_juzi_contacts c ON c.id=t.contact_id
     LEFT JOIN studio_customers l ON l.id=t.local_customer_id
@@ -1104,16 +1120,26 @@ export async function generateStrategies(store, user, body, env, dependencies = 
   const taskContactIds = new Set(todayTasks.map(task => task.contact_id));
   const cooldownMap = await recentOutreachMap(store, Date.now() - 259200000);
   const candidates = selectedContacts.filter(contact => !taskContactIds.has(contact.id) && !cooldownMap.has(contact.id));
-  if (!selectedContacts.length) fail(400, '暂无可生成策略的真实客户，请先同步句子互动客户');
+  if (!selectedContacts.length) {
+    if (body?.contact_id) {
+      const contact = contacts.find(item => item.id === String(body.contact_id));
+      if (contact?.profile?.should_pause) fail(409, '该客户已要求暂停触达，请先处理服务问题');
+    }
+    fail(400, '暂无可生成策略的真实客户，请先同步句子互动客户');
+  }
   const recent = await store.all(`SELECT contact_id,direction,content,created_at FROM studio_outreach_messages
     WHERE created_at>? ORDER BY created_at DESC LIMIT 500`, Date.now() - 2592000000);
   for (const candidate of candidates) candidate.recent_messages = recent.filter(m => m.contact_id === candidate.id).slice(0, 5).reverse();
   const existing = todayTasks.filter(task => selectedContacts.some(contact => contact.id === task.contact_id)
     && ['draft', 'queued', 'sent', 'paused'].includes(task.status));
   const cooldownSkipped = selectedContacts.filter(contact => cooldownMap.has(contact.id));
+  const todaySkipped = selectedContacts.filter(contact => taskContactIds.has(contact.id));
+  const skippedCount = pausedSkipped.length + todaySkipped.length + cooldownSkipped.length;
   if (!candidates.length) {
     return { created_count: 0, existing_count: existing.length, remaining_count: 0,
-      skipped_count: cooldownSkipped.length, frequency_skipped_count: cooldownSkipped.length, plan_day: planDay, tasks: existing };
+      skipped_count: skippedCount, frequency_skipped_count: cooldownSkipped.length,
+      paused_skipped_count: pausedSkipped.length, today_skipped_count: todaySkipped.length,
+      cooldown_skipped_count: cooldownSkipped.length, plan_day: planDay, tasks: existing };
   }
   const today = chinaDay();
   const localMaterials = (await store.all(`SELECT id,version,title,kind,audience,product,content,valid_from,valid_to,active
@@ -1187,7 +1213,9 @@ export async function generateStrategies(store, user, body, env, dependencies = 
   const failedCount = batchResults.reduce((total, item) =>
     item.result.status === 'rejected' ? total + item.batch.length : total, 0);
   return { created_count: created.length, existing_count: existing.length, remaining_count: remainingCount,
-    skipped_count: cooldownSkipped.length, frequency_skipped_count: cooldownSkipped.length,
+    skipped_count: skippedCount, frequency_skipped_count: cooldownSkipped.length,
+    paused_skipped_count: pausedSkipped.length, today_skipped_count: todaySkipped.length,
+    cooldown_skipped_count: cooldownSkipped.length,
     plan_day: planDay, direction, direction_label: strategyDirectionLabel(direction),
     partial: failures.length > 0, failed_count: failedCount,
     generation_errors: failures.map(error => ({ message: error?.message || '触达策略生成失败', code: error?.code || 'MODEL_ERROR' })),
@@ -1290,7 +1318,7 @@ async function runOutreachJob(store, id, user, request, env, dependencies = {}) 
     await updateOutreachJobProgress(store, id, {
       status: result.partial ? 'partial' : 'completed',
       created_count: result.created_count, existing_count: result.existing_count,
-      skipped_count: result.frequency_skipped_count, failed_count: failedCount,
+      skipped_count: result.skipped_count, failed_count: failedCount,
       remaining_count: result.remaining_count, batches_completed: batchResults.length,
       error_json: JSON.stringify(result.generation_errors || []),
       finished_at: Date.now(),
