@@ -1,8 +1,8 @@
+import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
-import re
-import json
 
 import server
 
