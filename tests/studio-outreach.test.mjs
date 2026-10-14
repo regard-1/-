@@ -108,7 +108,9 @@ function historyResponse() {
   return jsonResponse({ data: { messages: [
     message,
     { ...message },
+    { ...message, messageId: 'history-message-coworker', coworker: true },
     { ...message, messageId: 'history-message-self', imContactId: 'bot-1', isSelf: true,
+      coworker: true, customerExternalUserId: '',
       Payload: { TextPayload: { text: '陈哥，最近服用后整体状态怎么样？' } } },
   ] }, seq: '' });
 }

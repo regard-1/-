@@ -364,7 +364,9 @@ function historyDay(offset) {
 }
 
 function matchHistoryContact(message, contacts) {
-  if (message?.coworker) return null;
+  // Juzi marks adviser-sent messages as both isSelf and coworker. Only
+  // messages sent by another internal user to the bot should be ignored.
+  if (message?.coworker && !message?.isSelf) return null;
   const externalUserId = String(message?.customerExternalUserId || '');
   const chatId = String(message?.chatId || '');
   const senderId = String(message?.imContactId || '');
