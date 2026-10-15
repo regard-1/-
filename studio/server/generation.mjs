@@ -2,6 +2,10 @@ import { AUDIENCES, SCENES, MODEL, OUTPUT_TOKENS, maskText, maskData, chinaDay }
 import { fail } from './security.mjs';
 import { retrieveKnowledge } from './knowledge.mjs';
 
+function modelOf(env) {
+  return env.STUDIO_LLM_MODEL || env.STUDIO_OUTREACH_MODEL || MODEL;
+}
+
 function textField(value, maximum, label) {
   if (value == null) return '';
   if (typeof value !== 'string' || value.length > maximum) fail(400, `${label}格式不正确或过长`);
@@ -89,13 +93,13 @@ followups 的回复也必须遵守与主回复相同的事实规则，不得为�
 价格计算可在确认的资料数值上作算术，但优先直接引用已确认的到手价。禁止任何疾病治疗承诺、保证有效、替代药物、指导停药或个体化用药建议。出现不适或用药等内容先建议必要的专业核实，不在未有依据时给出剂量。不得发送手机号、证件号、密码、token、内部标签、推断或评分。
 没有关键资料时可以自然澄清需求，但不能把空泛万能话术当作具体问题的解答。不输出推理过程。`;
 
-export function makeModelBody(input, sources) {
+export function makeModelBody(input, sources, env = {}) {
  const supplied = sources.map(s => ({ id: s.id, version: s.version, title: s.title, kind: s.kind, product: s.product,
    price: s.price || '', specification: s.specification || '', applicable: s.applicable || '', effect: s.effect || '',
    usage_notes: s.usage_notes || '', precautions: s.precautions || '',
    content: s.content, valid_from: s.valid_from, valid_to: s.valid_to, ...(s.external ? { external: true, source_type: s.source_type } : {}) }));
  if (input.supplement) supplied.push({ id: 'supplement', version: 0, title: '销售本次补充', content: input.supplement });
- const body = { model: MODEL, stream: false, max_tokens: OUTPUT_TOKENS,
+ const body = { model: modelOf(env), stream: false, max_tokens: OUTPUT_TOKENS,
    messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: JSON.stringify({ today: chinaDay(), input, supplied_materials: supplied }) }],
    response_format: { type: 'json_object' },
  };
@@ -254,10 +258,11 @@ export async function generate(store, user, raw, env, fetchModel = fetch, fetchK
   if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash || !/(^|\.)(aliyuncs\.com|aliyun\.com)$/.test(base.hostname)) fail(503, '模型服务地址需为百炼官方 HTTPS 接口', 'MODEL_NOT_CONFIGURED');
   const knowledge = await retrieveKnowledge(input, env, fetchKnowledge);
   const allSources = [...sources, ...knowledge.sources];
-  const body = makeModelBody(input, allSources), serialized = JSON.stringify(body);
+  const body = makeModelBody(input, allSources, env), serialized = JSON.stringify(body);
   // UTF-8 bytes plus protocol allowance conservatively bounds billed input tokens.
   const reservation = (new TextEncoder().encode(serialized).length + 2048) * 12 + OUTPUT_TOKENS * 36;
-  const entry = await store.reserve(user, input, reservation);
+  const model = modelOf(env);
+  const entry = await store.reserve(user, input, reservation, model);
   let cost = reservation, usage = {}, settled = false;
   try {
     const response = await fetchModel(`${base.href.replace(/\/$/, '')}/chat/completions`, {
@@ -307,7 +312,7 @@ export async function generate(store, user, raw, env, fetchModel = fetch, fetchK
     return {
       ...result,
       generation_id: entry.id,
-      model: MODEL,
+      model,
       elapsed_ms: Date.now() - entry.started,
       knowledge: { status: knowledge.status, count: knowledge.sources.length },
     };

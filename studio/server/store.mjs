@@ -24,7 +24,7 @@ export class Store {
   async budget() {
     return await this.query('SELECT * FROM studio_budgets WHERE month=?', monthKey()).first() || { month: monthKey(), spent: 0, reserved: 0, ceiling: 999999999999 };
   }
-  async reserve(user, input, reservation) {
+  async reserve(user, input, reservation, model = MODEL) {
     const month = monthKey(), id = crypto.randomUUID(), now = Date.now();
     const results = await this.db.batch([
       this.query('INSERT INTO studio_budgets(month,spent,reserved,ceiling) VALUES(?,0,0,999999999999) ON CONFLICT DO NOTHING', month),
@@ -32,7 +32,7 @@ export class Store {
         SELECT ?,?,?,?,?,?,'pending',?,0,?
         WHERE NOT EXISTS(SELECT 1 FROM studio_usage WHERE user_id=? AND status='pending')
           AND EXISTS(SELECT 1 FROM studio_budgets WHERE month=?) RETURNING id`,
-        id, user.id, month, input.audience, input.scene, MODEL, reservation, now, user.id, month),
+        id, user.id, month, input.audience, input.scene, model, reservation, now, user.id, month),
       this.query('UPDATE studio_budgets SET reserved=reserved+? WHERE month=? AND EXISTS(SELECT 1 FROM studio_usage WHERE id=?)',
         reservation, month, id),
     ]);

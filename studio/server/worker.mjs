@@ -77,7 +77,7 @@ export async function api(request, env, dependencies = {}) {
  if (route === '/api/studio/status' && method === 'GET') {
    const count = await store.query('SELECT COUNT(*) AS n FROM studio_users').first();
     const noUsers = !count.n;
-    return json({ model_configured: !!(env.STUDIO_LLM_API_KEY && env.STUDIO_LLM_BASE_URL), knowledge_configured: knowledgeConfigured(env), local_setup: noUsers, model: MODEL });
+   return json({ model_configured: !!(env.STUDIO_LLM_API_KEY && env.STUDIO_LLM_BASE_URL), knowledge_configured: knowledgeConfigured(env), local_setup: noUsers, model: env.STUDIO_LLM_MODEL || env.STUDIO_OUTREACH_MODEL || MODEL });
  }
  if (route === '/api/studio/setup' && method === 'POST') {
     const existing = await store.query('SELECT COUNT(*) AS n FROM studio_users').first();
