@@ -92,6 +92,7 @@ async function contactRows(store, user) {
     return {
       ...contact,
       phone: contact.phone_suffix ? `尾号${contact.phone_suffix}` : '',
+      last_reply_at: lastInbound || null,
       replied: contact.reply_status_override === 1
         || (contact.reply_status_override === 0 && lastInbound > 0 && lastInbound > lastOutbound),
     };
@@ -297,7 +298,13 @@ export async function dashboardAssets(store, user, searchParams = new URLSearchP
   const tagMode = ['contains', 'and', 'or'].includes(searchParams.get('tag_mode')) ? searchParams.get('tag_mode') : 'contains';
   const audience = searchParams.get('audience');
   const reply = ['all', 'replied', 'unread'].includes(searchParams.get('reply')) ? searchParams.get('reply') : 'all';
-  const items = contacts.map(normalizeAssetContact).filter(item => {
+  const items = contacts.map(normalizeAssetContact).sort((a, b) => {
+    const aReply = Number(a.last_reply_at || 0);
+    const bReply = Number(b.last_reply_at || 0);
+    if (aReply !== bReply) return bReply - aReply;
+    if (!!aReply !== !!bReply) return aReply ? -1 : 1;
+    return String(a.name).localeCompare(String(b.name), 'zh-Hans-CN');
+  }).filter(item => {
     if (audience && item.audience !== audience) return false;
     if (reply === 'replied' && !item.replied) return false;
     if (reply === 'unread' && item.replied) return false;

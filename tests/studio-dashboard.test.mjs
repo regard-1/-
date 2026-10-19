@@ -47,6 +47,8 @@ async function setup() {
   message.run('sales-out-2', 'contact-sales', 'outbound', '收到，我先帮您记录。', 'sent', '', yesterday + 1000);
   message.run('admin-out-1', 'contact-admin', 'outbound', '王姐，活动开始啦。', 'sent', '', yesterday);
   message.run('unmatched-out-1', 'contact-unmatched', 'outbound', '您好，先做个简单关怀。', 'sent', '', yesterday);
+  message.run('admin-in-1', 'contact-admin', 'inbound', '这个搭配怎么吃？', 'received', '', yesterday + 2000);
+  message.run('unmatched-in-1', 'contact-unmatched', 'inbound', '我想了解一下活动。', 'received', '', yesterday + 3000);
 
   const task = db.sqlite.prepare(`INSERT INTO studio_outreach_tasks
     (id,contact_id,local_customer_id,audience,priority,reason,recommended_message,status,created_by,created_at,plan_day,strategy_type)
@@ -110,8 +112,8 @@ test('sales dashboard uses real outreach data and enforces role boundaries', asy
   const adminSnapshot = await h.call('/api/studio/dashboard', 'GET', undefined, admin);
   assert.equal(adminSnapshot.status, 200);
   assert.equal(adminSnapshot.data.outreach_rate.touched, 3);
-  assert.equal(adminSnapshot.data.outreach_rate.replied, 1);
-  assert.equal(adminSnapshot.data.outreach_rate.rate, 33.3);
+  assert.equal(adminSnapshot.data.outreach_rate.replied, 3);
+  assert.equal(adminSnapshot.data.outreach_rate.rate, 100);
   assert.equal(adminSnapshot.data.contact_stats.total, 3);
   assert.equal(adminSnapshot.data.task_stats.total, 3);
   assert.equal(adminSnapshot.data.sales.today.actual_amount, 600);
@@ -132,6 +134,12 @@ test('sales dashboard uses real outreach data and enforces role boundaries', asy
   assert.equal(salesAssets.data.items[0].name, '陈先生');
   assert.equal(salesAssets.data.items[0].phone, '尾号5678');
   assert.ok(salesAssets.data.items[0].tags.includes('NMN用户'));
+
+  const orderedAssets = await h.call('/api/studio/dashboard/assets?limit=10', 'GET', undefined, admin);
+  assert.equal(orderedAssets.status, 200);
+  assert.ok(orderedAssets.data.items[0].last_reply_at > orderedAssets.data.items[1].last_reply_at);
+  assert.equal(orderedAssets.data.items[0].name, '未绑定客户');
+  assert.equal(orderedAssets.data.items[1].name, '王女士');
 
   const adminAssets = await h.call('/api/studio/dashboard/assets?limit=2&page=2', 'GET', undefined, admin);
   assert.equal(adminAssets.data.pagination.page, 2);
