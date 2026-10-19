@@ -296,6 +296,74 @@ test('tag filters derive initial profiles and generate only matched audiences', 
   assert.ok(!requestedCandidates.some(candidate => candidate.id === 'tag-contact-3'));
 });
 
+test('account filters summarize customers and generate only that account', async t => {
+  const requestedCandidates = [];
+  const h = await harness(t, {
+    fetchJuzi: async () => listCustomersResponse(),
+    fetchModel: async (_url, options) => {
+      const body = JSON.parse(options.body);
+      const candidates = JSON.parse(body.messages.at(-1).content).candidates;
+      requestedCandidates.push(...candidates);
+      return jsonResponse({
+        choices: [{
+          message: { content: JSON.stringify({ tasks: candidates.map(candidate => ({
+            contact_id: candidate.id,
+            priority: 'medium',
+            reason: '账号内匹配标签人群',
+            recommended_message: '陈哥，最近状态还好吗？我先帮您看重点。',
+            next_action: '回复后确认当前关注点',
+            stop_rule: '明确拒绝后暂停',
+          })) }) },
+        }],
+      });
+    },
+  });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  h.db.sqlite.prepare(`INSERT INTO studio_juzi_bots(im_bot_id,bot_name,owner_user_id,last_synced_at)
+    VALUES('bot-2','合成托管账号二','sales',?)`).run(Date.now());
+  const insertContact = h.db.sqlite.prepare(`INSERT INTO studio_juzi_contacts(id,im_contact_id,display_name,phone_suffix,im_bot_id,friendship_status,match_status,last_synced_at,tags,remark)
+    VALUES(?,?,?,?,?,0,'unmatched',?,?,'')`);
+  insertContact.run('account-contact-1', 'account-im-1', '张先生', '2345', 'bot-2', Date.now(), 'NMN18000、复购');
+  insertContact.run('account-contact-2', 'account-im-2', '徐女士', '6789', 'bot-2', Date.now(), '日常营养、免疫力');
+  insertContact.run('account-contact-3', 'account-im-3', '周先生', '1234', 'bot-2', Date.now(), 'NMN30000、麦角硫因');
+  h.db.sqlite.prepare(`INSERT INTO studio_outreach_messages(id,contact_id,direction,content,status,created_at)
+    VALUES('account-reply-1','account-contact-1','inbound','最近睡眠还行，想继续了解。','received',?)`).run(Date.now());
+  h.db.sqlite.prepare(`INSERT INTO studio_outreach_tasks(id,contact_id,audience,recommended_message,status,created_by,created_at,plan_day)
+    VALUES('account-task-1','account-contact-1','anti_aging','张哥，最近服用情况怎么样？','queued','admin',?,?)`)
+    .run(Date.now(), chinaDay());
+  const botOneContactId = h.db.sqlite.prepare("SELECT id FROM studio_juzi_contacts WHERE im_bot_id='bot-1' LIMIT 1").get().id;
+  h.db.sqlite.prepare(`INSERT INTO studio_outreach_tasks(id,contact_id,audience,recommended_message,status,created_by,created_at,plan_day)
+    VALUES('account-other-task',?,'anti_aging','其他账号今日草稿','draft','admin',?,?)`)
+    .run(botOneContactId, Date.now(), chinaDay());
+
+  const snapshot = await h.call('/api/studio/outreach?page=1&limit=10&bot_id=bot-2', 'GET', undefined, admin);
+  assert.equal(snapshot.status, 200);
+  assert.equal(snapshot.data.contact_pagination.bot_id, 'bot-2');
+  assert.equal(snapshot.data.contact_pagination.total, 3);
+  assert.ok(snapshot.data.contacts.every(contact => contact.im_bot_id === 'bot-2'));
+  assert.ok(snapshot.data.today_tasks.every(task => task.im_bot_id === 'bot-2'));
+  assert.equal(snapshot.data.queued_tasks.length, 1);
+  const summary = snapshot.data.account_summary.find(item => item.im_bot_id === 'bot-2');
+  assert.equal(summary.total, 3);
+  assert.equal(summary.anti_aging, 2);
+  assert.equal(summary.daily_nutrition, 1);
+  assert.equal(summary.replied, 1);
+  assert.equal(summary.today_tasks, 1);
+  assert.equal(summary.queued, 1);
+  assert.equal(summary.sent_today, 0);
+
+  const generated = await h.call('/api/studio/outreach/strategies', 'POST', { bot_id: 'bot-2', tag: 'NMN', refresh: true, limit: 20 }, admin);
+  assert.equal(generated.status, 200);
+  assert.equal(generated.data.created_count, 1);
+  assert.ok(requestedCandidates.length >= 1);
+  assert.ok(requestedCandidates.every(candidate => candidate.im_bot_id === 'bot-2'));
+  assert.ok(requestedCandidates.some(candidate => candidate.id === 'account-contact-3'));
+  assert.ok(!requestedCandidates.some(candidate => candidate.id === 'account-contact-2'));
+  assert.ok(!requestedCandidates.some(candidate => candidate.id === 'account-contact-1'));
+  assert.ok(h.db.sqlite.prepare("SELECT id FROM studio_outreach_tasks WHERE id='account-other-task'").get());
+});
+
 test('tag strategy generation respects a three-day outreach cooldown', async t => {
   const h = await harness(t, {
     fetchJuzi: async () => listCustomersResponse(),

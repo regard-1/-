@@ -1,4 +1,4 @@
-const state={user:null,studioRole:null,page:'workbench',dashboardData:null,dashboardAssetPage:1,dashboardAssetQuery:'',dashboardAssetTag:'',dashboardAssetAudience:'',dashboardAssetReply:'all',dashboardAssetSyncPending:false,dashboardTaskPage:1,dashboardTaskQuery:'',dashboardTaskStatus:'all',dashboardTaskScope:'today',outreachUser:null,outreachCsrf:'',outreachData:null,outreachUsers:[],outreachPending:false,outreachAutoStarted:false,outreachModelConfigured:false,outreachError:'',outreachNotice:'',outreachJob:null,outreachJobContactId:'',outreachBatch:null,outreachContactPage:1,outreachContactQuery:'',outreachContactReply:'all',outreachTaskPage:1,outreachTaskQuery:'',outreachTaskStatus:'all',outreachTaskSelectionAll:false,outreachTagQuery:'',outreachTagMode:'contains',outreachExcludeTag:'',outreachStrategyDirection:'auto',juziSpOrigin:'',passwordChangeRequired:false,passwordChangeUsername:''};
+const state={user:null,studioRole:null,page:'workbench',dashboardData:null,dashboardAssetPage:1,dashboardAssetQuery:'',dashboardAssetTag:'',dashboardAssetAudience:'',dashboardAssetReply:'all',dashboardAssetSyncPending:false,dashboardTaskPage:1,dashboardTaskQuery:'',dashboardTaskStatus:'all',dashboardTaskScope:'today',outreachUser:null,outreachCsrf:'',outreachData:null,outreachUsers:[],outreachPending:false,outreachAutoStarted:false,outreachModelConfigured:false,outreachError:'',outreachNotice:'',outreachJob:null,outreachJobContactId:'',outreachBatch:null,outreachContactPage:1,outreachContactQuery:'',outreachContactReply:'all',outreachTaskPage:1,outreachTaskQuery:'',outreachTaskStatus:'all',outreachTaskSelectionAll:false,outreachTagQuery:'',outreachTagMode:'contains',outreachExcludeTag:'',outreachBotId:'',outreachStrategyDirection:'auto',juziSpOrigin:'',passwordChangeRequired:false,passwordChangeUsername:''};
 let navigationVersion=0;
 let juziBlinkTimer=null,juziOriginalTitle='';
 let outreachJobTimer=null;
@@ -382,7 +382,7 @@ async function refreshTouchOptimization(){const data=await api('/api/v1/private/
 async function completeTask(id){await api(`/api/v1/private/tasks/${id}/status`,{method:'POST',body:JSON.stringify({status:'done'})});toast('任务已完成，并进入下一次复盘');renderTasks()}
 
 function initialPage(){const page=new URLSearchParams(location.search).get('page');return ['workbench','assets','tasks','scripts','outreach','juzi-workbench','script-templates','governance'].includes(page)?page:/^\/script-studio\/?$/.test(location.pathname)?'scripts':'workbench'}
-function outreachSnapshotParams(){return new URLSearchParams({page:state.outreachContactPage,limit:10,q:state.outreachContactQuery,reply:state.outreachContactReply,tag:state.outreachTagQuery,tag_mode:state.outreachTagMode,exclude_tag:state.outreachExcludeTag,task_page:state.outreachTaskPage,task_limit:5,task_q:state.outreachTaskQuery,task_status:state.outreachTaskStatus})}
+function outreachSnapshotParams(){return new URLSearchParams({page:state.outreachContactPage,limit:10,q:state.outreachContactQuery,reply:state.outreachContactReply,tag:state.outreachTagQuery,tag_mode:state.outreachTagMode,exclude_tag:state.outreachExcludeTag,bot_id:state.outreachBotId,task_page:state.outreachTaskPage,task_limit:5,task_q:state.outreachTaskQuery,task_status:state.outreachTaskStatus})}
 function loadOutreachSnapshot(){return studioApi(`/outreach?${outreachSnapshotParams().toString()}`)}
 function outreachVisibleTasks(data=state.outreachData){
   const map=new Map();
@@ -467,7 +467,8 @@ function renderOutreachWorkspace(data){
     ${state.outreachNotice?`<div class="outreach-notice">${esc(state.outreachNotice)}</div>`:''}
     ${outreachJobProgressHtml(state.outreachJob)}
     ${outreachTemplatePanel(data)}
-    <section class="outreach-panel"><header><div><h4>真实客户 · 标签 · 画像</h4><p>点击“打开对话”查看该客户独立对话框；可对单人重新生成触达策略。</p></div><span class="outreach-count-pill">${pagination.total_contacts} 位已同步 · 当前 ${pagination.start_index}-${pagination.end_index} / ${pagination.total}</span></header><form class="outreach-contact-controls" data-action="outreach-search" onsubmit="submitOutreachContactSearch(event)"><div class="outreach-contact-search"><input id="outreach-contact-query" value="${esc(pagination.query||state.outreachContactQuery)}" maxlength="80" placeholder="搜索昵称、尾号、标签、备注、归属"><button class="primary-button" type="submit">搜索</button></div><div class="outreach-contact-filters"><button type="button" class="secondary-button ${pagination.reply_filter==='all'?'active':''}" onclick="setOutreachContactReply('all')">全部</button><button type="button" class="secondary-button ${pagination.reply_filter==='replied'?'active':''}" onclick="setOutreachContactReply('replied')">已回复</button><button type="button" class="secondary-button ${pagination.reply_filter==='unread'?'active':''}" onclick="setOutreachContactReply('unread')">未回复</button></div></form>
+    ${outreachAccountSummaryPanel(data)}
+    <section class="outreach-panel"><header><div><h4>真实客户 · 标签 · 画像</h4><p>点击“打开对话”查看该客户独立对话框；可对单人重新生成触达策略。</p></div><span class="outreach-count-pill">${pagination.total_contacts} 位已同步 · 当前 ${pagination.start_index}-${pagination.end_index} / ${pagination.total}</span></header><form class="outreach-contact-controls" data-action="outreach-search" onsubmit="submitOutreachContactSearch(event)"><div class="outreach-contact-search"><input id="outreach-contact-query" value="${esc(pagination.query||state.outreachContactQuery)}" maxlength="80" placeholder="搜索昵称、尾号、标签、备注、归属"><button class="primary-button" type="submit">搜索</button></div><div class="outreach-contact-filters"><button type="button" class="secondary-button ${pagination.reply_filter==='all'?'active':''}" onclick="setOutreachContactReply('all')">全部</button><button type="button" class="secondary-button ${pagination.reply_filter==='replied'?'active':''}" onclick="setOutreachContactReply('replied')">已回复</button><button type="button" class="secondary-button ${pagination.reply_filter==='unread'?'active':''}" onclick="setOutreachContactReply('unread')">未回复</button>${outreachAccountFilterControl(bots)}</div></form>
     <section class="outreach-tag-filter" aria-label="标签人群筛选">
       <form class="outreach-tag-filter-form" onsubmit="submitOutreachTagFilter(event)">
         <label class="form-label">标签关键词<input id="outreach-tag-query" value="${esc(state.outreachTagQuery)}" maxlength="200" placeholder="例如：NMN、复购"></label>
@@ -487,6 +488,18 @@ function renderOutreachWorkspace(data){
   </section>`;
 }
 function outreachSummary(label,value,note){return `<article><span>${esc(label)}</span><strong>${esc(value)}</strong><small>${esc(note)}</small></article>`}
+function outreachAccountFilterControl(bots){
+  return `<label class="outreach-account-filter"><span>托管账号</span><select onchange="setOutreachBot(this.value)"><option value="">全部账号</option>${bots.map(bot=>`<option value="${esc(bot.im_bot_id)}" ${bot.im_bot_id===state.outreachBotId?'selected':''}>${esc(bot.bot_name||bot.im_bot_id)}</option>`).join('')}</select></label>`;
+}
+function outreachAccountSummaryPanel(data){
+  const bots=data.bots||[],summaries=data.account_summary||[];
+  if(!bots.length)return '';
+  return `<section class="outreach-panel outreach-account-panel"><header><div><h4>托管账号客户分类</h4><p>按句子互动账号查看客户分布；筛选某个账号后，标签策略生成也只处理该账号客户。</p></div><button class="secondary-button" type="button" onclick="setOutreachBot('')">清除账号筛选</button></header><div class="outreach-account-summary-grid">${bots.map(bot=>{
+    const summary=summaries.find(item=>item.im_bot_id===bot.im_bot_id)||{total:0,anti_aging:0,daily_nutrition:0,replied:0,today_tasks:0,queued:0,sent_today:0};
+    const active=state.outreachBotId===bot.im_bot_id;
+    return `<article class="${active?'active':''}"><div><strong>${esc(bot.bot_name||bot.im_bot_id)}</strong><span>${esc(bot.owner_name||'未绑定营养师')} · ${esc(bot.im_bot_id)}</span></div><dl><div><dt>客户</dt><dd>${summary.total||0}</dd></div><div><dt>抗衰</dt><dd>${summary.anti_aging||0}</dd></div><div><dt>日常营养</dt><dd>${summary.daily_nutrition||0}</dd></div><div><dt>已回复</dt><dd>${summary.replied||0}</dd></div><div><dt>今日策略</dt><dd>${summary.today_tasks||0}</dd></div><div><dt>待发送</dt><dd>${summary.queued||0}</dd></div><div><dt>已发送</dt><dd>${summary.sent_today||0}</dd></div></dl><footer><button class="secondary-button" type="button" onclick="setOutreachBot('${esc(bot.im_bot_id)}')">${active?'查看当前筛选':'筛选该账号'}</button></footer></article>`;
+  }).join('')}</div></section>`;
+}
 function outreachTemplatePanel(data){
   const templates=data.templates||[],contacts=data.contacts||[],first=contacts.find(c=>!c.replied)||contacts[0];
   const preview=templates[0]&&first?renderOutreachTemplatePreview(templates[0],first):'';
@@ -552,6 +565,7 @@ function normalizeOutreachStrategyDirection(direction){const value=String(direct
 function setOutreachStrategyDirection(direction){state.outreachStrategyDirection=normalizeOutreachStrategyDirection(direction)}
 function applyOutreachRelatedTag(tag){if(!tag)return;state.outreachTagQuery=tag;state.outreachContactPage=1;renderOutreach()}
 function setOutreachContactReply(reply){state.outreachContactReply=reply;state.outreachContactPage=1;renderOutreach()}
+function setOutreachBot(botId){state.outreachBotId=String(botId||'');state.outreachContactPage=1;renderOutreach()}
 function setOutreachTaskStatus(status){state.outreachTaskStatus=['all','sent','unsent'].includes(status)?status:'all';state.outreachTaskPage=1;renderOutreach()}
 function changeOutreachContactPage(delta){const pagination=state.outreachData?.contact_pagination;if(!pagination)return;const next=(pagination.page||1)+Number(delta);if(next<1||next>pagination.pages)return;state.outreachContactPage=next;renderOutreach()}
 function changeOutreachTaskPage(delta){const pagination=state.outreachData?.task_pagination;if(!pagination)return;const next=(pagination.page||1)+Number(delta);if(next<1||next>pagination.pages)return;state.outreachTaskPage=next;renderOutreach()}
@@ -622,7 +636,8 @@ async function syncOutreachHistory({automatic=false}={}){
 }
 async function refreshOutreachStrategies(refresh){
   await startOutreachStrategyJob({
-    refresh:refresh===true,limit:2000,direction:state.outreachStrategyDirection
+    refresh:refresh===true,limit:2000,direction:state.outreachStrategyDirection,
+    bot_id:state.outreachBotId
   },{label:refresh?'全量策略':'今日策略'});
 }
 async function generateOutreachTagStrategies(){
@@ -634,7 +649,7 @@ async function generateOutreachTagStrategies(){
   state.outreachStrategyDirection=normalizeOutreachStrategyDirection($('#outreach-strategy-direction')?.value||state.outreachStrategyDirection);
   state.outreachContactPage=1;
   await startOutreachStrategyJob({
-    tag,tag_mode:state.outreachTagMode,exclude_tag:state.outreachExcludeTag,
+    tag,tag_mode:state.outreachTagMode,exclude_tag:state.outreachExcludeTag,bot_id:state.outreachBotId,
     direction:state.outreachStrategyDirection,refresh:false,limit:2000
   },{label:'标签人群策略'});
 }

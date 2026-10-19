@@ -39,6 +39,7 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
   const tagFilter = parseTagInput(searchParams.get('tag'));
   const tagMode = ['contains', 'and', 'or'].includes(searchParams.get('tag_mode')) ? searchParams.get('tag_mode') : 'contains';
   const excludeTags = parseTagInput(searchParams.get('exclude_tag'));
+  const botFilter = String(searchParams.get('bot_id') || '').trim().slice(0, 100);
   const [bots, contacts, tasks, messages, profileUpdates, templates, replyStats] = await Promise.all([
     store.all(`SELECT b.*,u.display_name AS owner_name FROM studio_juzi_bots b
       LEFT JOIN studio_users u ON u.id=b.owner_user_id ORDER BY b.bot_name`),
@@ -85,6 +86,7 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
   const allContacts = contacts;
   const totalCount = allContacts.length;
   const filteredContacts = allContacts.filter(contact => {
+    if (botFilter && String(contact.im_bot_id || '') !== botFilter) return false;
     if (replyFilter === 'replied' && !contact.replied) return false;
     if (replyFilter === 'unread' && contact.replied) return false;
     if (!matchTags(contactTags(contact), tagFilter, tagMode, excludeTags)) return false;
@@ -114,8 +116,9 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
     LEFT JOIN studio_customers l ON l.id=t.local_customer_id
     JOIN studio_juzi_bots b ON b.im_bot_id=c.im_bot_id
     LEFT JOIN studio_outreach_templates tpl ON tpl.id=t.template_id
-    WHERE t.status='queued'
-    ORDER BY CASE t.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,t.created_at DESC`);
+    WHERE t.status='queued' ${botFilter ? 'AND b.im_bot_id=?' : ''}
+    ORDER BY CASE t.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,t.created_at DESC`,
+    ...(botFilter ? [botFilter] : []));
   const localCustomers = await store.all(`SELECT c.id,c.display_name,c.audience,c.phone_suffix,u.display_name AS owner_name
     FROM studio_customers c LEFT JOIN studio_users u ON u.id=c.owner_user_id WHERE c.active=1 ORDER BY c.display_name`);
   const taskConditions = ['t.plan_day = ?'];
@@ -127,6 +130,10 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
       OR t.strategy_type LIKE ? OR b.bot_name LIKE ? OR tpl.title LIKE ?)`);
     taskParameters.push(pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern);
   }
+  if (botFilter) {
+    taskConditions.push('b.im_bot_id=?');
+    taskParameters.push(botFilter);
+  }
   if (taskStatus === 'sent') {
     taskConditions.push("t.status = 'sent'");
   } else if (taskStatus === 'unsent') {
@@ -136,7 +143,7 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
   const [taskStats] = await store.all(`SELECT COUNT(*) AS total,
     SUM(CASE WHEN t.status = 'sent' THEN 1 ELSE 0 END) AS sent,
     SUM(CASE WHEN t.status IN ('draft','queued') THEN 1 ELSE 0 END) AS unsent
-    FROM studio_outreach_tasks t ${taskQuery ? `JOIN studio_juzi_contacts c ON c.id=t.contact_id
+    FROM studio_outreach_tasks t ${(taskQuery || botFilter) ? `JOIN studio_juzi_contacts c ON c.id=t.contact_id
       LEFT JOIN studio_customers l ON l.id=t.local_customer_id
       JOIN studio_juzi_bots b ON b.im_bot_id=c.im_bot_id
       LEFT JOIN studio_outreach_templates tpl ON tpl.id=t.template_id` : ''}
@@ -162,6 +169,30 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
     SUM(CASE WHEN plan_day=? THEN 1 ELSE 0 END) AS today_total,
     SUM(CASE WHEN plan_day=? AND status IN ('draft','queued') THEN 1 ELSE 0 END) AS unsent_today
   FROM studio_outreach_tasks`, day, day, day, day);
+  const accountTaskRows = await store.all(`SELECT b.im_bot_id,
+    COUNT(*) AS total,
+    SUM(CASE WHEN t.status='queued' THEN 1 ELSE 0 END) AS queued,
+    SUM(CASE WHEN t.status='sent' THEN 1 ELSE 0 END) AS sent
+    FROM studio_outreach_tasks t JOIN studio_juzi_contacts c ON c.id=t.contact_id
+    JOIN studio_juzi_bots b ON b.im_bot_id=c.im_bot_id
+    WHERE t.plan_day=? GROUP BY b.im_bot_id`, day);
+  const accountTaskMap = new Map(accountTaskRows.map(row => [row.im_bot_id, row]));
+  const accountSummary = bots.map(bot => {
+    const botContacts = allContacts.filter(contact => contact.im_bot_id === bot.im_bot_id);
+    const botTodayTasks = accountTaskMap.get(bot.im_bot_id) || { total: 0, queued: 0, sent: 0 };
+    return {
+      im_bot_id: bot.im_bot_id,
+      bot_name: bot.bot_name,
+      owner_name: bot.owner_name || '',
+      total: botContacts.length,
+      anti_aging: botContacts.filter(contact => contact.initial_profile?.audience === 'anti_aging').length,
+      daily_nutrition: botContacts.filter(contact => contact.initial_profile?.audience === 'daily_nutrition').length,
+      replied: botContacts.filter(contact => contact.replied).length,
+      today_tasks: Number(botTodayTasks.total || 0),
+      queued: Number(botTodayTasks.queued || 0),
+      sent_today: Number(botTodayTasks.sent || 0),
+    };
+  });
   const counts = {
     contacts: totalCount,
     filtered_contacts: filteredContacts.length,
@@ -195,6 +226,7 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
       pages: totalPages, start_index: filteredContacts.length ? start + 1 : 0,
       end_index: Math.min(start + limit, filteredContacts.length), query, reply_filter: replyFilter,
       tag: tagFilter.join('、'), tag_mode: tagMode, exclude_tag: excludeTags.join('、'),
+      bot_id: botFilter,
     }, tag_summary: tagSummary, tasks, today_tasks: todayTasks, task_pagination: {
       page: safeTaskPage, limit: taskLimit, total: taskTotal, pages: taskTotalPages,
       start_index: taskTotal ? taskStart + 1 : 0,
@@ -202,7 +234,7 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
       status_filter: taskStatus,
       unsent: Number(taskStats?.unsent || 0),
     }, queued_tasks: queuedTasks, contact_tasks: contactTasks, messages, profile_updates: profileUpdates, templates,
-    local_customers: localCustomers, counts };
+    local_customers: localCustomers, counts, account_summary: accountSummary };
 }
 
 export async function outreachContactMessages(store, id) {
@@ -1095,9 +1127,12 @@ export async function generateStrategies(store, user, body, env, dependencies = 
   const tagFilter = parseTagInput(body?.tag);
   const tagMode = ['contains', 'and', 'or'].includes(body?.tag_mode) ? body.tag_mode : 'contains';
   const excludeTags = parseTagInput(body?.exclude_tag);
+  const botFilter = String(body?.bot_id || body?.im_bot_id || '').trim().slice(0, 100);
   const direction = normalizeStrategyDirection(body?.direction);
   if (body?.refresh === true) {
-    await store.query("DELETE FROM studio_outreach_tasks WHERE plan_day=? AND status='draft'", planDay).run();
+    await store.query(`DELETE FROM studio_outreach_tasks WHERE plan_day=? AND status='draft'
+      ${botFilter ? 'AND contact_id IN (SELECT id FROM studio_juzi_contacts WHERE im_bot_id=?)' : ''}`,
+      planDay, ...(botFilter ? [botFilter] : [])).run();
   }
   const contacts = (await store.all(`SELECT c.id,c.im_contact_id,c.display_name,c.local_customer_id,
     c.confirmed_salutation,c.tags,c.remark,c.profile_json,l.audience,l.display_name AS customer_name,l.salutation,
@@ -1113,6 +1148,7 @@ export async function generateStrategies(store, user, body, env, dependencies = 
   });
   const matchingContacts = contacts.filter(contact => {
     if (body?.contact_id && contact.id !== String(body.contact_id)) return false;
+    if (botFilter && String(contact.im_bot_id || '') !== botFilter) return false;
     if (audience && contact.audience !== audience) return false;
     return matchTags(contactTags(contact), tagFilter, tagMode, excludeTags);
   });
@@ -1271,6 +1307,7 @@ export async function createOutreachStrategyJob(store, user, body, env, dependen
   const tagFilter = parseTagInput(body?.tag);
   const tagMode = ['contains', 'and', 'or'].includes(body?.tag_mode) ? body.tag_mode : 'contains';
   const excludeTags = parseTagInput(body?.exclude_tag);
+  const botFilter = String(body?.bot_id || body?.im_bot_id || '').trim().slice(0, 100);
   const direction = normalizeStrategyDirection(body?.direction);
   const contactId = body?.contact_id ? String(body.contact_id).slice(0, 100) : '';
   const requestedLimit = Number(body?.limit);
@@ -1278,7 +1315,8 @@ export async function createOutreachStrategyJob(store, user, body, env, dependen
     ? Math.min(requestedLimit, OUTREACH_TASK_LIMIT) : null;
   const request = {
     audience, tag: tagFilter.join('、'), tag_mode: tagMode, exclude_tag: excludeTags.join('、'),
-    direction, contact_id: contactId, refresh: body?.refresh === true, ...(limit ? { limit } : {}),
+    bot_id: botFilter, direction, contact_id: contactId, refresh: body?.refresh === true,
+    ...(limit ? { limit } : {}),
   };
   const id = crypto.randomUUID(), now = Date.now();
   await store.query(`INSERT INTO studio_outreach_jobs(id,created_by,status,request_json,direction,tag,audience,contact_id,
