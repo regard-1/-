@@ -716,6 +716,7 @@ async function generateOutreachTagStrategies(){
 }
 async function generateOutreachStrategyForContact(id){
   const contact=(state.outreachData?.contacts||[]).find(item=>item.id===id);
+  if(outreachProfile(contact).should_pause)return generateOutreachReply(id);
   state.outreachStrategyDirection=normalizeOutreachStrategyDirection($('#outreach-strategy-direction')?.value||state.outreachStrategyDirection);
   await startOutreachStrategyJob({contact_id:id,direction:state.outreachStrategyDirection},
     {label:contact?.display_name||'一客一策',contactId:id});
@@ -1021,7 +1022,7 @@ async function cancelOutreachBatchSend(){const batch=state.outreachBatch;if(!bat
 async function toggleOutreachReplyStatus(id){const contact=(state.outreachData?.contacts||[]).find(item=>item.id===id);if(!contact)return;const next=contact.reply_status_override===0?!contact.replied:null;try{await studioApi(`/outreach/contacts/${encodeURIComponent(id)}/reply-status`,{method:'PUT',body:JSON.stringify(next===null?{}:{replied:next})});toast(next===null?'已恢复自动识别回复状态':next?'已标记为已回复':'已标记为未回复');await renderOutreach();openOutreachContact(id)}catch(error){toast(error.message)}}
 async function saveOutreachSalutation(id){const input=$(`#outreach-salutation-${CSS.escape(id)}`);if(!input)return;const salutation=input.value.trim();if(!salutation)return toast('请填写称呼');try{await studioApi(`/outreach/contacts/${encodeURIComponent(id)}/salutation`,{method:'PUT',body:JSON.stringify({salutation})});toast('称呼已确认');await renderOutreach();openOutreachContact(id)}catch(error){toast(error.message)}}
 async function updateOutreachTaskMessage(id){try{const task=await saveOutreachTaskMessageFromEditor(id);if(!task)return;toast('触达内容已更新');renderOutreachWorkspace(state.outreachData)}catch(error){toast(error.message)}}
-async function generateOutreachReply(id){if(state.outreachPending)return;state.outreachPending=true;const contact=(state.outreachData?.contacts||[]).find(item=>item.id===id);state.outreachError=`正在为 ${contact?.display_name||'该客户'} 生成推荐回复…`;renderOutreachWorkspace(state.outreachData);try{await studioApi('/outreach/replies',{method:'POST',body:JSON.stringify({contact_id:id})});state.outreachError='';toast('推荐回复已生成，请编辑后入队发送');await renderOutreach();openOutreachContact(id)}catch(error){state.outreachError=error.message;renderOutreachWorkspace(state.outreachData);toast(error.message)}finally{state.outreachPending=false}}
+async function generateOutreachReply(id){if(state.outreachPending)return;state.outreachPending=true;const contact=(state.outreachData?.contacts||[]).find(item=>item.id===id);state.outreachError=`正在为 ${contact?.display_name||'该客户'} 生成推荐回复…`;renderOutreachWorkspace(state.outreachData);try{const task=await studioApi('/outreach/replies',{method:'POST',body:JSON.stringify({contact_id:id})});state.outreachError='';toast(task.status==='paused'?'服务回复已生成：仅供处理当前问题，不能入队或批量发送':'推荐回复已生成，请编辑后入队发送');await renderOutreach();openOutreachContact(id)}catch(error){state.outreachError=error.message;renderOutreachWorkspace(state.outreachData);toast(error.message)}finally{state.outreachPending=false}}
 async function renderScripts(){
   setHeader('话术中心','话术中心');
   const version=navigationVersion;

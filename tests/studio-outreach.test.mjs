@@ -1565,6 +1565,57 @@ test('replied contacts are surfaced, manually correctable, and can generate foll
   assert.equal(messages[0].status, 'sent');
 });
 
+test('paused contacts can generate service replies but cannot enter outreach sending', async t => {
+  let modelSystemPrompt;
+  const outbound = [];
+  let sending = false;
+  const h = await harness(t, {
+    fetchJuzi: async (url, init) => {
+      if (sending) outbound.push({ url: String(url), body: JSON.parse(init.body || '{}') });
+      return listCustomersResponse();
+    },
+    fetchModel: async (_url, options) => {
+      const body = JSON.parse(options.body);
+      modelSystemPrompt = body.messages[0].content;
+      return jsonResponse({
+        choices: [{ message: { content: JSON.stringify({
+          reply: '陈老师，抱歉给您带来困扰。我先停止产品推荐，您方便说一下目前最需要处理的问题吗？我来跟进解决。',
+          next_action: '先处理客户提出的服务问题，服务闭环后再确认是否愿意继续沟通',
+          reason: '客户已要求暂停主动触达，需要服务型响应',
+        }) } }],
+      });
+    },
+  });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  const snapshot = await h.call('/api/studio/outreach', 'GET', undefined, admin);
+  const contact = snapshot.data.contacts[0];
+  h.db.sqlite.prepare('UPDATE studio_juzi_contacts SET profile_json=? WHERE id=?')
+    .run(JSON.stringify({ should_pause: true }), contact.id);
+
+  const reply = await h.call('/api/studio/outreach/replies', 'POST', { contact_id: contact.id }, admin);
+  assert.equal(reply.status, 201);
+  assert.equal(reply.data.status, 'paused');
+  assert.equal(reply.data.source, 'reply');
+  assert.ok(reply.data.recommended_message.startsWith('陈老师'));
+  assert.ok(reply.data.stop_rule.includes('不能入队或批量发送'));
+  assert.ok(modelSystemPrompt.includes('客户已要求暂停主动触达'));
+  const persisted = h.db.sqlite.prepare('SELECT id,status,source FROM studio_outreach_tasks WHERE id=?').get(reply.data.id);
+  assert.equal(persisted.status, 'paused');
+  assert.equal(persisted.source, 'reply');
+
+  const queued = await h.call(`/api/studio/outreach/tasks/${reply.data.id}/queue`, 'POST', {}, admin);
+  assert.equal(queued.status, 409);
+  sending = true;
+  const sent = await h.call(`/api/studio/outreach/tasks/${reply.data.id}/send`, 'POST', {}, admin);
+  assert.equal(sent.status, 409);
+  assert.equal(outbound.length, 0);
+
+  const after = await h.call('/api/studio/outreach', 'GET', undefined, admin);
+  assert.equal(after.data.queued_tasks.length, 0);
+  assert.ok(after.data.today_tasks.some(task => task.id === reply.data.id && task.status === 'paused'));
+});
+
 test('migrations and production configuration keep the token server-side', () => {
   const sqlite = readFileSync(new URL('../drizzle/0004_juzi_outreach.sql', import.meta.url), 'utf8');
   const postgres = readFileSync(new URL('../drizzle/0004_pg_juzi_outreach.sql', import.meta.url), 'utf8');

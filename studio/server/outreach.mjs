@@ -744,7 +744,7 @@ export async function generateReply(store, user, body, env, dependencies = {}) {
   let contactProfile = {};
   try { contactProfile = JSON.parse(contact.profile_json || '{}') || {}; } catch {}
   contact.profile = contactProfile;
-  if (contact.profile?.should_pause) fail(409, '该客户已要求暂停触达，请先处理服务问题');
+  const shouldPause = !!contact.profile?.should_pause;
   const messages = (await store.all(`SELECT direction,content,created_at FROM studio_outreach_messages
     WHERE contact_id=? AND created_at>? ORDER BY created_at DESC LIMIT 20`, contact.id, Date.now() - 2592000000)).reverse();
   const salutation = inferSalutation(contact, messages);
@@ -756,8 +756,10 @@ export async function generateReply(store, user, body, env, dependencies = {}) {
     enable_search: false, enable_thinking: false,
     response_format: { type: 'json_object' },
     messages: [
-      { role: 'system', content: `你是多特倍斯私域跟进回复助手。根据客户最新回复、可用画像和已核对资料，生成一条可直接编辑后发送的回复。先准确回应客户当前问题，再推进一个自然动作；语气亲切自然，可使用已确认称呼。没有资料支持的价格、规格、活动、用法不编造；售后或身体不适优先处理安全和服务。输出 JSON：{"reply":"","next_action":"","reason":""}。` },
-      { role: 'user', content: JSON.stringify(promptSafeValue({ salutation, contact: {
+      { role: 'system', content: shouldPause
+        ? `你是多特倍斯服务处理回复助手。客户已要求暂停主动触达，只能针对客户当前提出的问题或售后诉求生成一条人工服务回复：先致歉或确认诉求，再给出明确处理动作；不得推销、发活动、追问购买或引导复购。没有资料支持的价格、规格、活动、用法不编造；身体不适优先安全和服务。输出 JSON：{"reply":"","next_action":"","reason":""}。`
+        : `你是多特倍斯私域跟进回复助手。根据客户最新回复、可用画像和已核对资料，生成一条可直接编辑后发送的回复。先准确回应客户当前问题，再推进一个自然动作；语气亲切自然，可使用已确认称呼。没有资料支持的价格、规格、活动、用法不编造；售后或身体不适优先处理安全和服务。输出 JSON：{"reply":"","next_action":"","reason":""}。` },
+      { role: 'user', content: JSON.stringify(promptSafeValue({ salutation, service_only: shouldPause, contact: {
         display_name: contact.display_name, tags: contact.tags, remark: contact.remark,
         salutation: contact.salutation, confirmed_salutation: contact.confirmed_salutation,
         purchased_products: contact.purchased_products,
@@ -786,16 +788,19 @@ export async function generateReply(store, user, body, env, dependencies = {}) {
     audience: contact.local_customer_audience || 'daily_nutrition', priority: 'medium',
     reason: maskText(String(output.reason || '客户已回复，需要跟进')).slice(0, 600),
     recommended_message: reply, next_action: maskText(String(output.next_action || '')).slice(0, 600),
-    stop_rule: '客户明确不需要或要求停止时立即暂停', status: 'draft', created_at: now,
+    stop_rule: shouldPause
+      ? '客户已要求暂停触达：本回复仅供人工处理当前服务问题，不能入队或批量发送'
+      : '客户明确不需要或要求停止时立即暂停',
+    status: shouldPause ? 'paused' : 'draft', created_at: now,
     plan_day: planDay, strategy_type: 'service', source: 'reply', template_id: null,
   };
   await store.query(`INSERT INTO studio_outreach_tasks(id,contact_id,local_customer_id,audience,priority,reason,
     recommended_message,next_action,stop_rule,status,created_by,created_at,plan_day,strategy_type,profile_snapshot,profile_updates,source,template_id)
-    VALUES(?,?,?,?,?,?,?,?,?,'draft',?,?,?,?,?,?,'reply',NULL)`, id, task.contact_id, task.local_customer_id,
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, task.contact_id, task.local_customer_id,
     task.audience, task.priority, task.reason, task.recommended_message, task.next_action, task.stop_rule,
-    user.id, now, planDay, task.strategy_type,
+    task.status, user.id, now, planDay, task.strategy_type,
     JSON.stringify({ salutation, tags: contact.tags, remark: contact.remark, latest_message: messages.at(-1)?.content || '' }).slice(0, 4000),
-    '{}').run();
+    '{}', task.source, null).run();
   return task;
 }
 
@@ -1449,8 +1454,11 @@ async function recentOutreachMap(store, since) {
 }
 
 export async function queueTask(store, id) {
+  const current = await store.query('SELECT id,status FROM studio_outreach_tasks WHERE id=?', id).first();
+  if (!current) fail(404, '触达任务不存在或不是待入队状态');
+  if (current.status === 'paused') fail(409, '该客户已要求暂停触达，服务回复不能加入发送队列');
   const result = await store.query("UPDATE studio_outreach_tasks SET status='queued' WHERE id=? AND status='draft' RETURNING id", id).first();
-  if (!result) fail(404, '触达任务不存在或不是待入队状态');
+  if (!result) fail(409, '仅草稿策略可加入执行队列');
   return { queued: true };
 }
 
