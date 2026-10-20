@@ -18,6 +18,29 @@ const OUTREACH_BATCH_CONCURRENCY = 3;
 const OUTREACH_DEFAULT_BATCH_SIZE = 10;
 const OUTREACH_TASK_LIMIT = 2000;
 const OUTREACH_BATCH_MODEL_TIMEOUT_MS = 120000;
+const PACKAGE_CARD_WORDING_PATTERN = /包裹卡|药盒/;
+
+function removePackageCardMarkers(value) {
+  if (typeof value === 'string') {
+    return value
+      .replace(/包裹卡|药盒/g, '')
+      .replace(/\s*[-－—–]\s*(?=$|[,，、;；])/g, '')
+      .trim();
+  }
+  if (Array.isArray(value)) return value.map(removePackageCardMarkers);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, removePackageCardMarkers(item)]));
+  }
+  return value;
+}
+
+function promptSafeValue(value) {
+  return removePackageCardMarkers(value);
+}
+
+function assertNoPackageCardWording(value, message, code = 400) {
+  if (PACKAGE_CARD_WORDING_PATTERN.test(String(value || ''))) fail(code, message, 'UNSAFE_STRATEGY');
+}
 
 function normalizeTimestamp(value) {
   const numeric = Number(value);
@@ -579,6 +602,7 @@ function applyConfirmedSalutation(message, contact, messages = [], snapshot = {}
 
 function validateTemplate(body) {
   if (/\d{11}/.test(String(body?.content || ''))) fail(400, '模板内容不能包含完整手机号');
+  assertNoPackageCardWording(body?.content, '模板内容不能包含包裹卡或药盒');
   const title = textValue(body?.title, 40, '模板名称');
   const content = textValue(body?.content, 600, '模板内容');
   return { title, content, active: body?.active === false ? 0 : 1 };
@@ -652,6 +676,7 @@ export async function updateContactReplyStatus(store, id, body) {
 
 export async function updateTaskMessage(store, user, id, body) {
   const message = textValue(body?.message, 600, '触达内容');
+  assertNoPackageCardWording(message, '触达内容不能包含包裹卡或药盒');
   const result = await store.query(`UPDATE studio_outreach_tasks SET recommended_message=?
     WHERE id=? AND status IN('draft','queued') RETURNING id`, message, id).first();
   if (!result) fail(404, '触达任务不存在或已进入不可编辑状态');
@@ -730,13 +755,13 @@ export async function generateReply(store, user, body, env, dependencies = {}) {
     response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: `你是多特倍斯私域跟进回复助手。根据客户最新回复、可用画像和已核对资料，生成一条可直接编辑后发送的回复。先准确回应客户当前问题，再推进一个自然动作；语气亲切自然，可使用已确认称呼。没有资料支持的价格、规格、活动、用法不编造；售后或身体不适优先处理安全和服务。输出 JSON：{"reply":"","next_action":"","reason":""}。` },
-      { role: 'user', content: JSON.stringify({ salutation, contact: {
+      { role: 'user', content: JSON.stringify(promptSafeValue({ salutation, contact: {
         display_name: contact.display_name, tags: contact.tags, remark: contact.remark,
         salutation: contact.salutation, confirmed_salutation: contact.confirmed_salutation,
         purchased_products: contact.purchased_products,
         interests: contact.interests, concerns: contact.concerns,
         contraindications: contact.contraindications, profile: contact.profile,
-      }, recent_messages: messages, materials }) },
+      }, recent_messages: messages, materials })) },
     ],
   };
   let response;
@@ -752,6 +777,7 @@ export async function generateReply(store, user, body, env, dependencies = {}) {
   const output = extractJSON(payload.choices?.[0]?.message?.content || '');
   const reply = applyConfirmedSalutation(textValue(output.reply, 600, '推荐回复'), contact, messages);
   if (/保证|一定有效|包治|替代药物|建议停药/.test(reply)) fail(502, '推荐回复包含不安全表述，请重试', 'UNSAFE_STRATEGY');
+  assertNoPackageCardWording(reply, '推荐回复不能包含包裹卡或药盒，请重试', 502);
   const id = crypto.randomUUID(), now = Date.now(), planDay = chinaDay();
   const task = {
     id, contact_id: contact.id, local_customer_id: contact.local_customer_id,
@@ -1017,6 +1043,7 @@ function validateTasks(output, candidates, { partial = false } = {}) {
     const message = textValue(rawMessage, 600, '触达话术');
     const confirmedMessage = applyConfirmedSalutation(message, candidate, candidate.recent_messages || []);
     if (/保证|一定有效|包治|替代药物|建议停药|高价值客户|内部评分/.test(message)) fail(502, '触达话术包含不安全表述，请重试', 'UNSAFE_STRATEGY');
+    assertNoPackageCardWording(confirmedMessage, '触达话术不能包含包裹卡或药盒，请重试', 502);
     tasks.push({
       contact_id: candidate.id, local_customer_id: candidate.local_customer_id, audience: candidate.audience,
       priority: ['high', 'medium', 'low'].includes(item.priority) ? item.priority : 'medium',
@@ -1063,7 +1090,7 @@ async function requestStrategyTasks(batch, base, env, fetchModel, materials, dir
     enable_search: false, enable_thinking: false,
     response_format: { type: 'json_object' },
     messages: [
-      { role: 'system', content: `你是多特倍斯私域触达策略助手。为输入的每个真实句子互动客户生成一条可执行的主动开口策略，不允许遗漏或新增客户。contact_id 必须逐字使用输入 candidates 里的 id。目标优先解决客户愿意回复，再根据其可用信息选择关怀、复购通知、教育、活动、售后或边界确认，不默认推销。${directionPrompt(direction)}必须一客一策：优先使用近期聊天、句子互动标签、备注和画像；如存在本地档案，再参考称呼、归属顾问、已购产品、关注点、禁忌。档案缺失时不得编造，只能使用对话和标签中的明确信息。资料中的 today 是系统权威日期；date_status=active 的活动必须视为已经开始，不得因为月份或活动名称说未开始；not_started 或 ended 的活动资料不得引用。活动机制、价格、赠品、日期必须来自资料；资料缺失时只做开放性邀约或询问关注点。不得编造购买历史、剩余数量、价格、活动、功效保证或个体医疗建议；没有资料支持时不写具体产品事实。语气自然亲切，可沿用已确认称呼。${retryNote}只输出 JSON，不要 markdown 或解释文字。输出 JSON：{"tasks":[{"contact_id":"","strategy_type":"care/repurchase_notice/education/activity/service/boundary_check","priority":"high/medium/low","reason":"","recommended_message":"","next_action":"","stop_rule":"","profile_updates":{"observed_signal":"","next_focus":"","should_pause":false}}]}。` },
+      { role: 'system', content: `你是多特倍斯私域触达策略助手。为输入的每个真实句子互动客户生成一条可执行的主动开口策略，不允许遗漏或新增客户。contact_id 必须逐字使用输入 candidates 里的 id。目标优先解决客户愿意回复，再根据其可用信息选择关怀、复购通知、教育、活动、售后或边界确认，不默认推销。${directionPrompt(direction)}必须一客一策：优先使用近期聊天、句子互动标签、备注和画像；如存在本地档案，再参考称呼、归属顾问、已购产品、关注点、禁忌。档案缺失时不得编造，只能使用对话和标签中的明确信息。资料中的 today 是系统权威日期；date_status=active 的活动必须视为已经开始，不得因为月份或活动名称说未开始；not_started 或 ended 的活动资料不得引用。活动机制、价格、赠品、日期必须来自资料；资料缺失时只做开放性邀约或询问关注点。不得编造购买历史、剩余数量、价格、活动、功效保证或个体医疗建议；没有资料支持时不写具体产品事实。语气自然亲切，可沿用已确认称呼。严禁在 recommended_message、next_action、reason 或 profile_updates 中提及「包裹卡」「药盒」及其相关表述；这些词只可能是内部来源标记，不能作为客户沟通内容。${retryNote}只输出 JSON，不要 markdown 或解释文字。输出 JSON：{"tasks":[{"contact_id":"","strategy_type":"care/repurchase_notice/education/activity/service/boundary_check","priority":"high/medium/low","reason":"","recommended_message":"","next_action":"","stop_rule":"","profile_updates":{"observed_signal":"","next_focus":"","should_pause":false}}]}。` },
       { role: 'user', content: JSON.stringify({ today: chinaDay(), direction, candidates: batch, materials }) },
     ],
   };
@@ -1220,10 +1247,10 @@ export async function generateStrategies(store, user, body, env, dependencies = 
   const requestedLimit = Number(body?.limit);
   const requestLimit = Number.isInteger(requestedLimit) && requestedLimit > 0
     ? Math.min(requestedLimit, OUTREACH_TASK_LIMIT) : null;
-  const limitedCandidates = requestLimit ? candidates.slice(0, requestLimit) : candidates;
+  const limitedCandidates = (requestLimit ? candidates.slice(0, requestLimit) : candidates).map(promptSafeValue);
   const knowledgeMaterials = await outreachKnowledgeMaterials(direction, limitedCandidates,
     env, dependencies.fetchKnowledge || dependencies.fetchModel || fetch);
-  const materials = [...localMaterials, ...knowledgeMaterials];
+  const materials = promptSafeValue([...localMaterials, ...knowledgeMaterials]);
   const base = modelBase(env);
   const batchSize = Math.max(1, Math.min(50, Number(env.STUDIO_OUTREACH_BATCH_SIZE) || OUTREACH_DEFAULT_BATCH_SIZE));
   const batchConcurrency = Math.max(1, Math.min(5,

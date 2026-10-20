@@ -725,6 +725,87 @@ test('strategy parser accepts alternate message fields without retry', async t =
   assert.equal(result.data.tasks[0].recommended_message, '陈哥，最近整体状态还好吗？我先帮您看重点。');
 });
 
+test('package-card source markers are removed before strategy model calls', async t => {
+  let candidateInput;
+  const h = await harness(t, {
+    fetchJuzi: async () => listCustomersResponse(),
+    fetchModel: async (_url, options) => {
+      const body = JSON.parse(options.body);
+      const candidate = JSON.parse(body.messages.at(-1).content).candidates[0];
+      candidateInput = JSON.stringify(candidate);
+      return jsonResponse({ choices: [{ message: { content: JSON.stringify({
+        tasks: [{
+          contact_id: candidate.id,
+          priority: 'medium',
+          reason: '结合剩余可用标签生成关怀开口',
+          recommended_message: '陈哥，最近整体状态还好吗？我先帮您看重点。',
+          next_action: '回复后确认当前关注点',
+          stop_rule: '明确拒绝后暂停',
+        }],
+      }) } }] });
+    },
+  });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  const snapshot = await h.call('/api/studio/outreach', 'GET', undefined, admin);
+  const contact = snapshot.data.contacts[0];
+  h.db.sqlite.prepare('UPDATE studio_juzi_contacts SET tags=?,remark=? WHERE id=?')
+    .run('包裹卡-药盒、NMN用户', '包裹卡-药盒 客户关注睡眠', contact.id);
+  h.db.sqlite.prepare(`INSERT INTO studio_outreach_messages(id,contact_id,direction,content,message_id,status,error,created_at)
+    VALUES(?,?,?,?,?,?,?,?)`)
+    .run('package-card-message', contact.id, 'inbound', '包裹卡-药盒，最近睡眠一般', 'package-card-message-1', 'received', '', Date.now());
+
+  const result = await h.call('/api/studio/outreach/strategies', 'POST', { contact_id: contact.id }, admin);
+  assert.equal(result.status, 200);
+  assert.equal(result.data.created_count, 1);
+  assert.ok(!candidateInput.includes('包裹卡'));
+  assert.ok(!candidateInput.includes('药盒'));
+  assert.ok(!result.data.tasks[0].recommended_message.includes('包裹卡'));
+});
+
+test('package-card wording is rejected in generated strategies, templates, and manual edits', async t => {
+  const h = await harness(t, {
+    fetchJuzi: async () => listCustomersResponse(),
+    fetchModel: async (_url, options) => {
+      const candidate = JSON.parse(JSON.parse(options.body).messages.at(-1).content).candidates[0];
+      return jsonResponse({ choices: [{ message: { content: JSON.stringify({
+        tasks: [{
+          contact_id: candidate.id,
+          priority: 'medium',
+          reason: '模型误写内部来源标记',
+          recommended_message: '陈哥，您之前拿到的包裹卡我看下使用情况。',
+          next_action: '等待回复',
+          stop_rule: '明确拒绝后暂停',
+        }],
+      }) } }] });
+    },
+  });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  const snapshot = await h.call('/api/studio/outreach', 'GET', undefined, admin);
+  const contact = snapshot.data.contacts[0];
+
+  const generated = await h.call('/api/studio/outreach/strategies', 'POST', { contact_id: contact.id }, admin);
+  assert.equal(generated.status, 502);
+  assert.equal(generated.error.code, 'UNSAFE_STRATEGY');
+  assert.equal(h.db.sqlite.prepare('SELECT COUNT(*) AS count FROM studio_outreach_tasks').get().count, 0);
+
+  const template = await h.call('/api/studio/outreach/templates', 'POST', {
+    title: '包裹卡关怀', content: '陈哥，您包裹卡还在用吗？',
+  }, admin);
+  assert.equal(template.status, 400);
+  assert.equal(template.error.message, '模板内容不能包含包裹卡或药盒');
+
+  h.db.sqlite.prepare(`INSERT INTO studio_outreach_tasks(id,contact_id,audience,recommended_message,status,created_by,created_at,plan_day)
+    VALUES(?,?,?,?,?,?,?,?)`)
+    .run('package-card-task', contact.id, 'anti_aging', '初始话术', 'draft', 'admin', Date.now(), chinaDay());
+  const edited = await h.call('/api/studio/outreach/tasks/package-card-task/message', 'PUT', {
+    message: '陈哥，您药盒里的产品还够吗？',
+  }, admin);
+  assert.equal(edited.status, 400);
+  assert.equal(edited.error.message, '触达内容不能包含包裹卡或药盒');
+});
+
 test('full strategy generation parses wrapped JSON and retries malformed batches one by one', async t => {
   let modelCalls = 0;
   const h = await harness(t, {
