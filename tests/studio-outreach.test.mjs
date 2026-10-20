@@ -1498,7 +1498,7 @@ test('migrations and production configuration keep the token server-side', () =>
   const compose = readFileSync(new URL('../docker-compose.prod.yml', import.meta.url), 'utf8');
   assert.match(compose, /WECOM_API_TOKEN:\s*\$\{WECOM_API_TOKEN\}/);
   assert.match(compose, /STUDIO_LLM_BASE_URL:\s*\$\{STUDIO_LLM_BASE_URL:-https:\/\/dashscope\.aliyuncs\.com\/compatible-mode\/v1\}/);
-  assert.match(compose, /STUDIO_OUTREACH_BATCH_SIZE:\s*\$\{STUDIO_OUTREACH_BATCH_SIZE:-50\}/);
+  assert.match(compose, /STUDIO_OUTREACH_BATCH_SIZE:\s*\$\{STUDIO_OUTREACH_BATCH_SIZE:-10\}/);
   assert.match(compose, /STUDIO_OUTREACH_BATCH_CONCURRENCY:\s*\$\{STUDIO_OUTREACH_BATCH_CONCURRENCY:-5\}/);
   assert.match(compose, /STUDIO_OUTREACH_MODEL_TIMEOUT_MS:\s*\$\{STUDIO_OUTREACH_MODEL_TIMEOUT_MS:-120000\}/);
   const worker = readFileSync(new URL('../studio/server/worker.mjs', import.meta.url), 'utf8');
@@ -1507,7 +1507,7 @@ test('migrations and production configuration keep the token server-side', () =>
   assert.match(prodServer, /STUDIO_OUTREACH_MODEL_TIMEOUT_MS:\s*process\.env\.STUDIO_OUTREACH_MODEL_TIMEOUT_MS/);
   const outreach = readFileSync(new URL('../studio/server/outreach.mjs', import.meta.url), 'utf8');
   assert.match(outreach, /OUTREACH_TASK_LIMIT = 2000/);
-  assert.match(outreach, /OUTREACH_DEFAULT_BATCH_SIZE = 50/);
+  assert.match(outreach, /OUTREACH_DEFAULT_BATCH_SIZE = 10/);
   assert.match(outreach, /OUTREACH_BATCH_MODEL_TIMEOUT_MS = 120000/);
   assert.match(outreach, /Math\.min\(requestedLimit, OUTREACH_TASK_LIMIT\)/);
   const client = readFileSync(new URL('../assets/app.js', import.meta.url), 'utf8');
