@@ -526,9 +526,9 @@ function outreachAccountSummaryPanel(data){
   }).join('')}</div></section>`;
 }
 function outreachTemplatePanel(data){
-  const templates=data.templates||[],contacts=data.contacts||[],first=contacts.find(c=>!c.replied)||contacts[0];
+  const templates=(data.templates||[]).filter(item=>item.active!==0&&item.active!==false),contacts=data.contacts||[],first=contacts.find(c=>!c.replied)||contacts[0];
   const preview=templates[0]&&first?renderOutreachTemplatePreview(templates[0],first):'';
-  return `<section class="outreach-panel outreach-template-panel"><header><div><h4>固定话术模板</h4><p>支持 {{称呼}}、{{昵称}}、{{姓名}}；未写变量时发送前自动补称呼。仅管理员可维护。</p></div><button class="primary-button" type="button" onclick="resetOutreachTemplateForm()">清空表单</button></header>
+  return `<section class="outreach-panel outreach-template-panel"><header><div><h4>固定话术模板</h4><p>支持 {{称呼}}、{{昵称}}、{{姓名}}；未写变量时发送前自动补称呼。停用后不再显示。仅管理员可维护。</p></div><button class="primary-button" type="button" onclick="resetOutreachTemplateForm()">清空表单</button></header>
   <div class="outreach-template-grid">
     <form class="outreach-template-form" id="outreach-template-form" onsubmit="saveOutreachTemplate(event)">
       <input type="hidden" id="outreach-template-id">
@@ -537,7 +537,7 @@ function outreachTemplatePanel(data){
       <div class="outreach-template-actions"><button class="primary-button" type="submit">保存模板</button><button class="secondary-button" type="button" onclick="generateOutreachTemplateTasks()">生成推荐触达队列</button></div>
       <small>推荐对象默认为未回复且未暂停的真实客户；生成后仍需入队和人工确认。</small>
     </form>
-    <div class="outreach-template-list">${templates.length?templates.map(item=>`<article class="${item.active?'':'inactive'}"><div><strong>${esc(item.title)}</strong><span>${item.active?'启用中':'已停用'} · 更新于 ${esc(fmtDate(item.updated_at))}</span></div><p>${esc(item.content)}</p><footer><button class="secondary-button" type="button" onclick="editOutreachTemplate('${esc(item.id)}')">编辑</button><button class="danger-button" type="button" onclick="deleteOutreachTemplate('${esc(item.id)}')">停用</button><button class="primary-button" type="button" onclick="generateOutreachTemplateTasks('${esc(item.id)}')">生成队列</button></footer></article>`).join(''):'<div class="empty-card">暂无模板。可先创建一条节日关怀或活动通知模板。</div>'}${preview}</div>
+    <div class="outreach-template-list">${templates.length?templates.map(item=>`<article><div><strong>${esc(item.title)}</strong><span>启用中 · 更新于 ${esc(fmtDate(item.updated_at))}</span></div><p>${esc(item.content)}</p><footer><button class="secondary-button" type="button" onclick="editOutreachTemplate('${esc(item.id)}')">编辑</button><button class="danger-button" type="button" onclick="deleteOutreachTemplate('${esc(item.id)}')">停用</button><button class="primary-button" type="button" onclick="generateOutreachTemplateTasks('${esc(item.id)}')">生成队列</button></footer></article>`).join(''):'<div class="empty-card">暂无模板。可先创建一条节日关怀或活动通知模板。</div>'}${preview}</div>
   </div></section>`;
 }
 function renderOutreachTemplatePreview(template,contact){
@@ -1021,7 +1021,7 @@ async function confirmOutreachSend(id){try{const task=await saveOutreachTaskMess
 function resetOutreachTemplateForm(){const title=$('#outreach-template-title'),content=$('#outreach-template-content'),id=$('#outreach-template-id');if(!title||!content)return;id.value='';title.value='';content.value='';title.focus()}
 function editOutreachTemplate(id){const template=(state.outreachData?.templates||[]).find(item=>item.id===id);if(!template)return;$('#outreach-template-id').value=template.id;$('#outreach-template-title').value=template.title;$('#outreach-template-content').value=template.content;$('#outreach-template-title').focus()}
 async function saveOutreachTemplate(event){event.preventDefault();const id=$('#outreach-template-id').value.trim();const body={title:$('#outreach-template-title').value.trim(),content:$('#outreach-template-content').value.trim()};try{const result=await studioApi(id?`/outreach/templates/${encodeURIComponent(id)}`:'/outreach/templates',{method:id?'PUT':'POST',body:JSON.stringify(body)});toast('模板已保存');await renderOutreach();if(result.id)editOutreachTemplate(result.id)}catch(error){toast(error.message)}}
-async function deleteOutreachTemplate(id){if(!confirm('确认停用该模板？后续可重新编辑启用。'))return;try{await studioApi(`/outreach/templates/${encodeURIComponent(id)}`,{method:'DELETE'});toast('模板已停用');await renderOutreach()}catch(error){toast(error.message)}}
+async function deleteOutreachTemplate(id){if(!confirm('确认停用该模板？停用后将不再显示在模板列表。'))return;try{await studioApi(`/outreach/templates/${encodeURIComponent(id)}`,{method:'DELETE'});toast('模板已停用');await renderOutreach()}catch(error){toast(error.message)}}
 async function generateOutreachTemplateTasks(templateId){
   let id=templateId||$('#outreach-template-id')?.value.trim()||'';
   try{

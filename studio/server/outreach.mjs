@@ -83,7 +83,7 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
       LEFT JOIN studio_juzi_contacts c ON c.id=m.contact_id ORDER BY m.created_at DESC LIMIT 200`),
     store.all(`SELECT p.*,c.display_name AS contact_name FROM studio_customer_profile_updates p
       LEFT JOIN studio_juzi_contacts c ON c.id=p.contact_id ORDER BY p.created_at DESC LIMIT 100`),
-    store.all('SELECT id,title,content,active,updated_at FROM studio_outreach_templates ORDER BY updated_at DESC'),
+    store.all('SELECT id,title,content,active,updated_at FROM studio_outreach_templates WHERE active=1 ORDER BY updated_at DESC'),
     store.all(`SELECT contact_id,
       MAX(CASE WHEN direction='inbound' THEN created_at END) AS last_inbound_at,
       MAX(CASE WHEN direction='outbound' THEN created_at END) AS last_outbound_at

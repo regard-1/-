@@ -17,6 +17,8 @@ db.sqlite.prepare('INSERT INTO studio_users VALUES(?,?,?,?,?,1,0,?)').run('outre
 db.sqlite.prepare(`INSERT INTO studio_customers(id,display_name,audience,owner_user_id,salutation,phone_suffix,
   purchased_products,interests,concerns,contraindications,notes,active,updated_by,updated_at)
   VALUES('customer-1','陈先生','anti_aging','outreach-sales','陈哥','5678','NMN','精力','价格','','先核实安全',1,'outreach-sales',?)`).run(Date.now());
+db.sqlite.prepare(`INSERT INTO studio_outreach_templates(id,title,content,active,created_by,updated_at)
+  VALUES('inactive-template','已停用关怀模板','{{称呼}}，已停用模板不应显示。',0,'outreach-admin',?)`).run(Date.now());
 
 let sentText = '';
 let releaseBrowserModel;
@@ -89,6 +91,7 @@ try {
   await page.locator('[data-page="outreach"]').click();
   await page.locator('.outreach-workspace').waitFor();
   assert.ok((await page.locator('.outreach-workspace').textContent()).includes('句子互动已连接'));
+  assert.ok(!(await page.locator('.outreach-template-list').textContent()).includes('已停用关怀模板'));
   const archive = page.locator('details.outreach-archive');
   assert.equal(await archive.count(), 2);
   assert.equal(await archive.locator('summary').filter({ hasText: '30 天真实消息留档' }).count(), 1);

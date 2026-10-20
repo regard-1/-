@@ -1464,6 +1464,9 @@ test('outreach templates are admin-only and render confirmed salutations', async
   assert.equal(updated.status, 200);
   const deleted = await h.call(`/api/studio/outreach/templates/${created.data.id}`, 'DELETE', undefined, admin);
   assert.equal(deleted.status, 200);
+  const snapshotAfterDelete = await h.call('/api/studio/outreach', 'GET', undefined, admin);
+  assert.ok(snapshotAfterDelete.data.templates.every(template => template.active === 1));
+  assert.ok(snapshotAfterDelete.data.templates.every(template => template.id !== created.data.id));
   const stopped = await h.call(`/api/studio/outreach/templates/${created.data.id}/generate`, 'POST', {}, admin);
   assert.equal(stopped.status, 404);
 });
