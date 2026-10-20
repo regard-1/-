@@ -499,7 +499,7 @@ function outreachExcludeTagSelector(tagSummary){
   const tags=(tagSummary?.tags||tagSummary?.top||[]);
   const selected=selectedOutreachExcludedTags();
   const selectedSet=new Set(selected.map(tag=>tag.toLowerCase()));
-  return `<div class="form-label outreach-exclude-selector">排除标签
+  return `<div class="form-label outreach-exclude-selector">排除标签（点选已有标签）
     <input id="outreach-exclude-search" value="${esc(state.outreachExcludeTagSearch)}" maxlength="60" placeholder="搜索已有标签" oninput="setOutreachExcludeTagSearch(this.value)">
     <input type="hidden" id="outreach-exclude-tag" value="${esc(state.outreachExcludeTag)}">
     <div class="outreach-exclude-options" id="outreach-exclude-options" aria-label="可排除的已有标签">${tags.length?tags.map(item=>{
