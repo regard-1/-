@@ -622,21 +622,27 @@ function setOutreachExcludeTagSearch(value){
   filterOutreachExcludeTags();
 }
 function filterOutreachExcludeTags(){
-  const query=String(state.outreachExcludeTagSearch||'').toLowerCase();
+  const query=String(state.outreachExcludeTagSearch||'').trim().toLowerCase();
   let matches=0;
   $$('#outreach-exclude-options .outreach-exclude-option').forEach(node=>{
-    const tag=String(node.querySelector('input')?.dataset.excludeTag||'').toLowerCase();
-    const visible=!query||tag.includes(query);
+    const tag=String(node.querySelector('input')?.dataset.excludeTag||'');
+    const visible=outreachTagMatchesSearch(tag,query);
     if(visible)matches++;
     node.hidden=!visible;
   });
   updateOutreachExcludedTagSummary();
 }
+function outreachTagMatchesSearch(tag,query){
+  const lowerTag=String(tag||'').toLowerCase();
+  const term=String(query||'').trim().toLowerCase();
+  if(!term||lowerTag.includes(term))return true;
+  const parts=term.match(/\d{2,4}年|[a-z0-9]+|[\u4e00-\u9fa5]{2,}/g)||[];
+  return parts.length>1&&parts.every(part=>lowerTag.includes(part));
+}
 function countOutreachExcludedTagMatches(){
   const query=String(state.outreachExcludeTagSearch||'').trim().toLowerCase();
   const tags=$$('#outreach-exclude-options input[data-exclude-tag]').map(input=>String(input.dataset.excludeTag||''));
-  if(!query)return tags.length;
-  return tags.filter(tag=>tag.toLowerCase().includes(query)).length;
+  return tags.filter(tag=>outreachTagMatchesSearch(tag,query)).length;
 }
 function setOutreachTagMode(mode){state.outreachTagMode=['contains','and','or'].includes(mode)?mode:'contains';state.outreachContactPage=1;renderOutreach()}
 function clearOutreachTagFilter(){state.outreachTagQuery='';state.outreachTagMode='contains';state.outreachExcludeTag='';state.outreachExcludeTagSearch='';state.outreachContactPage=1;renderOutreach()}
@@ -645,7 +651,7 @@ function selectAllOutreachExcludedTags(){
   if(!query)return toast('请先输入要全选的标签关键词');
   const matched=$$('#outreach-exclude-options input[data-exclude-tag]')
     .map(input=>String(input.dataset.excludeTag||''))
-    .filter(tag=>tag.toLowerCase().includes(query));
+    .filter(tag=>outreachTagMatchesSearch(tag,query));
   if(!matched.length)return toast('没有找到包含该关键词的标签');
   const before=selectedOutreachExcludedTags().length;
   const next=applyOutreachExcludedTags([...selectedOutreachExcludedTags(),...matched]);
