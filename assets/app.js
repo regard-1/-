@@ -712,6 +712,7 @@ function startOutreachJobPolling(jobId,contactId=''){
   const poll=async()=>{
     if(state.page!=='outreach'){outreachJobTimer=null;return}
     try{
+      const previousCreatedCount=Number(state.outreachJob?.created_count||0);
       const job=await studioApi(`/outreach/strategies/jobs/${encodeURIComponent(jobId)}`);
       state.outreachJob=job;
       if(['completed','partial','failed'].includes(job.status)){
@@ -725,6 +726,12 @@ function startOutreachJobPolling(jobId,contactId=''){
         if(contactId)openOutreachContact(contactId);
         toast(state.outreachError||state.outreachNotice);
         return;
+      }
+      if(Number(job.created_count||0)>previousCreatedCount){
+        const data=await loadOutreachSnapshot();
+        if(state.page!=='outreach'){outreachJobTimer=null;return}
+        state.outreachData=data;
+        renderOutreachWorkspace(data);
       }
       updateOutreachJobProgress();
       outreachJobTimer=setTimeout(poll,2000);

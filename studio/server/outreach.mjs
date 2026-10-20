@@ -15,9 +15,9 @@ const textValue = (value, maximum, label) => {
 const OUTREACH_BATCH_MAX_TOKENS = 30000;
 const OUTREACH_REPLY_MAX_TOKENS = 1500;
 const OUTREACH_BATCH_CONCURRENCY = 3;
-const OUTREACH_DEFAULT_BATCH_SIZE = 10;
+const OUTREACH_DEFAULT_BATCH_SIZE = 50;
 const OUTREACH_TASK_LIMIT = 2000;
-const OUTREACH_BATCH_MODEL_TIMEOUT_MS = 300000;
+const OUTREACH_BATCH_MODEL_TIMEOUT_MS = 120000;
 
 function normalizeTimestamp(value) {
   const numeric = Number(value);
@@ -1083,11 +1083,9 @@ async function requestStrategyTasks(batch, base, env, fetchModel, materials, dir
       elapsed_ms: elapsedMs, error_name: error?.name || 'Unknown',
     }));
     if (retriable && batch.length > 1) {
-      const tasks = [];
-      for (const candidate of batch) {
-        tasks.push(...await requestStrategyTasks([candidate], base, env, fetchModel, materials, direction, attempt));
-      }
-      return tasks;
+      // A timed-out 50-person batch must not degrade into 50 sequential timeouts.
+      // Keep the job responsive and let the operator retry only the failed audience.
+      fail(502, '触达策略生成超时或连接异常，请稍后重试', 'MODEL_UNAVAILABLE');
     }
     fail(502, '触达策略生成超时或连接异常，请稍后重试', 'MODEL_UNAVAILABLE');
   }
@@ -1128,6 +1126,29 @@ async function generateBatchTasks(batch, base, env, fetchModel, materials, direc
     }
     return tasks;
   }
+}
+
+async function persistStrategyTasks(store, user, planDay, tasks, candidateMap) {
+  const created = [];
+  for (const task of tasks) {
+    const id = crypto.randomUUID();
+    const candidate = candidateMap.get(task.contact_id);
+    const snapshot = JSON.stringify({
+      salutation: candidate?.confirmed_salutation || candidate?.salutation,
+      confirmed_salutation: candidate?.confirmed_salutation, owner_name: candidate?.owner_name,
+      audience: candidate?.audience, purchased_products: candidate?.purchased_products,
+      interests: candidate?.interests, concerns: candidate?.concerns,
+      contraindications: candidate?.contraindications, notes: candidate?.notes,
+      tags: candidate?.tags, remark: candidate?.remark, profile: candidate?.profile || {},
+    }).slice(0, 8000);
+    await store.query(`INSERT INTO studio_outreach_tasks(id,contact_id,local_customer_id,audience,priority,reason,
+      recommended_message,next_action,stop_rule,status,created_by,created_at,plan_day,strategy_type,profile_snapshot,profile_updates)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, task.contact_id, task.local_customer_id, task.audience,
+      task.priority, task.reason, task.recommended_message, task.next_action, task.stop_rule, 'draft', user.id, Date.now(),
+      planDay, task.strategy_type, snapshot, task.profile_updates).run();
+    created.push({ id, ...task, status: 'draft', created_at: Date.now() });
+  }
+  return created;
 }
 
 export async function generateStrategies(store, user, body, env, dependencies = {}) {
@@ -1207,6 +1228,7 @@ export async function generateStrategies(store, user, body, env, dependencies = 
   const batchSize = Math.max(1, Math.min(50, Number(env.STUDIO_OUTREACH_BATCH_SIZE) || OUTREACH_DEFAULT_BATCH_SIZE));
   const batchConcurrency = Math.max(1, Math.min(5,
     Number(env.STUDIO_OUTREACH_BATCH_CONCURRENCY) || OUTREACH_BATCH_CONCURRENCY));
+  const candidateMap = new Map(limitedCandidates.map(c => [c.id, c]));
   const batches = [];
   for (let index = 0; index < limitedCandidates.length; index += batchSize) batches.push(limitedCandidates.slice(index, index + batchSize));
   await dependencies.onPlan?.({
@@ -1226,8 +1248,28 @@ export async function generateStrategies(store, user, body, env, dependencies = 
       const settled = await Promise.allSettled([
         generateBatchTasks(batch, base, env, fetchModel, materials, direction),
       ]);
-      batchResults[index] = { batch, result: settled[0] };
-      progressQueue = progressQueue.then(() => dependencies.onWave?.(batchResults.filter(Boolean)));
+      const entry = { batch, result: { status: 'pending', value: [] } };
+      batchResults[index] = entry;
+      progressQueue = progressQueue.then(async () => {
+        if (settled[0].status === 'fulfilled') {
+          try {
+            entry.result = {
+              status: 'fulfilled',
+              value: await persistStrategyTasks(store, user, planDay, settled[0].value, candidateMap),
+            };
+          } catch (error) {
+            entry.result = { status: 'rejected', reason: error };
+          }
+        } else {
+          entry.result = settled[0];
+        }
+        await dependencies.onWave?.(batchResults.filter(item => item?.result && item.result.status !== 'pending'));
+      }).catch(error => {
+        console.warn(JSON.stringify({
+          event: 'outreach_job_progress_failed', error_name: error?.name || 'Unknown',
+          error_message: maskText(error?.message || '').slice(0, 300),
+        }));
+      });
     }
   };
   await Promise.all(Array.from({ length: Math.min(batchConcurrency, batches.length) }, runBatchWorker));
@@ -1237,28 +1279,9 @@ export async function generateStrategies(store, user, body, env, dependencies = 
     throw failures[0];
   }
   const created = [];
-  const candidateMap = new Map(limitedCandidates.map(c => [c.id, c]));
   for (const { result } of batchResults) {
     if (result.status !== 'fulfilled') continue;
-    const now = Date.now();
-    for (const task of result.value) {
-      const id = crypto.randomUUID();
-      const candidate = candidateMap.get(task.contact_id);
-      const snapshot = JSON.stringify({
-        salutation: candidate?.confirmed_salutation || candidate?.salutation,
-        confirmed_salutation: candidate?.confirmed_salutation, owner_name: candidate?.owner_name,
-        audience: candidate?.audience, purchased_products: candidate?.purchased_products,
-        interests: candidate?.interests, concerns: candidate?.concerns,
-        contraindications: candidate?.contraindications, notes: candidate?.notes,
-        tags: candidate?.tags, remark: candidate?.remark, profile: candidate?.profile || {},
-      }).slice(0, 8000);
-      await store.query(`INSERT INTO studio_outreach_tasks(id,contact_id,local_customer_id,audience,priority,reason,
-        recommended_message,next_action,stop_rule,status,created_by,created_at,plan_day,strategy_type,profile_snapshot,profile_updates)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, task.contact_id, task.local_customer_id, task.audience,
-        task.priority, task.reason, task.recommended_message, task.next_action, task.stop_rule, 'draft', user.id, now,
-        planDay, task.strategy_type, snapshot, task.profile_updates).run();
-      created.push({ id, ...task, status: 'draft', created_at: now });
-    }
+    created.push(...result.value);
   }
   const remainingCount = Math.max(0, candidates.length - limitedCandidates.length);
   const failedCount = batchResults.reduce((total, item) =>

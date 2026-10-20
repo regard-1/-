@@ -769,7 +769,7 @@ test('full strategy generation parses wrapped JSON and retries malformed batches
   assert.equal(limited.data.remaining_count, 0);
 });
 
-test('connection timeouts in a batch fall back to single-customer requests', async t => {
+test('connection timeouts fail a batch without sequential single-customer retries', async t => {
   let modelCalls = 0;
   const h = await harness(t, {
     fetchJuzi: async () => listCustomersResponse(),
@@ -790,10 +790,10 @@ test('connection timeouts in a batch fall back to single-customer requests', asy
     VALUES('timeout-contact-2','timeout-im-2','李女士','6789',2,'bot-1',1,NULL,'unmatched',?,'日常营养','关注免疫力')`).run(Date.now());
 
   const result = await h.call('/api/studio/outreach/strategies', 'POST', {}, admin);
-  assert.equal(result.status, 200);
-  assert.equal(result.data.created_count, 2);
-  assert.equal(modelCalls, 3);
-  assert.ok(result.data.tasks.every(task => task.recommended_message));
+  assert.equal(result.status, 502);
+  assert.equal(result.error?.code, 'MODEL_UNAVAILABLE');
+  assert.equal(modelCalls, 1);
+  assert.equal(h.db.sqlite.prepare('SELECT COUNT(*) AS n FROM studio_outreach_tasks').get().n, 0);
 });
 
 test('fifty outreach strategies run batches concurrently and keep partial results', async t => {
@@ -842,13 +842,15 @@ test('fifty outreach strategies run batches concurrently and keep partial result
 });
 
 test('outreach strategy jobs return immediately and persist completed tasks', async t => {
-  let releaseModel;
-  const modelGate = new Promise(resolve => { releaseModel = resolve; });
+  let releaseFirstBatch;
+  let releaseSecondBatch;
+  const firstBatchGate = new Promise(resolve => { releaseFirstBatch = resolve; });
+  const secondBatchGate = new Promise(resolve => { releaseSecondBatch = resolve; });
   const h = await harness(t, {
     fetchJuzi: async () => listCustomersResponse(),
     fetchModel: async (_url, options) => {
-      await modelGate;
       const candidates = JSON.parse(JSON.parse(options.body).messages.at(-1).content).candidates;
+      await (candidates[0].id === 'job-contact-1' ? firstBatchGate : secondBatchGate);
       return jsonResponse({
         choices: [{ message: { content: JSON.stringify({ tasks: candidates.map(candidate => ({
           contact_id: candidate.id,
@@ -873,11 +875,20 @@ test('outreach strategy jobs return immediately and persist completed tasks', as
   assert.equal(created.status, 202);
   assert.ok(created.data.job_id);
   assert.ok(['pending', 'running'].includes(created.data.status));
-  assert.equal(h.db.sqlite.prepare("SELECT COUNT(*) AS n FROM studio_outreach_tasks WHERE contact_id LIKE 'job-contact-%'").get().n, 0);
+  assert.equal(h.db.sqlite.prepare('SELECT COUNT(*) AS n FROM studio_outreach_tasks').get().n, 0);
 
-  releaseModel();
+  releaseFirstBatch();
   let job = created.data;
-  for (let attempt = 0; attempt < 30 && ['pending', 'running'].includes(job.status); attempt++) {
+  for (let attempt = 0; attempt < 50 && ['pending', 'running'].includes(job.status) && Number(job.created_count || 0) < 1; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+    job = (await h.call(`/api/studio/outreach/strategies/jobs/${created.data.job_id}`, 'GET', undefined, admin)).data;
+  }
+  assert.equal(job.status, 'running');
+  assert.equal(job.created_count, 1);
+  assert.equal(h.db.sqlite.prepare('SELECT COUNT(*) AS n FROM studio_outreach_tasks').get().n, 1);
+
+  releaseSecondBatch();
+  for (let attempt = 0; attempt < 50 && ['pending', 'running'].includes(job.status); attempt++) {
     await new Promise(resolve => setTimeout(resolve, 10));
     job = (await h.call(`/api/studio/outreach/strategies/jobs/${created.data.job_id}`, 'GET', undefined, admin)).data;
   }
@@ -1487,15 +1498,17 @@ test('migrations and production configuration keep the token server-side', () =>
   const compose = readFileSync(new URL('../docker-compose.prod.yml', import.meta.url), 'utf8');
   assert.match(compose, /WECOM_API_TOKEN:\s*\$\{WECOM_API_TOKEN\}/);
   assert.match(compose, /STUDIO_LLM_BASE_URL:\s*\$\{STUDIO_LLM_BASE_URL:-https:\/\/dashscope\.aliyuncs\.com\/compatible-mode\/v1\}/);
-  assert.match(compose, /STUDIO_OUTREACH_BATCH_SIZE:\s*\$\{STUDIO_OUTREACH_BATCH_SIZE:-10\}/);
+  assert.match(compose, /STUDIO_OUTREACH_BATCH_SIZE:\s*\$\{STUDIO_OUTREACH_BATCH_SIZE:-50\}/);
   assert.match(compose, /STUDIO_OUTREACH_BATCH_CONCURRENCY:\s*\$\{STUDIO_OUTREACH_BATCH_CONCURRENCY:-5\}/);
-  assert.match(compose, /STUDIO_OUTREACH_MODEL_TIMEOUT_MS:\s*\$\{STUDIO_OUTREACH_MODEL_TIMEOUT_MS:-300000\}/);
+  assert.match(compose, /STUDIO_OUTREACH_MODEL_TIMEOUT_MS:\s*\$\{STUDIO_OUTREACH_MODEL_TIMEOUT_MS:-120000\}/);
   const worker = readFileSync(new URL('../studio/server/worker.mjs', import.meta.url), 'utf8');
   assert.match(worker, /outreach-history-sync[^;]+1,\s*30/s);
   const prodServer = readFileSync(new URL('../server-prod.mjs', import.meta.url), 'utf8');
   assert.match(prodServer, /STUDIO_OUTREACH_MODEL_TIMEOUT_MS:\s*process\.env\.STUDIO_OUTREACH_MODEL_TIMEOUT_MS/);
   const outreach = readFileSync(new URL('../studio/server/outreach.mjs', import.meta.url), 'utf8');
   assert.match(outreach, /OUTREACH_TASK_LIMIT = 2000/);
+  assert.match(outreach, /OUTREACH_DEFAULT_BATCH_SIZE = 50/);
+  assert.match(outreach, /OUTREACH_BATCH_MODEL_TIMEOUT_MS = 120000/);
   assert.match(outreach, /Math\.min\(requestedLimit, OUTREACH_TASK_LIMIT\)/);
   const client = readFileSync(new URL('../assets/app.js', import.meta.url), 'utf8');
   assert.match(client, /limit:2000/);
