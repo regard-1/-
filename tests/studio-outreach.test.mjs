@@ -285,6 +285,12 @@ test('tag filters derive initial profiles and generate only matched audiences', 
   assert.equal(excluded.data.contact_pagination.total, 1);
   assert.ok(excluded.data.contacts.every(contact => !contact.tags.includes('复购')));
 
+  const allWithExclusion = await h.call('/api/studio/outreach?tag=全量&exclude_tag=复购', 'GET', undefined, admin);
+  assert.equal(allWithExclusion.status, 200);
+  assert.equal(allWithExclusion.data.contact_pagination.total, 11);
+  assert.ok(allWithExclusion.data.contacts.every(contact => !contact.tags.includes('复购')));
+  assert.ok(allWithExclusion.data.tag_summary.related.some(item => item.name === '普通客户'));
+
   const generated = await h.call('/api/studio/outreach/strategies', 'POST', { tag: 'NMN', limit: 20, direction: '  复购提醒\n' }, admin);
   assert.equal(generated.status, 200);
   assert.equal(generated.data.created_count, 2);
@@ -294,6 +300,18 @@ test('tag filters derive initial profiles and generate only matched audiences', 
   assert.ok(requestedCandidates.every(candidate => /nmn/i.test(candidate.tags)));
   assert.ok(requestedCandidates.some(candidate => candidate.id === 'tag-contact-2'));
   assert.ok(!requestedCandidates.some(candidate => candidate.id === 'tag-contact-3'));
+
+  requestedCandidates.length = 0;
+  const allGenerated = await h.call('/api/studio/outreach/strategies', 'POST', {
+    tag: '全量', exclude_tag: '复购', limit: 20,
+  }, admin);
+  assert.equal(allGenerated.status, 200);
+  assert.equal(allGenerated.data.created_count, 10);
+  assert.ok(requestedCandidates.length >= 10);
+  assert.ok(requestedCandidates.some(candidate => candidate.id === 'tag-contact-3'));
+  assert.ok(requestedCandidates.some(candidate => candidate.id.startsWith('tag-page-')));
+  assert.ok(!requestedCandidates.some(candidate => candidate.id === 'tag-contact-2'));
+  assert.ok(requestedCandidates.every(candidate => !String(candidate.tags || '').includes('复购')));
 });
 
 test('account filters summarize customers and generate only that account', async t => {

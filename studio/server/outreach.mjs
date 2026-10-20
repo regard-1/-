@@ -213,12 +213,15 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
   for (const contact of allContacts) {
     for (const tag of contactTags(contact)) tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
   }
+  const sortedTags = [...tagCounts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh-Hans-CN'));
   const tagSummary = {
     distinct_tags: tagCounts.size,
-    top: [...tagCounts.entries()].map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh-Hans-CN')).slice(0, 40),
-    related: [...tagCounts.entries()].filter(([name]) => tagFilter.some(term => name.toLowerCase().includes(term.toLowerCase())))
-      .sort((a, b) => b[1] - a[1]).slice(0, 20).map(([name, count]) => ({ name, count })),
+    top: sortedTags.slice(0, 40).map(([name, count]) => ({ name, count })),
+    related: (isAllTagFilter(tagFilter)
+      ? sortedTags.slice(0, 20)
+      : sortedTags.filter(([name]) => tagFilter.some(term => name.toLowerCase().includes(term.toLowerCase()))).slice(0, 20))
+      .map(([name, count]) => ({ name, count })),
   };
   return { connected: juziConfigured(env), configured: juziConfigured(env), model_configured: !!(env.STUDIO_LLM_API_KEY && env.STUDIO_LLM_BASE_URL), plan_day: day,
     bots, contacts: pageContacts, contact_pagination: {
@@ -255,10 +258,17 @@ function parseTagInput(value) {
   return maskText(String(value || '').slice(0, 200)).split(/[,，、;；\s]+/).map(value => value.trim()).filter(Boolean).slice(0, 10);
 }
 
+function isAllTagFilter(required) {
+  if (required.length !== 1) return false;
+  const value = required[0].toLowerCase();
+  return value === '全量' || value === '全部' || value === 'all';
+}
+
 function matchTags(tags, required, mode, excluded = []) {
   if (!required.length && !excluded.length) return true;
   const lowerTags = tags.map(tag => tag.toLowerCase());
   if (excluded.some(term => lowerTags.some(tag => tag.includes(term.toLowerCase())))) return false;
+  if (isAllTagFilter(required)) return true;
   if (!required.length) return true;
   const termMatched = term => lowerTags.some(tag => tag.includes(term.toLowerCase()));
   if (mode === 'and') return required.every(termMatched);
