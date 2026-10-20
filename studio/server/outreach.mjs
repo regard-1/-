@@ -241,6 +241,7 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
   const tagSummary = {
     distinct_tags: tagCounts.size,
     top: sortedTags.slice(0, 40).map(([name, count]) => ({ name, count })),
+    tags: sortedTags.map(([name, count]) => ({ name, count })),
     related: (isAllTagFilter(tagFilter)
       ? sortedTags.slice(0, 20)
       : sortedTags.filter(([name]) => tagFilter.some(term => name.toLowerCase().includes(term.toLowerCase()))).slice(0, 20))
@@ -290,7 +291,8 @@ function isAllTagFilter(required) {
 function matchTags(tags, required, mode, excluded = []) {
   if (!required.length && !excluded.length) return true;
   const lowerTags = tags.map(tag => tag.toLowerCase());
-  if (excluded.some(term => lowerTags.some(tag => tag.includes(term.toLowerCase())))) return false;
+  const excludedSet = new Set(excluded.map(term => term.toLowerCase()));
+  if (lowerTags.some(tag => excludedSet.has(tag))) return false;
   if (isAllTagFilter(required)) return true;
   if (!required.length) return true;
   const termMatched = term => lowerTags.some(tag => tag.includes(term.toLowerCase()));

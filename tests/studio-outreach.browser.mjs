@@ -37,7 +37,7 @@ const runtime = await startServer({ db, env: {
           remarkMobiles: ['13800135678'],
           gender: 1,
           friendshipStatus: 1,
-          imInfo: { externalUserId: 'external-user-1' },
+          imInfo: { externalUserId: 'external-user-1', tags: [{ tagName: '老客' }] },
           botInfo: { imBotId: 'bot-1', name: '合成托管账号' },
         }],
         next_seq: '',
@@ -101,6 +101,11 @@ try {
   await page.waitForSelector('[data-contact]');
   assert.ok((await page.locator('.outreach-workspace').textContent()).includes('5678'));
   assert.ok(!(await page.locator('.outreach-workspace').textContent()).includes('13800135678'));
+  await page.locator('#outreach-exclude-search').fill('老客');
+  await page.locator('[data-exclude-tag="老客"]').check();
+  assert.ok((await page.locator('#outreach-exclude-summary').textContent()).includes('已选 1 个标签'));
+  await page.locator('[data-exclude-tag="老客"]').uncheck();
+  assert.ok((await page.locator('#outreach-exclude-summary').textContent()).includes('已选 0 个标签'));
   await page.locator('#outreach-strategy-direction').fill('复购提醒');
   assert.equal(await page.locator('#outreach-strategy-direction').inputValue(), '复购提醒');
 

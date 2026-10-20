@@ -257,7 +257,7 @@ test('tag filters derive initial profiles and generate only matched audiences', 
   const insert = h.db.sqlite.prepare(`INSERT INTO studio_juzi_contacts(id,im_contact_id,display_name,phone_suffix,im_bot_id,friendship_status,match_status,last_synced_at,tags,remark)
     VALUES(?,?,?,?,?,0,'unmatched',?,?,'')`);
   insert.run('tag-contact-2', 'tag-im-2', '张先生', '2345', 'bot-1', Date.now(), 'NMN18000、复购');
-  insert.run('tag-contact-3', 'tag-im-3', '徐女士', '6789', 'bot-1', Date.now(), '日常营养、免疫力');
+  insert.run('tag-contact-3', 'tag-im-3', '徐女士', '6789', 'bot-1', Date.now(), '日常营养、免疫力、复购用户');
   for (let index = 0; index < 9; index++) {
     insert.run(`tag-page-${index}`, `tag-page-im-${index}`, `分页客户${index}`, String(1000 + index).slice(-4), 'bot-1', Date.now(), '普通客户');
   }
@@ -288,7 +288,8 @@ test('tag filters derive initial profiles and generate only matched audiences', 
   const allWithExclusion = await h.call('/api/studio/outreach?tag=全量&exclude_tag=复购', 'GET', undefined, admin);
   assert.equal(allWithExclusion.status, 200);
   assert.equal(allWithExclusion.data.contact_pagination.total, 11);
-  assert.ok(allWithExclusion.data.contacts.every(contact => !contact.tags.includes('复购')));
+  assert.ok(allWithExclusion.data.tag_summary.tags.some(item => item.name === '复购用户'));
+  assert.ok(allWithExclusion.data.contacts.every(contact => !String(contact.tags || '').split('、').includes('复购')));
   assert.ok(allWithExclusion.data.tag_summary.related.some(item => item.name === '普通客户'));
 
   const generated = await h.call('/api/studio/outreach/strategies', 'POST', { tag: 'NMN', limit: 20, direction: '  复购提醒\n' }, admin);
@@ -311,7 +312,7 @@ test('tag filters derive initial profiles and generate only matched audiences', 
   assert.ok(requestedCandidates.some(candidate => candidate.id === 'tag-contact-3'));
   assert.ok(requestedCandidates.some(candidate => candidate.id.startsWith('tag-page-')));
   assert.ok(!requestedCandidates.some(candidate => candidate.id === 'tag-contact-2'));
-  assert.ok(requestedCandidates.every(candidate => !String(candidate.tags || '').includes('复购')));
+  assert.ok(requestedCandidates.every(candidate => !String(candidate.tags || '').split('、').includes('复购')));
 });
 
 test('account filters summarize customers and generate only that account', async t => {

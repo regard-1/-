@@ -196,6 +196,9 @@ async function request(url,options){const response=await fetch(url,options);retu
   assert.match(appSource,/function loadOutreachSnapshot\(\)/);
   assert.match(appSource,/task_page:state\.outreachTaskPage/);
   assert.match(appSource,/id="outreach-task-query"/);
+  assert.match(appSource,/id="outreach-exclude-search"/);
+  assert.match(appSource,/data-exclude-tag=/);
+  assert.match(appSource,/按完整标签精确排除/);
   assert.match(appSource,/function submitOutreachTaskSearch\(/);
   assert.match(appSource,/function changeOutreachTaskPage\(/);
   assert.match(appSource,/<details class="outreach-panel outreach-archive"><summary><span>画像更新建议<\/span>/);
