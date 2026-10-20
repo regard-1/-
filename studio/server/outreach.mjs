@@ -279,7 +279,7 @@ function contactTags(contact) {
 }
 
 function parseTagInput(value) {
-  return maskText(String(value || '').slice(0, 200)).split(/[,，、;；\s]+/).map(value => value.trim()).filter(Boolean).slice(0, 10);
+  return maskText(String(value || '').slice(0, 1000)).split(/[,，、;；\s]+/).map(value => value.trim()).filter(Boolean).slice(0, 100);
 }
 
 function isAllTagFilter(required) {

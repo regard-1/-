@@ -258,6 +258,7 @@ test('tag filters derive initial profiles and generate only matched audiences', 
     VALUES(?,?,?,?,?,0,'unmatched',?,?,'')`);
   insert.run('tag-contact-2', 'tag-im-2', '张先生', '2345', 'bot-1', Date.now(), 'NMN18000、复购');
   insert.run('tag-contact-3', 'tag-im-3', '徐女士', '6789', 'bot-1', Date.now(), '日常营养、免疫力、复购用户');
+  insert.run('tag-batch', 'tag-batch-im', '批量标签客户', '3456', 'bot-1', Date.now(), Array.from({ length: 12 }, (_, index) => `批量标签${index}`).join('、'));
   for (let index = 0; index < 9; index++) {
     insert.run(`tag-page-${index}`, `tag-page-im-${index}`, `分页客户${index}`, String(1000 + index).slice(-4), 'bot-1', Date.now(), '普通客户');
   }
@@ -287,10 +288,15 @@ test('tag filters derive initial profiles and generate only matched audiences', 
 
   const allWithExclusion = await h.call('/api/studio/outreach?tag=全量&exclude_tag=复购', 'GET', undefined, admin);
   assert.equal(allWithExclusion.status, 200);
-  assert.equal(allWithExclusion.data.contact_pagination.total, 11);
+  assert.equal(allWithExclusion.data.contact_pagination.total, 12);
   assert.ok(allWithExclusion.data.tag_summary.tags.some(item => item.name === '复购用户'));
   assert.ok(allWithExclusion.data.contacts.every(contact => !String(contact.tags || '').split('、').includes('复购')));
   assert.ok(allWithExclusion.data.tag_summary.related.some(item => item.name === '普通客户'));
+
+  const batchTags = Array.from({ length: 12 }, (_, index) => `批量标签${index}`).join('、');
+  const batchExcluded = await h.call(`/api/studio/outreach?tag=批量&exclude_tag=${encodeURIComponent(batchTags)}`, 'GET', undefined, admin);
+  assert.equal(batchExcluded.status, 200);
+  assert.equal(batchExcluded.data.contact_pagination.total, 0);
 
   const generated = await h.call('/api/studio/outreach/strategies', 'POST', { tag: 'NMN', limit: 20, direction: '  复购提醒\n' }, admin);
   assert.equal(generated.status, 200);
@@ -307,7 +313,7 @@ test('tag filters derive initial profiles and generate only matched audiences', 
     tag: '全量', exclude_tag: '复购', limit: 20,
   }, admin);
   assert.equal(allGenerated.status, 200);
-  assert.equal(allGenerated.data.created_count, 10);
+  assert.equal(allGenerated.data.created_count, 11);
   assert.ok(requestedCandidates.length >= 10);
   assert.ok(requestedCandidates.some(candidate => candidate.id === 'tag-contact-3'));
   assert.ok(requestedCandidates.some(candidate => candidate.id.startsWith('tag-page-')));

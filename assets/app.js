@@ -500,13 +500,17 @@ function outreachExcludeTagSelector(tagSummary){
   const selected=selectedOutreachExcludedTags();
   const selectedSet=new Set(selected.map(tag=>tag.toLowerCase()));
   return `<div class="form-label outreach-exclude-selector">排除标签（点选已有标签）
-    <input id="outreach-exclude-search" value="${esc(state.outreachExcludeTagSearch)}" maxlength="60" placeholder="搜索已有标签" oninput="setOutreachExcludeTagSearch(this.value)">
+    <div class="outreach-exclude-tools">
+      <input id="outreach-exclude-search" value="${esc(state.outreachExcludeTagSearch)}" maxlength="60" placeholder="输入 NMN 后可一键全选相关标签" oninput="setOutreachExcludeTagSearch(this.value)">
+      <button type="button" class="secondary-button" data-action="outreach-exclude-select-all" onclick="selectAllOutreachExcludedTags()">全选搜索结果</button>
+      <button type="button" class="secondary-button" data-action="outreach-exclude-clear" onclick="clearOutreachExcludedTags()">清空已选</button>
+    </div>
     <input type="hidden" id="outreach-exclude-tag" value="${esc(state.outreachExcludeTag)}">
     <div class="outreach-exclude-options" id="outreach-exclude-options" aria-label="可排除的已有标签">${tags.length?tags.map(item=>{
       const checked=selectedSet.has(String(item.name).toLowerCase());
       return `<label class="outreach-exclude-option ${checked?'selected':''}"><input type="checkbox" data-exclude-tag="${esc(item.name)}" ${checked?'checked':''}><span>${esc(item.name)}</span><small>${item.count} 人</small></label>`;
     }).join(''):'<small class="outreach-exclude-empty">暂无已同步标签，请先同步句子互动客户。</small>'}</div>
-    <small id="outreach-exclude-summary">已选 ${selected.length} 个标签 · 按完整标签精确排除</small>
+    <small id="outreach-exclude-summary">已选 ${selected.length}/${100} 个标签 · 搜索到 ${state.outreachExcludeTagSearch?countOutreachExcludedTagMatches():tags.length} 个标签</small>
   </div>`;
 }
 function outreachAccountFilterControl(bots){
@@ -581,20 +585,37 @@ function submitOutreachContactSearch(event){event.preventDefault();const input=$
 function submitOutreachTaskSearch(event){event.preventDefault();const input=$('#outreach-task-query');state.outreachTaskQuery=(input?.value||'').trim();state.outreachTaskPage=1;renderOutreach()}
 function submitOutreachTagFilter(event){event.preventDefault();state.outreachTagQuery=($('#outreach-tag-query')?.value||'').trim();state.outreachTagMode=$('#outreach-tag-mode')?.value||state.outreachTagMode;state.outreachExcludeTag=($('#outreach-exclude-tag')?.value||'').trim();state.outreachContactPage=1;renderOutreach()}
 function selectedOutreachExcludedTags(){return String(state.outreachExcludeTag||'').split(/[,，、;；\s]+/).map(item=>item.trim()).filter(Boolean)}
+function applyOutreachExcludedTags(tags){
+  const seen=new Set();
+  const next=[];
+  for(const tag of tags){
+    const value=String(tag||'').trim();
+    const key=value.toLowerCase();
+    if(!value||seen.has(key))continue;
+    seen.add(key);next.push(value);
+    if(next.length>=100)break;
+  }
+  state.outreachExcludeTag=next.join('、');
+  const input=$('#outreach-exclude-tag');
+  if(input)input.value=state.outreachExcludeTag;
+  const selectedSet=new Set(next.map(tag=>tag.toLowerCase()));
+  $$('#outreach-exclude-options input[data-exclude-tag]').forEach(input=>{
+    input.checked=selectedSet.has(input.dataset.excludeTag.toLowerCase());
+    input.closest('.outreach-exclude-option')?.classList.toggle('selected',input.checked);
+  });
+  updateOutreachExcludedTagSummary(next.length);
+  return next;
+}
 function setOutreachExcludedTag(tag,checked){
   const value=String(tag||'').trim();
   if(!value)return;
   const terms=selectedOutreachExcludedTags();
   const exists=terms.some(item=>item.toLowerCase()===value.toLowerCase());
-  const next=checked?(exists?terms:[...terms,value].slice(0,30)):terms.filter(item=>item.toLowerCase()!==value.toLowerCase());
-  state.outreachExcludeTag=next.join('、');
-  const input=$('#outreach-exclude-tag');
-  if(input)input.value=state.outreachExcludeTag;
-  updateOutreachExcludedTagSummary(next.length);
+  applyOutreachExcludedTags(checked?(exists?terms:[...terms,value]):terms.filter(item=>item.toLowerCase()!==value.toLowerCase()));
 }
 function updateOutreachExcludedTagSummary(count=selectedOutreachExcludedTags().length){
   const summary=$('#outreach-exclude-summary');
-  if(summary)summary.textContent=`已选 ${count} 个标签 · 按完整标签精确排除`;
+  if(summary)summary.textContent=`已选 ${count}/100 个标签 · 搜索到 ${countOutreachExcludedTagMatches()} 个标签`;
 }
 function setOutreachExcludeTagSearch(value){
   state.outreachExcludeTagSearch=String(value||'').trim().slice(0,60);
@@ -602,14 +623,38 @@ function setOutreachExcludeTagSearch(value){
 }
 function filterOutreachExcludeTags(){
   const query=String(state.outreachExcludeTagSearch||'').toLowerCase();
+  let matches=0;
   $$('#outreach-exclude-options .outreach-exclude-option').forEach(node=>{
-    const checked=!!node.querySelector('input')?.checked;
-    const text=node.textContent.toLowerCase();
-    node.hidden=!(checked||!query||text.includes(query));
+    const tag=String(node.querySelector('input')?.dataset.excludeTag||'').toLowerCase();
+    const visible=!query||tag.includes(query);
+    if(visible)matches++;
+    node.hidden=!visible;
   });
+  updateOutreachExcludedTagSummary();
+}
+function countOutreachExcludedTagMatches(){
+  const query=String(state.outreachExcludeTagSearch||'').trim().toLowerCase();
+  const tags=$$('#outreach-exclude-options input[data-exclude-tag]').map(input=>String(input.dataset.excludeTag||''));
+  if(!query)return tags.length;
+  return tags.filter(tag=>tag.toLowerCase().includes(query)).length;
 }
 function setOutreachTagMode(mode){state.outreachTagMode=['contains','and','or'].includes(mode)?mode:'contains';state.outreachContactPage=1;renderOutreach()}
 function clearOutreachTagFilter(){state.outreachTagQuery='';state.outreachTagMode='contains';state.outreachExcludeTag='';state.outreachExcludeTagSearch='';state.outreachContactPage=1;renderOutreach()}
+function selectAllOutreachExcludedTags(){
+  const query=String(state.outreachExcludeTagSearch||'').trim().toLowerCase();
+  if(!query)return toast('请先输入要全选的标签关键词');
+  const matched=$$('#outreach-exclude-options input[data-exclude-tag]')
+    .map(input=>String(input.dataset.excludeTag||''))
+    .filter(tag=>tag.toLowerCase().includes(query));
+  if(!matched.length)return toast('没有找到包含该关键词的标签');
+  const before=selectedOutreachExcludedTags().length;
+  const next=applyOutreachExcludedTags([...selectedOutreachExcludedTags(),...matched]);
+  toast(next.length>before?`已全选 ${next.length-before} 个包含“${state.outreachExcludeTagSearch}”的标签`:'相关标签已全部选中');
+}
+function clearOutreachExcludedTags(){
+  applyOutreachExcludedTags([]);
+  toast('已清空排除标签');
+}
 function normalizeOutreachStrategyDirection(direction){const value=String(direction||'').replace(/[\r\n\t]+/g,' ').replace(/\s+/g,' ').trim().slice(0,40);return value&&value!=='AI自动推荐'?value:'auto'}
 function setOutreachStrategyDirection(direction){state.outreachStrategyDirection=normalizeOutreachStrategyDirection(direction)}
 function isOutreachAllTagQuery(value){const term=String(value||'').trim().toLowerCase();return term==='全量'||term==='全部'||term==='all'}
@@ -617,11 +662,9 @@ function applyOutreachRelatedTag(tag){if(!tag)return;state.outreachTagQuery=deco
 function addOutreachExcludedTag(tag){
   const value=decodeURIComponent(String(tag||'')).trim();
   if(!value)return;
-  const terms=String(state.outreachExcludeTag||'').split(/[,，、;；\s]+/).map(item=>item.trim()).filter(Boolean);
+  const terms=selectedOutreachExcludedTags();
   if(terms.some(item=>item.toLowerCase()===value.toLowerCase()))return toast('该标签已在排除列表中');
-  state.outreachExcludeTag=[...terms,value].slice(0,30).join('、');
-  const input=$('#outreach-exclude-tag');
-  if(input)input.value=state.outreachExcludeTag;
+  applyOutreachExcludedTags([...terms,value]);
   state.outreachContactPage=1;
   renderOutreach();
 }
@@ -1081,6 +1124,6 @@ async function copyEditedScript(){try{await navigator.clipboard.writeText($('#sc
 
 async function renderGovernance(){setHeader('合规与权限','合规与权限');const data=await api('/api/v1/private/governance');$('#main-content').innerHTML=`<section class="permission-banner"><div><span>当前角色</span><h3>${esc(data.role)}</h3><p>权限围绕本人负责用户的触达执行配置。</p></div><strong>内部信息仅限授权人员使用</strong></section><div class="permission-grid"><article class="permission-card allowed"><h3>允许操作</h3><ul>${data.allowed.map(x=>`<li>✓ ${esc(x)}</li>`).join('')}</ul></article><article class="permission-card blocked"><h3>禁止操作</h3><ul>${data.blocked.map(x=>`<li>× ${esc(x)}</li>`).join('')}</ul></article></div><section class="panel"><div class="panel-title"><h4>最近操作记录</h4><span>演示审计日志</span></div>${data.audit.map(x=>`<div class="audit-row"><time>${esc(x.time)}</time><strong>${esc(x.action)}</strong><span>${esc(x.object)}</span><b>${esc(x.result)}</b></div>`).join('')}</section>`}
 
-Object.assign(window,{navigate,openSegment,openAudience,searchAudience,selectOwner,changeAudiencePage,openCustomerForm,saveCustomer,openImportForm,renderImportPreview,loadImportFile,saveCustomerImport,openCustomer,closeDrawer,refreshProfile,filterTasks,openTaskDetail,refreshTouchOptimization,completeTask,syncDashboardAssetsFromJuzi,syncOutreachContacts,syncOutreachHistory,refreshOutreachCache,refreshOutreachStrategies,generateOutreachTagStrategies,generateOutreachStrategyForContact,openOutreachContact,bindOutreachContact,assignOutreachBot,queueOutreachTask,deleteOutreachTask,clearTodayOutreachStrategies,confirmOutreachSend,resetOutreachTemplateForm,editOutreachTemplate,saveOutreachTemplate,deleteOutreachTemplate,generateOutreachTemplateTasks,startOutreachBatchSend,sendNextOutreachBatchTask,cancelOutreachBatchSend,toggleOutreachReplyStatus,saveOutreachSalutation,updateOutreachTaskMessage,generateOutreachReply,copyScript,openScript,copyEditedScript,submitOutreachContactSearch,submitOutreachTaskSearch,submitOutreachTagFilter,clearOutreachTagFilter,setOutreachTagMode,setOutreachStrategyDirection,applyOutreachRelatedTag,addOutreachExcludedTag,setOutreachContactReply,setOutreachTaskStatus,changeOutreachContactPage,changeOutreachTaskPage});
+Object.assign(window,{navigate,openSegment,openAudience,searchAudience,selectOwner,changeAudiencePage,openCustomerForm,saveCustomer,openImportForm,renderImportPreview,loadImportFile,saveCustomerImport,openCustomer,closeDrawer,refreshProfile,filterTasks,openTaskDetail,refreshTouchOptimization,completeTask,syncDashboardAssetsFromJuzi,syncOutreachContacts,syncOutreachHistory,refreshOutreachCache,refreshOutreachStrategies,generateOutreachTagStrategies,generateOutreachStrategyForContact,openOutreachContact,bindOutreachContact,assignOutreachBot,queueOutreachTask,deleteOutreachTask,clearTodayOutreachStrategies,confirmOutreachSend,resetOutreachTemplateForm,editOutreachTemplate,saveOutreachTemplate,deleteOutreachTemplate,generateOutreachTemplateTasks,startOutreachBatchSend,sendNextOutreachBatchTask,cancelOutreachBatchSend,toggleOutreachReplyStatus,saveOutreachSalutation,updateOutreachTaskMessage,generateOutreachReply,copyScript,openScript,copyEditedScript,submitOutreachContactSearch,submitOutreachTaskSearch,submitOutreachTagFilter,clearOutreachTagFilter,setOutreachTagMode,setOutreachStrategyDirection,applyOutreachRelatedTag,addOutreachExcludedTag,selectAllOutreachExcludedTags,clearOutreachExcludedTags,setOutreachContactReply,setOutreachTaskStatus,changeOutreachContactPage,changeOutreachTaskPage});
 Object.assign(window,{toggleAllOutreachTasks,updateOutreachTaskSelection,queueSelectedOutreachTasks,setOutreachTaskSelectionScope,handleOutreachTaskSelectionChange});
 bootstrap();

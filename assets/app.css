@@ -351,8 +351,10 @@ button,input,select,textarea{font:inherit} button{cursor:pointer}.hidden{display
 .outreach-tag-filter-form input:focus,.outreach-tag-filter-form select:focus{border-color:#3b7cc8;box-shadow:0 0 0 3px #e0ecf8}
 .outreach-tag-filter-actions{grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap}
 .outreach-exclude-selector{display:grid;gap:7px}
+.outreach-exclude-tools{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:7px;align-items:center}
+.outreach-exclude-tools button{white-space:nowrap}
 .outreach-exclude-selector>small{color:#6c89a5;font-size:10px;font-weight:700;line-height:1.4}
-.outreach-exclude-options{display:grid;gap:7px;max-height:168px;overflow-y:auto;padding:8px;border:1px solid #d3e5f4;border-radius:12px;background:#fff}
+.outreach-exclude-options{display:grid;gap:7px;max-height:260px;overflow-y:auto;padding:8px;border:1px solid #d3e5f4;border-radius:12px;background:#fff}
 .outreach-exclude-option{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px;padding:7px 8px;border:1px solid transparent;border-radius:9px;background:#f8fbff;color:#3c5671;font-size:10px;font-weight:700;cursor:pointer}
 .outreach-exclude-option input{width:15px;height:15px;accent-color:#2b7ab8}
 .outreach-exclude-option span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
