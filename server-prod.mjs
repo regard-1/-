@@ -3,7 +3,9 @@ import { readFile, mkdir } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LocalDB } from './studio/local-db.mjs';
+import { Store } from './studio/server/store.mjs';
 import { handle } from './dist/server/index.js';
+import { markInterruptedOutreachJobs } from './studio/server/outreach.mjs';
 
 const root = fileURLToPath(new URL('./', import.meta.url));
 const client = resolve(root, 'dist/client');
@@ -51,6 +53,9 @@ if (process.env.DATABASE_URL) {
   db = new LocalDB(resolve(dataDir, 'studio.db'));
   console.log('Using local SQLite database');
 }
+const store = new Store(db);
+await markInterruptedOutreachJobs(store);
+await markInterruptedOutreachJobs(db);
 
 const server = createServer(async (req, res) => {
   try {

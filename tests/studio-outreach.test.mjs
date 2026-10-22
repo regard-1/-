@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { LocalDB } from '../studio/local-db.mjs';
 import { Store } from '../studio/server/store.mjs';
 import { handle } from '../studio/server/worker.mjs';
+import { markInterruptedOutreachJobs } from '../studio/server/outreach.mjs';
 import { passwordHash } from '../studio/server/security.mjs';
 import { chinaDay } from '../studio/shared.mjs';
 
@@ -992,6 +993,29 @@ test('outreach strategy jobs return immediately and persist completed tasks', as
   const rows = h.db.sqlite.prepare('SELECT contact_id,recommended_message FROM studio_outreach_tasks ORDER BY contact_id').all();
   assert.equal(rows.length, 2);
   assert.ok(rows.every(row => row.recommended_message.includes('最近状态还好吗')));
+});
+
+test('server startup marks interrupted outreach jobs as failed', async t => {
+  const db = new LocalDB();
+  t.after(() => db.close());
+  const insert = db.sqlite.prepare(`INSERT INTO studio_outreach_jobs
+    (id,created_by,status,request_json,direction,tag,audience,contact_id,total_count,created_count,
+     failed_count,batches_total,batches_completed,created_at,updated_at)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  insert.run('interrupted-job', 'admin', 'running', '{}', 'auto', '', '', '', 2, 1, 0, 1, 0,
+    Date.now() - 1000, Date.now() - 1000);
+  insert.run('completed-job', 'admin', 'completed', '{}', 'auto', '', '', '', 1, 1, 0, 1, 1,
+    Date.now() - 1000, Date.now() - 1000);
+
+  await markInterruptedOutreachJobs(new Store(db));
+
+  const interrupted = db.sqlite.prepare('SELECT status,error_json,finished_at FROM studio_outreach_jobs WHERE id=?').get('interrupted-job');
+  const completed = db.sqlite.prepare('SELECT status,error_json,finished_at FROM studio_outreach_jobs WHERE id=?').get('completed-job');
+  assert.equal(interrupted.status, 'failed');
+  assert.ok(interrupted.finished_at > 0);
+  assert.match(interrupted.error_json, /JOB_INTERRUPTED/);
+  assert.equal(completed.status, 'completed');
+  assert.equal(completed.finished_at, null);
 });
 
 test('outreach strategy jobs keep successful batches when another batch fails', async t => {

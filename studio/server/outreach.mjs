@@ -1429,6 +1429,13 @@ export async function outreachJobStatus(store, id) {
   return jobProgress(row);
 }
 
+export async function markInterruptedOutreachJobs(store) {
+  const now = Date.now();
+  await store.query(`UPDATE studio_outreach_jobs SET status='failed',error_json=?,updated_at=?,finished_at=?
+    WHERE status IN ('pending','running')`,
+    JSON.stringify([{ message: '任务因服务重启已中断，已生成内容已保留', code: 'JOB_INTERRUPTED' }]), now, now).run();
+}
+
 async function runOutreachJob(store, id, user, request, env, dependencies = {}) {
   let batchResults = [];
   try {
