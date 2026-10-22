@@ -55,7 +55,6 @@ if (process.env.DATABASE_URL) {
 }
 const store = new Store(db);
 await markInterruptedOutreachJobs(store);
-await markInterruptedOutreachJobs(db);
 
 const server = createServer(async (req, res) => {
   try {
