@@ -1710,6 +1710,9 @@ test('migrations and production configuration keep the token server-side', () =>
   assert.match(worker, /outreach-history-sync[^;]+1,\s*30/s);
   const prodServer = readFileSync(new URL('../server-prod.mjs', import.meta.url), 'utf8');
   assert.match(prodServer, /STUDIO_OUTREACH_MODEL_TIMEOUT_MS:\s*process\.env\.STUDIO_OUTREACH_MODEL_TIMEOUT_MS/);
+  assert.match(prodServer, /markInterruptedOutreachJobs\(store\)/);
+  const prodImage = readFileSync(new URL('../Dockerfile.prod', import.meta.url), 'utf8');
+  assert.match(prodImage, /COPY studio\/ \.\/studio\//);
   const outreach = readFileSync(new URL('../studio/server/outreach.mjs', import.meta.url), 'utf8');
   assert.match(outreach, /OUTREACH_TASK_LIMIT = 2000/);
   assert.match(outreach, /OUTREACH_DEFAULT_BATCH_SIZE = 10/);

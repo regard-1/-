@@ -14,8 +14,7 @@ RUN apk add --no-cache tzdata
 COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 COPY --from=build /app/dist/ ./dist/
-COPY studio/local-db.mjs ./studio/local-db.mjs
-COPY studio/pg-db.mjs ./studio/pg-db.mjs
+COPY studio/ ./studio/
 COPY drizzle/ ./drizzle/
 COPY server-prod.mjs ./
 RUN mkdir -p /data
