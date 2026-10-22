@@ -1,4 +1,5 @@
 const state={user:null,studioRole:null,page:'workbench',dashboardData:null,dashboardAssetPage:1,dashboardAssetQuery:'',dashboardAssetTag:'',dashboardAssetAudience:'',dashboardAssetReply:'all',dashboardAssetSyncPending:false,dashboardTaskPage:1,dashboardTaskQuery:'',dashboardTaskStatus:'all',dashboardTaskScope:'today',outreachUser:null,outreachCsrf:'',outreachData:null,outreachUsers:[],outreachPending:false,outreachAutoStarted:false,outreachModelConfigured:false,outreachError:'',outreachNotice:'',outreachJob:null,outreachJobContactId:'',outreachBatch:null,outreachContactPage:1,outreachContactQuery:'',outreachContactReply:'all',outreachTaskPage:1,outreachTaskQuery:'',outreachTaskStatus:'all',outreachTaskSelectionAll:false,outreachTagQuery:'',outreachTagMode:'contains',outreachExcludeTag:'',outreachExcludeTagSearch:'',outreachBotId:'',outreachStrategyDirection:'auto',juziSpOrigin:'',passwordChangeRequired:false,passwordChangeUsername:''};
+const OUTREACH_BATCH_SEND_TIMEOUT_MS=35000;
 let navigationVersion=0;
 let juziBlinkTimer=null,juziOriginalTitle='';
 let outreachJobTimer=null;
@@ -567,6 +568,7 @@ function outreachFallbackSalutation(contact){
 function outreachBatchControls(queuedTasks){
   if(!queuedTasks.length)return '';
   const batch=state.outreachBatch;
+  if(batch?.paused)return `<div class="outreach-batch-bar"><strong>批量发送已暂停：已发送 ${batch.sent||0}，失败 ${batch.failed||0}，剩余 ${batch.remaining?.length||0}${batch.error?` · ${esc(batch.error)}`:''}</strong><button class="primary-button" type="button" onclick="resumeOutreachBatchSend()">继续发送队列</button></div>`;
   if(batch?.active)return `<div class="outreach-batch-bar"><strong>批量发送中：已发送 ${batch.sent||0}，失败 ${batch.failed||0}，剩余 ${batch.remaining?.length||0}</strong><button class="secondary-button" type="button" onclick="cancelOutreachBatchSend()">取消剩余</button></div>`;
   return `<div class="outreach-batch-bar"><strong>待人工确认发送 ${queuedTasks.length} 条</strong><button class="primary-button" type="button" onclick="startOutreachBatchSend()">一键发送队列</button></div>`;
 }
@@ -1064,27 +1066,58 @@ async function startOutreachBatchSend(){
   const queuedTasks=state.outreachData?.queued_tasks||outreachVisibleTasks().filter(task=>task.status==='queued');
   if(!queuedTasks.length)return toast('队列暂无待发送任务');
   if(!confirm(`确认批量发送 ${queuedTasks.length} 条消息？\n\n发送内容均需人工确认，系统将逐条提交句子互动。`))return;
-  state.outreachBatch={active:true,sent:0,failed:0,remaining:[...queuedTasks.map(task=>task.id)]};
+  state.outreachBatch={active:true,paused:false,error:'',sent:0,failed:0,remaining:[...queuedTasks.map(task=>task.id)]};
   renderOutreachWorkspace(state.outreachData);
   await sendNextOutreachBatchTask();
 }
 async function sendNextOutreachBatchTask(){
   const batch=state.outreachBatch;
-  if(!batch?.active||!batch.remaining?.length)return;
-  const id=batch.remaining[0];
-  const task=outreachVisibleTasks().find(item=>item.id===id);
-  try{
-    await studioApi(`/outreach/tasks/${encodeURIComponent(id)}/send`,{method:'POST',body:'{}'});
-    batch.sent++;
-  }catch(error){
-    batch.failed++;
-    toast(error.message);
+  while(batch?.active&&!batch.paused&&batch.remaining?.length){
+    const id=batch.remaining[0];
+    let transportInterrupted=false;
+    try{
+      await studioApi(`/outreach/tasks/${encodeURIComponent(id)}/send`,{method:'POST',body:'{}',signal:AbortSignal.timeout(Number(window.__outreachBatchSendTimeoutMs)||OUTREACH_BATCH_SEND_TIMEOUT_MS)});
+      batch.sent++;
+    }catch(error){
+      if(isOutreachBatchTransportError(error)){
+        transportInterrupted=true;
+        batch.error='网络或句子互动连接中断，已暂停批量发送';
+      }else{
+        batch.failed++;
+        toast(error.message);
+      }
+    }
+    if(transportInterrupted){
+      batch.active=false;
+      batch.paused=true;
+      try{state.outreachData=await loadOutreachSnapshot()}catch{}
+      renderOutreachWorkspace(state.outreachData);
+      toast('批量发送已暂停，网络恢复后可继续发送');
+      return;
+    }
+    batch.remaining=batch.remaining.slice(1);
+    try{state.outreachData=await loadOutreachSnapshot()}catch(error){
+      batch.active=false;batch.paused=true;batch.error='服务器状态刷新中断，已暂停批量发送';
+      renderOutreachWorkspace(state.outreachData);
+      toast('批量发送已暂停，网络恢复后可继续发送');
+      return;
+    }
+    renderOutreachWorkspace(state.outreachData);
   }
-  batch.remaining=batch.remaining.slice(1);
-  state.outreachData=await loadOutreachSnapshot();
+  if(batch&&!batch.remaining?.length){batch.active=false;batch.paused=false;toast(`批量发送完成：成功 ${batch.sent}，失败 ${batch.failed}`)}
+}
+async function resumeOutreachBatchSend(){
+  const batch=state.outreachBatch;
+  if(!batch?.paused)return startOutreachBatchSend();
+  const queuedIds=new Set((state.outreachData?.queued_tasks||outreachVisibleTasks().filter(task=>task.status==='queued')).map(task=>task.id));
+  batch.remaining=batch.remaining.filter(id=>queuedIds.has(id));
+  if(!batch.remaining.length){batch.paused=false;toast(`批量发送完成：成功 ${batch.sent}，失败 ${batch.failed}`);await renderOutreach();return}
+  batch.active=true;batch.paused=false;batch.error='';
   renderOutreachWorkspace(state.outreachData);
-  if(batch.remaining.length)await sendNextOutreachBatchTask();
-  else{batch.active=false;toast(`批量发送完成：成功 ${batch.sent}，失败 ${batch.failed}`)}
+  await sendNextOutreachBatchTask();
+}
+function isOutreachBatchTransportError(error){
+  return error?.status===undefined||[502,503,504].includes(error?.status);
 }
 async function cancelOutreachBatchSend(){const batch=state.outreachBatch;if(!batch?.active)return;batch.active=false;batch.remaining=[];toast('已取消剩余批量发送');await renderOutreach()}
 async function toggleOutreachReplyStatus(id){const contact=(state.outreachData?.contacts||[]).find(item=>item.id===id);if(!contact)return;const next=contact.reply_status_override===0?!contact.replied:null;try{await studioApi(`/outreach/contacts/${encodeURIComponent(id)}/reply-status`,{method:'PUT',body:JSON.stringify(next===null?{}:{replied:next})});toast(next===null?'已恢复自动识别回复状态':next?'已标记为已回复':'已标记为未回复');await renderOutreach();openOutreachContact(id)}catch(error){toast(error.message)}}
@@ -1149,6 +1182,6 @@ async function copyEditedScript(){try{await navigator.clipboard.writeText($('#sc
 
 async function renderGovernance(){setHeader('合规与权限','合规与权限');const data=await api('/api/v1/private/governance');$('#main-content').innerHTML=`<section class="permission-banner"><div><span>当前角色</span><h3>${esc(data.role)}</h3><p>权限围绕本人负责用户的触达执行配置。</p></div><strong>内部信息仅限授权人员使用</strong></section><div class="permission-grid"><article class="permission-card allowed"><h3>允许操作</h3><ul>${data.allowed.map(x=>`<li>✓ ${esc(x)}</li>`).join('')}</ul></article><article class="permission-card blocked"><h3>禁止操作</h3><ul>${data.blocked.map(x=>`<li>× ${esc(x)}</li>`).join('')}</ul></article></div><section class="panel"><div class="panel-title"><h4>最近操作记录</h4><span>演示审计日志</span></div>${data.audit.map(x=>`<div class="audit-row"><time>${esc(x.time)}</time><strong>${esc(x.action)}</strong><span>${esc(x.object)}</span><b>${esc(x.result)}</b></div>`).join('')}</section>`}
 
-Object.assign(window,{navigate,openSegment,openAudience,searchAudience,selectOwner,changeAudiencePage,openCustomerForm,saveCustomer,openImportForm,renderImportPreview,loadImportFile,saveCustomerImport,openCustomer,closeDrawer,refreshProfile,filterTasks,openTaskDetail,refreshTouchOptimization,completeTask,syncDashboardAssetsFromJuzi,syncOutreachContacts,syncOutreachHistory,refreshOutreachCache,refreshOutreachStrategies,generateOutreachTagStrategies,generateOutreachStrategyForContact,openOutreachContact,bindOutreachContact,assignOutreachBot,queueOutreachTask,deleteOutreachTask,clearTodayOutreachStrategies,confirmOutreachSend,resetOutreachTemplateForm,editOutreachTemplate,saveOutreachTemplate,deleteOutreachTemplate,generateOutreachTemplateTasks,startOutreachBatchSend,sendNextOutreachBatchTask,cancelOutreachBatchSend,toggleOutreachReplyStatus,saveOutreachSalutation,updateOutreachTaskMessage,generateOutreachReply,copyScript,openScript,copyEditedScript,submitOutreachContactSearch,submitOutreachTaskSearch,submitOutreachTagFilter,clearOutreachTagFilter,setOutreachTagMode,setOutreachStrategyDirection,applyOutreachRelatedTag,addOutreachExcludedTag,selectAllOutreachExcludedTags,clearOutreachExcludedTags,setOutreachContactReply,setOutreachTaskStatus,changeOutreachContactPage,changeOutreachTaskPage});
+Object.assign(window,{navigate,openSegment,openAudience,searchAudience,selectOwner,changeAudiencePage,openCustomerForm,saveCustomer,openImportForm,renderImportPreview,loadImportFile,saveCustomerImport,openCustomer,closeDrawer,refreshProfile,filterTasks,openTaskDetail,refreshTouchOptimization,completeTask,syncDashboardAssetsFromJuzi,syncOutreachContacts,syncOutreachHistory,refreshOutreachCache,refreshOutreachStrategies,generateOutreachTagStrategies,generateOutreachStrategyForContact,openOutreachContact,bindOutreachContact,assignOutreachBot,queueOutreachTask,deleteOutreachTask,clearTodayOutreachStrategies,confirmOutreachSend,resetOutreachTemplateForm,editOutreachTemplate,saveOutreachTemplate,deleteOutreachTemplate,generateOutreachTemplateTasks,startOutreachBatchSend,sendNextOutreachBatchTask,resumeOutreachBatchSend,cancelOutreachBatchSend,toggleOutreachReplyStatus,saveOutreachSalutation,updateOutreachTaskMessage,generateOutreachReply,copyScript,openScript,copyEditedScript,submitOutreachContactSearch,submitOutreachTaskSearch,submitOutreachTagFilter,clearOutreachTagFilter,setOutreachTagMode,setOutreachStrategyDirection,applyOutreachRelatedTag,addOutreachExcludedTag,selectAllOutreachExcludedTags,clearOutreachExcludedTags,setOutreachContactReply,setOutreachTaskStatus,changeOutreachContactPage,changeOutreachTaskPage});
 Object.assign(window,{toggleAllOutreachTasks,updateOutreachTaskSelection,queueSelectedOutreachTasks,setOutreachTaskSelectionScope,handleOutreachTaskSelectionChange});
 bootstrap();

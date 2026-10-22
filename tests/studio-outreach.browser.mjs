@@ -191,17 +191,19 @@ try {
   assert.equal(JSON.parse(bulkUpdateRequest.postData()).message, '陈哥，先问一句：最近是精力跟不太上，还是睡眠先受影响？');
   await bulkQueue;
   await page.waitForFunction(() => document.querySelector('.outreach-queue-list')?.textContent.includes('待人工确认'));
-  await page.getByRole('button', { name: '打开对话' }).click();
-  await page.locator('.drawer [data-action="outreach-send"]').waitFor();
-  await page.locator('.drawer .outreach-task-editor').fill('陈哥，先问一句：最近主要是精力跟不太上，还是睡眠先受影响？');
+
+  await page.evaluate(() => { window.__outreachBatchSendTimeoutMs = 100; });
+  await context.route('**/api/studio/outreach/tasks/*/send', async route => {
+    await new Promise(() => {});
+  });
   page.once('dialog', dialog => dialog.accept());
-  const messageUpdate = page.waitForRequest(request => request.url().includes('/api/studio/outreach/tasks/') && request.url().endsWith('/message'));
-  const sent = page.waitForResponse(response => response.url().includes('/api/studio/outreach/tasks/') && response.url().endsWith('/send'));
-  await page.locator('.drawer [data-action="outreach-send"]').click();
-  const updateRequest = await messageUpdate;
-  assert.equal(JSON.parse(updateRequest.postData()).message, '陈哥，先问一句：最近主要是精力跟不太上，还是睡眠先受影响？');
-  await sent;
-  assert.equal(sentText, '陈哥，先问一句：最近主要是精力跟不太上，还是睡眠先受影响？');
+  await page.getByRole('button', { name: '一键发送队列' }).click();
+  await page.waitForFunction(() => document.querySelector('.outreach-batch-bar')?.textContent.includes('批量发送已暂停'));
+  assert.ok((await page.locator('.outreach-batch-bar').textContent()).includes('剩余 1'));
+  await context.unroute('**/api/studio/outreach/tasks/*/send');
+  await page.getByRole('button', { name: '继续发送队列' }).click();
+  await page.waitForFunction(() => !document.querySelector('.outreach-batch-bar') || document.querySelector('.outreach-queue-list')?.textContent.includes('队列暂无待发送任务'));
+  assert.equal(sentText, '陈哥，先问一句：最近是精力跟不太上，还是睡眠先受影响？');
   await page.waitForFunction(() => document.querySelector('.outreach-workspace')?.textContent.includes('已发送'));
   await screenshot('desktop');
 
