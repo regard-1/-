@@ -1224,6 +1224,7 @@ test('outreach strategies only receive active activity materials', async t => {
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`);
   insert.run('ended-activity', 1, '9月活动机制', 'activity', 'all', '', '9月活动已结束。', '2026-09-01', '2026-09-30', 1, 'admin', Date.now());
   insert.run('stale-knowledge', 1, '历史活动知识', 'knowledge', 'all', '', '2020年9月活动机制和赠品说明。', '', '', 1, 'admin', Date.now());
+  insert.run('current-knowledge', 1, '产品知识库', 'knowledge', 'all', '', '品牌产品知识库，2026年9月版本。产品价格和适用人群以当前资料为准。', '', '', 1, 'admin', Date.now());
   insert.run('double11-activity', 1, '双11活动机制', 'activity', 'all', '', '双11活动进行中。', '2026-10-08', '2026-11-13', 1, 'admin', Date.now());
 
   const result = await h.call('/api/studio/outreach/strategies', 'POST', { direction: '双11活动' }, admin);
@@ -1231,6 +1232,7 @@ test('outreach strategies only receive active activity materials', async t => {
   assert.ok(modelMaterials.some(material => material.title === '双11活动机制' && material.date_status === 'active'));
   assert.ok(!modelMaterials.some(material => material.title === '9月活动机制'));
   assert.ok(!modelMaterials.some(material => material.title === '历史活动知识'));
+  assert.ok(modelMaterials.some(material => material.title === '产品知识库'));
 });
 
 test('outreach strategies reject and retry stale activity dates', async t => {

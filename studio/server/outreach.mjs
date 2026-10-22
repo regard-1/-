@@ -891,19 +891,26 @@ function materialDateStatus(material, today) {
   return 'active';
 }
 
-const STALE_ACTIVITY_HINT = /活动|优惠|促销|机制|赠品|价格|到手价|满减|折扣|双11|双十一|618|大促/;
+const STALE_ACTIVITY_HINT = /活动|优惠|促销|机制|赠品|到手价|满减|折扣|双11|双十一|618|大促/;
 
 function containsStaleActivityDate(value, today) {
-  const text = String(value || '');
-  if (!text || !STALE_ACTIVITY_HINT.test(text)) return false;
+  const text = String(value || '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ');
+  if (!text) return false;
   const currentYear = Number(today.slice(0, 4));
   const currentMonth = Number(today.slice(5, 7));
-  for (const match of text.matchAll(/(?:^|[^\d])((?:19|20)\d{2})(?![\d])/g)) {
-    if (Number(match[1]) < currentYear) return true;
+
+  const staleDateNearActivity = (index, dateLength) => {
+    const window = text.slice(Math.max(0, index - 20), index + dateLength + 20);
+    return STALE_ACTIVITY_HINT.test(window);
+  };
+
+  for (const match of text.matchAll(/(?:^|[^\d])((?:19|20)\d{2})(?:年)?(?![\d])/g)) {
+    if (Number(match[1]) < currentYear && staleDateNearActivity(match.index + match[0].indexOf(match[1]), match[1].length)) return true;
   }
   for (const match of text.matchAll(/(?:^|[^\d])(\d{1,2})\s*月(?:$|[^\d])/g)) {
     const month = Number(match[1]);
-    if (month >= 1 && month < currentMonth) return true;
+    const monthIndex = match.index + match[0].indexOf(match[1]);
+    if (month >= 1 && month < currentMonth && staleDateNearActivity(monthIndex, match[0].length)) return true;
   }
   return false;
 }
