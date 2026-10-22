@@ -1249,7 +1249,7 @@ test('outreach strategies reject and retry stale activity dates', async t => {
           priority: 'high',
           reason: '首轮误用历史活动',
           recommended_message: modelCalls === 1
-            ? '陈哥，9月活动还在进行，可以先看下。'
+            ? '陈哥，上次9月份拿的产品用得怎么样？'
             : '陈哥，最近状态还好吗？有哪里想先弄清楚，我再帮您看。',
           next_action: '客户回复后先确认本次关注点',
           stop_rule: '客户明确不需要后暂停触达',

@@ -915,8 +915,21 @@ function containsStaleActivityDate(value, today) {
   return false;
 }
 
+function containsPastDateReference(value, today) {
+  const text = String(value || '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ');
+  if (!text) return false;
+  const currentYear = Number(today.slice(0, 4));
+  const currentMonth = Number(today.slice(5, 7));
+  if (/(?:^|[^\d])((?:19|20)\d{2})(?:年)?(?![\d])/.test(text) && Number(text.match(/(?:^|[^\d])((?:19|20)\d{2})(?:年)?(?![\d])/)[1]) < currentYear) return true;
+  for (const match of text.matchAll(/(?:^|[^\d])(\d{1,2})\s*月(?:$|[^\d])/g)) {
+    const month = Number(match[1]);
+    if (month >= 1 && month < currentMonth) return true;
+  }
+  return false;
+}
+
 function assertNoStaleActivityDate(message, today) {
-  if (containsStaleActivityDate(message, today)) {
+  if (containsStaleActivityDate(message, today) || containsPastDateReference(message, today)) {
     fail(502, '触达话术包含已过期活动日期，请重试', 'STALE_ACTIVITY');
   }
 }
@@ -1132,7 +1145,7 @@ async function requestStrategyTasks(batch, base, env, fetchModel, materials, dir
     enable_search: false, enable_thinking: false,
     response_format: { type: 'json_object' },
     messages: [
-      { role: 'system', content: `你是多特倍斯私域触达策略助手。为输入的每个真实句子互动客户生成一条可执行的主动开口策略，不允许遗漏或新增客户。contact_id 必须逐字使用输入 candidates 里的 id。目标优先解决客户愿意回复，再根据其可用信息选择关怀、复购通知、教育、活动、售后或边界确认，不默认推销。${directionPrompt(direction)}必须一客一策：优先使用近期聊天、句子互动标签、备注和画像；如存在本地档案，再参考称呼、归属顾问、已购产品、关注点、禁忌。档案缺失时不得编造，只能使用对话和标签中的明确信息。资料中的 today 是系统权威日期；date_status=active 的活动必须视为已经开始，不得因为月份或活动名称说未开始；not_started 或 ended 的活动资料不得引用。活动机制、价格、赠品、日期必须来自资料；资料缺失时只做开放性邀约或询问关注点。不得编造购买历史、剩余数量、价格、活动、功效保证或个体医疗建议；没有资料支持时不写具体产品事实。语气自然亲切，可沿用已确认称呼。严禁在 recommended_message、next_action、reason 或 profile_updates 中提及「包裹卡」「药盒」及其相关表述；这些词只可能是内部来源标记，不能作为客户沟通内容。${retryNote}只输出 JSON，不要 markdown 或解释文字。输出 JSON：{"tasks":[{"contact_id":"","strategy_type":"care/repurchase_notice/education/activity/service/boundary_check","priority":"high/medium/low","reason":"","recommended_message":"","next_action":"","stop_rule":"","profile_updates":{"observed_signal":"","next_focus":"","should_pause":false}}]}。` },
+      { role: 'system', content: `你是多特倍斯私域触达策略助手。为输入的每个真实句子互动客户生成一条可执行的主动开口策略，不允许遗漏或新增客户。contact_id 必须逐字使用输入 candidates 里的 id。目标优先解决客户愿意回复，再根据其可用信息选择关怀、复购通知、教育、活动、售后或边界确认，不默认推销。${directionPrompt(direction)}必须一客一策：优先使用近期聊天、句子互动标签、备注和画像；如存在本地档案，再参考称呼、归属顾问、已购产品、关注点、禁忌。档案缺失时不得编造，只能使用对话和标签中的明确信息。资料中的 today 是系统权威日期；date_status=active 的活动必须视为已经开始，不得因为月份或活动名称说未开始；not_started 或 ended 的活动资料不得引用。活动机制、价格、赠品、日期必须来自资料；资料缺失时只做开放性邀约或询问关注点。不得编造购买历史、剩余数量、价格、活动、功效保证或个体医疗建议；没有资料支持时不写具体产品事实。recommended_message 不得出现过去月份、年份或购买时间，避免显得生疏。语气自然亲切，可沿用已确认称呼。严禁在 recommended_message、next_action、reason 或 profile_updates 中提及「包裹卡」「药盒」及其相关表述；这些词只可能是内部来源标记，不能作为客户沟通内容。${retryNote}只输出 JSON，不要 markdown 或解释文字。输出 JSON：{"tasks":[{"contact_id":"","strategy_type":"care/repurchase_notice/education/activity/service/boundary_check","priority":"high/medium/low","reason":"","recommended_message":"","next_action":"","stop_rule":"","profile_updates":{"observed_signal":"","next_focus":"","should_pause":false}}]}。` },
       { role: 'user', content: JSON.stringify({ today: chinaDay(), direction, candidates: batch, materials }) },
     ],
   };
