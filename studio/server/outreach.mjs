@@ -888,10 +888,34 @@ function materialDateStatus(material, today) {
   return 'active';
 }
 
+const STALE_ACTIVITY_HINT = /活动|优惠|促销|机制|赠品|价格|到手价|满减|折扣|双11|双十一|618|大促/;
+
+function containsStaleActivityDate(value, today) {
+  const text = String(value || '');
+  if (!text || !STALE_ACTIVITY_HINT.test(text)) return false;
+  const currentYear = Number(today.slice(0, 4));
+  const currentMonth = Number(today.slice(5, 7));
+  for (const match of text.matchAll(/(?:^|[^\d])((?:19|20)\d{2})(?![\d])/g)) {
+    if (Number(match[1]) < currentYear) return true;
+  }
+  for (const match of text.matchAll(/(?:^|[^\d])(\d{1,2})\s*月(?:$|[^\d])/g)) {
+    const month = Number(match[1]);
+    if (month >= 1 && month < currentMonth) return true;
+  }
+  return false;
+}
+
+function assertNoStaleActivityDate(message, today) {
+  if (containsStaleActivityDate(message, today)) {
+    fail(502, '触达话术包含已过期活动日期，请重试', 'STALE_ACTIVITY');
+  }
+}
+
 function outreachMaterialForPrompt(material, today) {
   if (!material?.active) return null;
   const dateStatus = materialDateStatus(material, today);
   if (material.kind === 'activity' && dateStatus !== 'active') return null;
+  if (containsStaleActivityDate(`${material.title || ''} ${material.content || ''}`, today)) return null;
   return {
     title: material.title,
     kind: material.kind,
@@ -1049,6 +1073,7 @@ function validateTasks(output, candidates, { partial = false } = {}) {
     }
     const message = textValue(rawMessage, 600, '触达话术');
     const confirmedMessage = applyConfirmedSalutation(message, candidate, candidate.recent_messages || []);
+    assertNoStaleActivityDate(confirmedMessage, chinaDay());
     if (/保证|一定有效|包治|替代药物|建议停药|高价值客户|内部评分/.test(message)) fail(502, '触达话术包含不安全表述，请重试', 'UNSAFE_STRATEGY');
     assertNoPackageCardWording(confirmedMessage, '触达话术不能包含包裹卡或药盒，请重试', 502);
     tasks.push({
@@ -1130,7 +1155,7 @@ async function requestStrategyTasks(batch, base, env, fetchModel, materials, dir
   try {
     tasks = validateTasks(extractJSON(modelContent(payload)), batch, { partial: true });
   } catch (error) {
-    if (attempt === 0 && batch.length === 1 && error?.code === 'MODEL_FORMAT') {
+    if (attempt === 0 && batch.length === 1 && ['MODEL_FORMAT', 'STALE_ACTIVITY'].includes(error?.code)) {
       return requestStrategyTasks(batch, base, env, fetchModel, materials, direction, 1);
     }
     throw error;
@@ -1153,7 +1178,7 @@ async function generateBatchTasks(batch, base, env, fetchModel, materials, direc
   try {
     return await requestStrategyTasks(batch, base, env, fetchModel, materials, direction);
   } catch (error) {
-    if (batch.length === 1 || error?.code !== 'MODEL_FORMAT') throw error;
+    if (batch.length === 1 || !['MODEL_FORMAT', 'STALE_ACTIVITY'].includes(error?.code)) throw error;
     const tasks = [];
     for (const contact of batch) {
       tasks.push(...await requestStrategyTasks([contact], base, env, fetchModel, materials, direction));

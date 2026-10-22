@@ -1195,12 +1195,47 @@ test('outreach strategies only receive active activity materials', async t => {
   const insert = h.db.sqlite.prepare(`INSERT INTO studio_materials(id,version,title,kind,audience,product,content,valid_from,valid_to,active,updated_by,updated_at)
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`);
   insert.run('ended-activity', 1, '9月活动机制', 'activity', 'all', '', '9月活动已结束。', '2026-09-01', '2026-09-30', 1, 'admin', Date.now());
+  insert.run('stale-knowledge', 1, '历史活动知识', 'knowledge', 'all', '', '2020年9月活动机制和赠品说明。', '', '', 1, 'admin', Date.now());
   insert.run('double11-activity', 1, '双11活动机制', 'activity', 'all', '', '双11活动进行中。', '2026-10-08', '2026-11-13', 1, 'admin', Date.now());
 
   const result = await h.call('/api/studio/outreach/strategies', 'POST', { direction: '双11活动' }, admin);
   assert.equal(result.status, 200);
   assert.ok(modelMaterials.some(material => material.title === '双11活动机制' && material.date_status === 'active'));
   assert.ok(!modelMaterials.some(material => material.title === '9月活动机制'));
+  assert.ok(!modelMaterials.some(material => material.title === '历史活动知识'));
+});
+
+test('outreach strategies reject and retry stale activity dates', async t => {
+  let modelCalls = 0;
+  const h = await harness(t, {
+    fetchJuzi: async () => listCustomersResponse(),
+    fetchModel: async (_url, options) => {
+      modelCalls++;
+      const input = JSON.parse(JSON.parse(options.body).messages.at(-1).content);
+      const candidate = input.candidates[0];
+      return jsonResponse({ choices: [{ message: { content: JSON.stringify({
+        tasks: [{
+          contact_id: candidate.id,
+          priority: 'high',
+          reason: '首轮误用历史活动',
+          recommended_message: modelCalls === 1
+            ? '陈哥，9月活动还在进行，可以先看下。'
+            : '陈哥，最近状态还好吗？有哪里想先弄清楚，我再帮您看。',
+          next_action: '客户回复后先确认本次关注点',
+          stop_rule: '客户明确不需要后暂停触达',
+        }],
+      }) } }] });
+    },
+  });
+  const admin = await h.login();
+  await h.call('/api/studio/outreach/sync', 'POST', {}, admin);
+  const snapshot = await h.call('/api/studio/outreach', 'GET', undefined, admin);
+  const contact = snapshot.data.contacts[0];
+
+  const result = await h.call('/api/studio/outreach/strategies', 'POST', { contact_id: contact.id }, admin);
+  assert.equal(result.status, 200);
+  assert.equal(modelCalls, 2);
+  assert.ok(!result.data.tasks[0].recommended_message.includes('9月活动'));
 });
 
 test('clearing today outreach strategies is admin-only and preserves sent archive', async t => {
