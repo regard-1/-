@@ -48,7 +48,7 @@ function normalizeTimestamp(value) {
   return numeric < 10000000000 ? numeric * 1000 : numeric;
 }
 
-export async function outreachSnapshot(store, env, searchParams = new URLSearchParams()) {
+export async function outreachSnapshot(store, env, searchParams = new URLSearchParams(), user = null) {
   const day = chinaDay();
   const page = Math.max(1, Number(searchParams.get('page')) || 1);
   const limit = Math.min(200, Math.max(1, Number(searchParams.get('limit')) || 10));
@@ -63,7 +63,7 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
   const tagMode = ['contains', 'and', 'or'].includes(searchParams.get('tag_mode')) ? searchParams.get('tag_mode') : 'contains';
   const excludeTags = parseTagInput(searchParams.get('exclude_tag'));
   const botFilter = String(searchParams.get('bot_id') || '').trim().slice(0, 100);
-  const [bots, contacts, tasks, messages, profileUpdates, templates, replyStats] = await Promise.all([
+  const [bots, contacts, tasks, messages, profileUpdates, templates, replyStats, runningJobRow] = await Promise.all([
     store.all(`SELECT b.*,u.display_name AS owner_name FROM studio_juzi_bots b
       LEFT JOIN studio_users u ON u.id=b.owner_user_id ORDER BY b.bot_name`),
     store.all(`SELECT c.*,l.display_name AS local_customer_name,l.audience AS local_customer_audience,
@@ -88,6 +88,8 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
       MAX(CASE WHEN direction='inbound' THEN created_at END) AS last_inbound_at,
       MAX(CASE WHEN direction='outbound' THEN created_at END) AS last_outbound_at
       FROM studio_outreach_messages GROUP BY contact_id`),
+    user ? store.all(`SELECT * FROM studio_outreach_jobs
+      WHERE created_by=? AND status IN ('pending','running') ORDER BY created_at DESC LIMIT 1`, user.id) : Promise.resolve([]),
   ]);
   const replyMap = new Map(replyStats.map(row => [row.contact_id, row]));
   for (const contact of contacts) {
@@ -248,6 +250,7 @@ export async function outreachSnapshot(store, env, searchParams = new URLSearchP
       .map(([name, count]) => ({ name, count })),
   };
   return { connected: juziConfigured(env), configured: juziConfigured(env), model_configured: !!(env.STUDIO_LLM_API_KEY && env.STUDIO_LLM_BASE_URL), plan_day: day,
+    running_job: runningJobRow[0] ? jobProgress(runningJobRow[0]) : null,
     bots, contacts: pageContacts, contact_pagination: {
       page: safePage, limit, total: filteredContacts.length, total_contacts: totalCount,
       pages: totalPages, start_index: filteredContacts.length ? start + 1 : 0,

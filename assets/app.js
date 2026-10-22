@@ -2,6 +2,7 @@ const state={user:null,studioRole:null,page:'workbench',dashboardData:null,dashb
 let navigationVersion=0;
 let juziBlinkTimer=null,juziOriginalTitle='';
 let outreachJobTimer=null;
+let outreachJobPollFailures=0;
 let outreachHistorySyncTimer=null;
 let dashboardRefreshTimer=null;
 let dashboardSalesFormDirty=false;
@@ -411,6 +412,13 @@ async function renderOutreach(){
     if(version!==navigationVersion)return;
     state.outreachData=data;
     state.outreachUsers=users.items||[];
+    const runningJob=data.running_job;
+    if(runningJob&&['pending','running'].includes(runningJob.status)&&(!state.outreachJob
+      ||['completed','partial','failed'].includes(state.outreachJob.status)
+      ||Number(runningJob.updated_at||0)>Number(state.outreachJob.updated_at||0))){
+      state.outreachJob=runningJob;
+      state.outreachJobContactId=runningJob.contact_id||'';
+    }
     startOutreachHistoryAutoSync();
     if(state.outreachJob&&['pending','running'].includes(state.outreachJob.status)&&!outreachJobTimer){
       startOutreachJobPolling(state.outreachJob.job_id,state.outreachJobContactId);
@@ -790,6 +798,7 @@ function updateOutreachJobProgress(){
 }
 async function startOutreachStrategyJob(body,{label='',contactId=''}={}){
   if(['pending','running'].includes(state.outreachJob?.status))return toast('已有策略任务在后台生成中');
+  outreachJobPollFailures=0;
   state.outreachError='';
   state.outreachNotice=`已发起${label||'触达策略'}后台生成，可继续查看其他内容。`;
   try{
@@ -808,12 +817,15 @@ async function startOutreachStrategyJob(body,{label='',contactId=''}={}){
 }
 function startOutreachJobPolling(jobId,contactId=''){
   if(outreachJobTimer)clearTimeout(outreachJobTimer);
+  outreachJobPollFailures=0;
   const poll=async()=>{
     if(state.page!=='outreach'){outreachJobTimer=null;return}
     try{
+      outreachJobPollFailures=0;
       const previousCreatedCount=Number(state.outreachJob?.created_count||0);
       const job=await studioApi(`/outreach/strategies/jobs/${encodeURIComponent(jobId)}`);
       state.outreachJob=job;
+      state.outreachNotice='';
       if(['completed','partial','failed'].includes(job.status)){
         outreachJobTimer=null;
         state.outreachJobContactId='';
@@ -836,8 +848,15 @@ function startOutreachJobPolling(jobId,contactId=''){
       outreachJobTimer=setTimeout(poll,2000);
     }catch(error){
       if(state.page!=='outreach'){outreachJobTimer=null;return}
-      outreachJobTimer=null;state.outreachError=error.message;state.outreachNotice='';
-      renderOutreachWorkspace(state.outreachData);toast(error.message);
+      const retryable=!error.status||[429,502,503,504].includes(error.status);
+      if(!retryable||outreachJobPollFailures>=5){
+        outreachJobTimer=null;state.outreachError='进度查询暂时中断，后台生成仍在继续；请稍后刷新用户触达页面恢复查看。';state.outreachNotice='';
+        renderOutreachWorkspace(state.outreachData);toast(state.outreachError);return;
+      }
+      outreachJobPollFailures++;
+      state.outreachError='';state.outreachNotice='网络暂时中断，正在自动重试进度查询…';
+      renderOutreachWorkspace(state.outreachData);
+      outreachJobTimer=setTimeout(poll,2000);
     }
   };
   outreachJobTimer=setTimeout(poll,1000);

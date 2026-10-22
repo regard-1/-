@@ -147,7 +147,7 @@ export async function api(request, env, dependencies = {}) {
   }
   if (route === '/api/studio/outreach' && method === 'GET') {
     admin(user);
-    return json(await outreachSnapshot(store, env, new URL(request.url).searchParams));
+    return json(await outreachSnapshot(store, env, new URL(request.url).searchParams, user));
   }
   if (route === '/api/studio/outreach/sync' && method === 'POST') {
     admin(user);

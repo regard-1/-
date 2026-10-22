@@ -964,6 +964,10 @@ test('outreach strategy jobs return immediately and persist completed tasks', as
   assert.ok(created.data.job_id);
   assert.ok(['pending', 'running'].includes(created.data.status));
   assert.equal(h.db.sqlite.prepare('SELECT COUNT(*) AS n FROM studio_outreach_tasks').get().n, 0);
+  const snapshot = await h.call('/api/studio/outreach', 'GET', undefined, admin);
+  assert.equal(snapshot.status, 200);
+  assert.equal(snapshot.data.running_job.job_id, created.data.job_id);
+  assert.ok(['pending', 'running'].includes(snapshot.data.running_job.status));
 
   releaseFirstBatch();
   let job = created.data;

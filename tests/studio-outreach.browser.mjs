@@ -148,11 +148,23 @@ try {
 
   await page.locator('[data-contact]').selectOption('customer-1');
   await page.waitForFunction(() => document.querySelector('[data-contact]')?.value === 'customer-1');
+  let abortedJobPoll=false;
+  await context.route('**/api/studio/outreach/strategies/jobs/*', async route => {
+    if(!abortedJobPoll){
+      abortedJobPoll=true;
+      await route.abort('failed');
+      return;
+    }
+    await route.continue();
+  });
   const generated = page.waitForResponse(response => response.url().endsWith('/api/studio/outreach/strategies/jobs'));
   const generatedRequest = page.waitForRequest(request => request.url().endsWith('/api/studio/outreach/strategies/jobs'));
   await page.getByRole('button', { name: '生成一客一策' }).click();
   assert.equal(JSON.parse((await generatedRequest).postData()).direction, '复购提醒');
   await generated;
+  await page.waitForFunction(() => document.querySelector('.outreach-notice')?.textContent.includes('正在自动重试进度查询'));
+  await page.locator('.outreach-job-progress').waitFor();
+  await context.unroute('**/api/studio/outreach/strategies/jobs/*');
   await page.locator('[data-page="workbench"]').click();
   await page.getByRole('heading', { name: '今日工作台' }).waitFor();
   await page.locator('[data-page="outreach"]').click();
