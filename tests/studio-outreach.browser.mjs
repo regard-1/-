@@ -192,6 +192,22 @@ try {
   await bulkQueue;
   await page.waitForFunction(() => document.querySelector('.outreach-queue-list')?.textContent.includes('待人工确认'));
 
+  await context.route('**/api/studio/outreach/tasks/*/send', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: false, error: { code: 'JUZI_API_ERROR', message: '托管账号当前不在线，无法发送' } }),
+    });
+  });
+  page.once('dialog', dialog => dialog.accept());
+  const upstreamError = page.waitForResponse(response => response.url().includes('/api/studio/outreach/tasks/') && response.url().endsWith('/send'));
+  await page.getByRole('button', { name: '一键发送队列' }).click();
+  assert.equal((await upstreamError).status(), 200);
+  console.log('batch after upstream error:', await page.locator('.outreach-batch-bar').textContent().catch(() => 'missing'));
+  await page.waitForFunction(() => document.querySelector('.outreach-batch-bar')?.textContent.includes('待人工确认发送 1 条'));
+  assert.ok(!(await page.locator('.outreach-batch-bar').textContent()).includes('批量发送已暂停'));
+  await context.unroute('**/api/studio/outreach/tasks/*/send');
+
   await page.evaluate(() => { window.__outreachBatchSendTimeoutMs = 100; });
   await context.route('**/api/studio/outreach/tasks/*/send', async route => {
     await new Promise(() => {});

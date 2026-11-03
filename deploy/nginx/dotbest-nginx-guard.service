@@ -1,0 +1,7 @@
+[Unit]
+Description=Restore Dotbest Ops Nginx route
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/dotbest-ops/deploy/nginx/dotbest-nginx-guard.sh

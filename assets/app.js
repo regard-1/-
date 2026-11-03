@@ -1081,7 +1081,7 @@ async function sendNextOutreachBatchTask(){
     }catch(error){
       if(isOutreachBatchTransportError(error)){
         transportInterrupted=true;
-        batch.error='网络或句子互动连接中断，已暂停批量发送';
+        batch.error=outreachBatchTransportMessage(error);
       }else{
         batch.failed++;
         toast(error.message);
@@ -1104,7 +1104,11 @@ async function sendNextOutreachBatchTask(){
     }
     renderOutreachWorkspace(state.outreachData);
   }
-  if(batch&&!batch.remaining?.length){batch.active=false;batch.paused=false;toast(`批量发送完成：成功 ${batch.sent}，失败 ${batch.failed}`)}
+  if(batch&&!batch.remaining?.length){
+    batch.active=false;batch.paused=false;
+    renderOutreachWorkspace(state.outreachData);
+    toast(`批量发送完成：成功 ${batch.sent}，失败 ${batch.failed}`);
+  }
 }
 async function resumeOutreachBatchSend(){
   const batch=state.outreachBatch;
@@ -1117,7 +1121,15 @@ async function resumeOutreachBatchSend(){
   await sendNextOutreachBatchTask();
 }
 function isOutreachBatchTransportError(error){
-  return error?.status===undefined||[502,503,504].includes(error?.status);
+  if(error?.code==='JUZI_API_ERROR')return false;
+  if(error?.status===undefined)return true;
+  return error?.status===503||error?.status===504||['JUZI_TIMEOUT','JUZI_UNAVAILABLE'].includes(error?.code);
+}
+function outreachBatchTransportMessage(error){
+  if(error?.code==='JUZI_TIMEOUT'||error?.status===504)return '发送请求超时，已暂停批量发送';
+  if(error?.code==='JUZI_UNAVAILABLE')return '句子互动连接异常，已暂停批量发送';
+  if(error?.status===503)return '中台服务暂不可用，已暂停批量发送';
+  return '网络连接中断，已暂停批量发送';
 }
 async function cancelOutreachBatchSend(){const batch=state.outreachBatch;if(!batch?.active)return;batch.active=false;batch.remaining=[];toast('已取消剩余批量发送');await renderOutreach()}
 async function toggleOutreachReplyStatus(id){const contact=(state.outreachData?.contacts||[]).find(item=>item.id===id);if(!contact)return;const next=contact.reply_status_override===0?!contact.replied:null;try{await studioApi(`/outreach/contacts/${encodeURIComponent(id)}/reply-status`,{method:'PUT',body:JSON.stringify(next===null?{}:{replied:next})});toast(next===null?'已恢复自动识别回复状态':next?'已标记为已回复':'已标记为未回复');await renderOutreach();openOutreachContact(id)}catch(error){toast(error.message)}}
